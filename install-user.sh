@@ -19,6 +19,7 @@ echo "==> building and installing binaries"
 cmake -S "$repo/vds" -B "$repo/vds/build" >/dev/null
 make -C "$repo/vds/build" -j"$(nproc)" >/dev/null
 install -m755 "$repo/vds/build/vdsd" "$repo/vds/build/vdsctl" /usr/local/bin/
+install -m755 -o root "$repo/vds-backend-switch" /usr/local/bin/vds-backend-switch
 
 echo "==> capabilities: L2CAP HID ports + HCI RSSI without root"
 setcap 'cap_net_bind_service,cap_net_raw+eip' /usr/local/bin/vdsd

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Privileged half of the DS5 Bridge backend switch, invoked via pkexec by
+# the companion app. Handles only the system-level pieces; the app manages
+# the per-user service and controller registration itself.
+set -e
+
+case "$1" in
+  kernel)
+    modprobe vds_hcd
+    systemctl enable --now vdsd.service
+    ;;
+  rootless)
+    systemctl disable --now vdsd.service 2>/dev/null || true
+    ;;
+  *)
+    echo "usage: vds-backend-switch kernel|rootless" >&2
+    exit 1
+    ;;
+esac

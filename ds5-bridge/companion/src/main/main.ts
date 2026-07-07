@@ -1116,6 +1116,10 @@ function registerIpc(service: BridgeService): void {
   ipcMain.handle('bridge:setTouchpadMouseEnabled', (_event, value: boolean) => (
     service.setTouchpadMouseEnabled(value)
   ));
+  ipcMain.handle('bridge:getBridgeBackendMode', () => service.bridgeBackendMode());
+  ipcMain.handle('bridge:setBridgeBackend', (_event, mode: 'kernel' | 'rootless') => (
+    service.setBridgeBackend(mode)
+  ));
   ipcMain.handle('bridge:setNotifyLowBattery', (_event, value: boolean) => (
     service.setNotifyLowBattery(value)
   ));

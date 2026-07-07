@@ -154,6 +154,12 @@ const api = {
   setTouchpadMouseEnabled: (value: boolean): Promise<BridgeSnapshot> => (
     ipcRenderer.invoke('bridge:setTouchpadMouseEnabled', value)
   ),
+  getBridgeBackendMode: (): Promise<'kernel' | 'rootless' | 'unknown'> => (
+    ipcRenderer.invoke('bridge:getBridgeBackendMode')
+  ),
+  setBridgeBackend: (mode: 'kernel' | 'rootless'): Promise<BridgeSnapshot> => (
+    ipcRenderer.invoke('bridge:setBridgeBackend', mode)
+  ),
   testNotification: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:testNotification'),
   testHaptics: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:testHaptics'),
   testSpeaker: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:testSpeaker'),

@@ -27,6 +27,7 @@ echo "==> userspace + systemd service"
 cmake -S "$repo/vds" -B "$repo/vds/build" -DINSTALL_SERVICE=YES >/dev/null
 make -C "$repo/vds/build" -j"$(nproc)" >/dev/null
 make -C "$repo/vds/build" install >/dev/null
+install -m755 -o root "$repo/vds-backend-switch" /usr/local/bin/vds-backend-switch
 
 echo "==> vds group for control socket access"
 groupadd -f vds

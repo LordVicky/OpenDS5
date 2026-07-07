@@ -90,6 +90,11 @@ import { CompanionDebugConfig } from './debug-config';
 import { HidDiscoveryClient } from './hid-discovery-client';
 import { SettingsStore, normalizeUiScalePercent, normalizeUiThemePreset } from './settings-store';
 import { openCompanionTransport, type CompanionTransport } from './companion-transport';
+import {
+  KERNEL_MODE_SOCKET_PATH,
+  rootlessSocketPath,
+  vdsdControlRequest
+} from './vdsd-companion-transport';
 
 const POLL_INTERVAL_MS = 500;
 const SHORTCUT_POLL_INTERVAL_MS = 50;
@@ -2909,6 +2914,68 @@ export class BridgeService extends EventEmitter {
     this.snapshot.settings = this.settingsStore.update({ notifyControllerConnection: enabled });
     this.emitSnapshot();
     return this.getSnapshot();
+  }
+
+  bridgeBackendMode(): 'kernel' | 'rootless' | 'unknown' {
+    if (existsSync(KERNEL_MODE_SOCKET_PATH) || existsSync('/run/vdsd.sock')) {
+      return 'kernel';
+    }
+    if (existsSync(rootlessSocketPath())) {
+      return 'rootless';
+    }
+    return 'unknown';
+  }
+
+  // Switches between the kernel-module system daemon and the rootless uhid
+  // user daemon. The privileged half runs through pkexec (polkit password
+  // prompt); afterwards any paired DualSense targets are re-registered with
+  // the target daemon, since each daemon keeps its own database.
+  async setBridgeBackend(mode: 'kernel' | 'rootless'): Promise<BridgeSnapshot> {
+    this.closeDevice();
+    if (mode === 'kernel') {
+      await runCommand('systemctl', ['--user', 'disable', '--now', 'vdsd.service']).catch(() => {});
+      await runCommand('pkexec', ['/usr/local/bin/vds-backend-switch', 'kernel']);
+    } else {
+      await runCommand('pkexec', ['/usr/local/bin/vds-backend-switch', 'rootless']);
+      await runCommand('systemctl', ['--user', 'enable', '--now', 'vdsd.service']);
+    }
+
+    const socketPath = mode === 'kernel' ? KERNEL_MODE_SOCKET_PATH : rootlessSocketPath();
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(socketPath)) {
+      if (Date.now() > deadline) {
+        throw new Error(`The ${mode} daemon did not come up (${socketPath} missing).`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    await this.registerPairedControllers(socketPath);
+    this.emit('toast', {
+      title: 'DS5 Bridge',
+      body: mode === 'kernel'
+        ? 'Kernel backend active: full HD haptics and speaker support.'
+        : 'Rootless backend active: game HD haptics degrade to rumble.'
+    } satisfies BridgeToast);
+    this.runPoll();
+    return this.getSnapshot();
+  }
+
+  private async registerPairedControllers(socketPath: string): Promise<void> {
+    try {
+      const targets = await vdsdControlRequest(socketPath, { command: 'list-targets' });
+      for (const target of targets) {
+        const entry = target as { address?: string; registered?: boolean };
+        if (typeof entry.address === 'string' && entry.registered === false) {
+          await vdsdControlRequest(socketPath, {
+            command: 'attach',
+            address: entry.address,
+            profile: '',
+            ports: []
+          }).catch(() => {});
+        }
+      }
+    } catch (error) {
+      this.appendAudioDebugLines([`[Backend] controller re-registration failed: ${error instanceof Error ? error.message : String(error)}`]);
+    }
   }
 
   async setTouchpadMouseEnabled(enabled: boolean): Promise<BridgeSnapshot> {

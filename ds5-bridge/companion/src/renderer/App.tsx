@@ -2817,6 +2817,27 @@ export function App() {
   const [edgeRemapControlLayout, setEdgeRemapControlLayout] = useState<Record<DualSenseEdgeRemapButtonId, EdgeRemapControlLayout> | null>(null);
   const [hoveredRemapButton, setHoveredRemapButton] = useState<RemapButtonId | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [bridgeBackendMode, setBridgeBackendMode] = useState<'kernel' | 'rootless' | 'unknown'>('unknown');
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      void window.bridge.getBridgeBackendMode().then((mode) => {
+        if (!cancelled) {
+          setBridgeBackendMode(mode);
+        }
+      }).catch(() => {});
+    };
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+  function switchBridgeBackend(mode: 'kernel' | 'rootless') {
+    if (mode === bridgeBackendMode) return;
+    void runAction('bridge-backend', () => window.bridge.setBridgeBackend(mode));
+  }
   const [showBridgeSettings, setShowBridgeSettings] = useState(false);
   const [settingsFocusTarget, setSettingsFocusTarget] = useState<SettingsFocusTarget | null>(null);
   const [notificationFocusTarget, setNotificationFocusTarget] = useState<NotificationFocusTarget | null>(null);
@@ -9487,6 +9508,30 @@ export function App() {
                   >
                     <span />
                   </button>
+                </div>
+                <div className="settings-menu-row">
+                  <div className="settings-menu-copy">
+                    <strong>Bridge Backend</strong>
+                    <span>Kernel mode enables in-game HD haptics and the controller speaker (asks for your admin password). Rootless runs without the kernel module; games fall back to rumble</span>
+                  </div>
+                  <div className="persona-toggle-group" role="group" aria-label="Bridge backend">
+                    <button
+                      type="button"
+                      className={`heading-action ${bridgeBackendMode === 'kernel' ? 'active' : ''}`}
+                      disabled={pendingAction !== null || bridgeBackendMode === 'kernel'}
+                      onClick={() => switchBridgeBackend('kernel')}
+                    >
+                      {pendingAction === 'bridge-backend' ? '...' : 'Kernel'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`heading-action ${bridgeBackendMode === 'rootless' ? 'active' : ''}`}
+                      disabled={pendingAction !== null || bridgeBackendMode === 'rootless'}
+                      onClick={() => switchBridgeBackend('rootless')}
+                    >
+                      {pendingAction === 'bridge-backend' ? '...' : 'Rootless'}
+                    </button>
+                  </div>
                 </div>
                 <div className="settings-menu-row">
                   <div className="settings-menu-copy">

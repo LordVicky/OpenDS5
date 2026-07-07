@@ -33,6 +33,56 @@ export function defaultVdsdSocketPath(): string {
   return candidates.find((candidate) => existsSync(candidate)) ?? DEFAULT_SOCKET_PATH;
 }
 
+export const KERNEL_MODE_SOCKET_PATH = '/run/vds/vdsd.sock';
+
+export function rootlessSocketPath(): string {
+  return process.env.XDG_RUNTIME_DIR ? `${process.env.XDG_RUNTIME_DIR}/vdsd.sock` : DEFAULT_SOCKET_PATH;
+}
+
+// One-shot JSONL control request against a specific daemon socket (attach,
+// list-targets, ...); companion traffic goes through the transport class.
+export function vdsdControlRequest(
+  socketPath: string,
+  payload: Record<string, unknown>,
+  timeoutMs = REQUEST_TIMEOUT_MS
+): Promise<Array<Record<string, unknown>>> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection(socketPath);
+    let response = '';
+    let settled = false;
+    const finish = (error: Error | null, reply?: Array<Record<string, unknown>>) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      socket.destroy();
+      if (error) {
+        reject(error);
+      } else {
+        resolve(reply!);
+      }
+    };
+    const timeout = setTimeout(() => finish(new Error('vdsd control request timed out.')), timeoutMs);
+    socket.on('error', (error) => finish(error));
+    socket.on('connect', () => socket.end(`${JSON.stringify(payload)}\n`));
+    socket.on('data', (chunk) => {
+      response += chunk.toString('utf8');
+    });
+    socket.on('close', () => {
+      if (settled) {
+        return;
+      }
+      try {
+        const lines = response.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        finish(null, lines.map((line) => JSON.parse(line) as Record<string, unknown>));
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  });
+}
+
 /**
  * Companion transport that speaks to the vdsd control socket instead of the
  * Pico's WinUSB vendor interface. vdsd emulates the DS5 Bridge companion
