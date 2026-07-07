@@ -3,6 +3,8 @@
 # test daemon with a user-accessible control socket.
 set -e
 repo="$(dirname "$(realpath "$0")")"
+modprobe vds_hcd
+echo vds_hcd > /etc/modules-load.d/vds.conf
 systemctl stop vdsd-test vdsd-test2 vdsd-test3 2>/dev/null || true
 systemctl reset-failed vdsd-test vdsd-test2 vdsd-test3 2>/dev/null || true
 install -m755 "$repo/vds/build/vdsd" /usr/local/bin/vdsd
