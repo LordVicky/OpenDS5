@@ -71,7 +71,7 @@ effects, lightbar, remaps) onto DualSense output reports sent through vdsd.
    pair drives the actuators). Requires the card's pro-audio profile and
    the vds WirePlumber conf. Speaker + haptics + music-follow confirmed on
    hardware.
-5. **M4 — input features** ✅ (remapping + chords; personas stay
+5. **M4 — input features** ✅ (hardware-validated 2026-07-07; personas stay
    DualSense-only pending kernel descriptor profiles):
    `companion_translate_input` in vds_companion.cc rewrites input reports in
    the daemon — 21-button remap table (hat re-encoding, analog trigger
