@@ -529,7 +529,7 @@ describe('companion layout CSS', () => {
     const overviewSliderList = cssBlock('.overview-slider-list', 'background: var(--surface-control-soft);');
     const overviewRangeTicks = cssBlock('.overview-range-ticks', 'height: 5px;');
 
-    expect(cssBlock('.overview-sliders', 'grid-template-rows: auto minmax(0, 1fr);')).toContain(
+    expect(cssBlock('.overview-sliders', 'grid-template-rows: auto minmax(min-content, 1fr);')).toContain(
       'grid-template-rows: auto minmax(0, 1fr);'
     );
     expect(overviewSliderList).toContain('border: 1px solid var(--surface-border);');
