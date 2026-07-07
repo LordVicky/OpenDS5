@@ -557,6 +557,15 @@ void DsOutputState::recompute_effective_state() {
     effective_state_[kOutputLedColorOffset + 0] = color[0];
     effective_state_[kOutputLedColorOffset + 1] = color[1];
     effective_state_[kOutputLedColorOffset + 2] = color[2];
+  } else if (companion_.lightbar_brightness_percent != 100) {
+    // Without an override, brightness still dims whatever color is active
+    // (game-driven or the controller default).
+    set_state_bit(effective_state_[1], 2, true); // allow_led_color
+    for (std::size_t i = 0; i < 3; ++i) {
+      effective_state_[kOutputLedColorOffset + i] =
+          scale_byte(effective_state_[kOutputLedColorOffset + i],
+                     companion_.lightbar_brightness_percent);
+    }
   }
 
   if (!companion_.player_led_enabled) {
