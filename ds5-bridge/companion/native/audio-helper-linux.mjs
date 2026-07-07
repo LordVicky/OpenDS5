@@ -157,15 +157,15 @@ async function runRenderLoopbackHaptics(args) {
     '--raw',
     '-P', '{ stream.capture.sink = true }',
     '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '2',
-    '--latency', '256/48000',
+    '--latency', '256',
     '-'
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
   const play = spawn('pw-play', [
     '--raw',
     '--target', target,
     '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
-    '--channel-map', 'FL,FR,AUX2,AUX3',
-    '--latency', '256/48000',
+    '--channel-map', 'FL,FR,RL,RR',
+    '--latency', '256',
     '-'
   ], { stdio: ['pipe', 'ignore', 'pipe'] });
 
@@ -272,7 +272,7 @@ async function runPlayTestHaptics(args) {
       '--raw',
       '--target', target,
       '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
-      '--channel-map', 'FL,FR,AUX2,AUX3',
+      '--channel-map', 'FL,FR,RL,RR',
       '-'
     ], { stdio: ['pipe', 'ignore', 'inherit'] });
     play.on('error', reject);

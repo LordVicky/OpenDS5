@@ -63,8 +63,14 @@ effects, lightbar, remaps) onto DualSense output reports sent through vdsd.
    samples), speaker volume, Trigger Lab apply/preview/test with
    firmware-identical zone encoding and 2.5 s test expiry driven by the epoll
    deadline.
-4. **M3 — audio & haptics**: PipeWire capture → haptics; assess speaker
-   support limits under Bluetooth.
+4. **M3 — audio & haptics** ✅ (hardware-validated 2026-07-07):
+   `companion/native/audio-helper-linux.mjs` implements the AudioHelper
+   protocol over PipeWire — speaker test tone, haptics test pattern, and
+   audio-reactive haptics (default-sink monitor → lowpass/envelope DSP →
+   sink channels RL/RR; the pro-audio sink is FL,FR,RL,RR where the rear
+   pair drives the actuators). Requires the card's pro-audio profile and
+   the vds WirePlumber conf. Speaker + haptics + music-follow confirmed on
+   hardware.
 5. **M4 — input features**: remapping, chords, personas (may need uinput or
    vds profile support — vds `--profile` already does ds5/dse persona
    switching).
