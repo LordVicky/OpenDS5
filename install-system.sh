@@ -53,7 +53,7 @@ if [ -e /dev/uhid ]; then chgrp vds /dev/uhid && chmod 660 /dev/uhid; fi
 
 echo "==> hardening: vdsd runs as the unprivileged vds user"
 install -d -o root -g vds -m 2775 /var/lib/vds
-touch /var/log/vdsd.log && chown root:vds /var/log/vdsd.log && chmod 664 /var/log/vdsd.log
+touch /var/log/vdsd.log && chown vds:vds /var/log/vdsd.log && chmod 664 /var/log/vdsd.log
 install -d /etc/systemd/system/vdsd.service.d
 cat > /etc/systemd/system/vdsd.service.d/hardening.conf <<'UNIT'
 [Service]

@@ -90,12 +90,9 @@ void prepare_log_file(const std::string &path) {
     throw std::runtime_error("failed to open log file: " + path + ": " +
                              std::strerror(errno));
   }
-  if (::fchmod(fd, kVdsLogFileMode) < 0) {
-    const int error = errno;
-    (void)::close(fd);
-    throw std::runtime_error("failed to chmod log file: " + path + ": " +
-                             std::strerror(error));
-  }
+  // Best effort: an unprivileged daemon cannot chmod a log file owned by
+  // another user (e.g. a root-created log from an earlier install).
+  (void)::fchmod(fd, kVdsLogFileMode);
   if (::close(fd) < 0) {
     throw std::runtime_error("failed to close log file: " + path + ": " +
                              std::strerror(errno));
