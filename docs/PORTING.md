@@ -82,6 +82,26 @@ effects, lightbar, remaps) onto DualSense output reports sent through vdsd.
 6. **M5 — packaging**: AppImage/deb/Arch package, systemd + udev integration
    (vds ships `vdsd.service.in` and udev rules).
 
+## Backends (usermode-backend branch)
+
+`vdsd --backend auto|vds|uhid`:
+
+- **vds** (default when `/dev/vds*` exists): kernel-module path, full
+  feature set including the virtual USB audio card (game HD haptics,
+  speaker). Hardened install runs the daemon as the unprivileged `vds`
+  user with ambient CAP_NET_BIND_SERVICE/CAP_NET_RAW
+  (`install-system.sh`; socket at `/run/vds/vdsd.sock`).
+- **uhid** (fallback, `install-user.sh`): no kernel module; the virtual
+  DualSense is a /dev/uhid HID device and the daemon runs as the desktop
+  user (file capabilities on the binary). uhid cannot emulate USB audio,
+  so game-driven HD haptics/speaker degrade to rumble emulation; the
+  companion app's speaker test and Audio Haptics still work through a
+  PCM side channel (`<socket>-audio`) that vdsd converts to BT haptics
+  packets (helper needs ffmpeg for the speaker test in this mode).
+
+The app and helper probe `/run/vds/vdsd.sock`, `/run/vdsd.sock`, then
+`$XDG_RUNTIME_DIR/vdsd.sock` (override with `VDSD_SOCKET`).
+
 ## Known risks
 
 - Mic/headset audio is a hard limitation of Bluetooth HID transport per vds

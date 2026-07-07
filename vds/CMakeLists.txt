@@ -139,6 +139,13 @@ else()
   target_include_directories(vds_bluez PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(vds_bluez PUBLIC vds_config PkgConfig::DBUS)
 
+  add_library(vds_uhid OBJECT src/platform/linux/vds_uhid.cc)
+  target_include_directories(
+    vds_uhid PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+                    ${CMAKE_CURRENT_SOURCE_DIR}/src
+                    ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/linux)
+  target_link_libraries(vds_uhid PUBLIC vds_log)
+
   add_library(vds_udev OBJECT src/platform/linux/vds_udev.cc)
   target_include_directories(vds_udev PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(vds_udev PUBLIC vds_config vds_common vds_io
@@ -158,6 +165,7 @@ else()
             vds_io
             vds_log
             vds_udev
+            vds_uhid
             vdsd_common)
 
   add_executable(vdsctl src/platform/linux/vdsctl.cc)

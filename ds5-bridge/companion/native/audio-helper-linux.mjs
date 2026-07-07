@@ -6,6 +6,8 @@
 // sink where channels 1-2 are the speaker/headphone path and channels 3-4 are
 // the left/right haptic actuators.
 import { spawn, execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { createConnection } from 'node:net';
 import { createInterface } from 'node:readline';
 import process from 'node:process';
 
@@ -69,13 +71,77 @@ async function findBridgeSink() {
   return alsaSink ?? sinks[0] ?? null;
 }
 
-async function requireBridgeSink() {
-  const sink = await findBridgeSink();
-  if (!sink) {
-    fail('status: capture-unavailable DualSense audio sink not found. '
-      + 'Set the controller card profile to pro-audio (wpctl set-profile).');
+function vdsdAudioSocketPath() {
+  if (process.env.VDSD_SOCKET) {
+    return `${process.env.VDSD_SOCKET}-audio`;
   }
-  return sink;
+  const bases = [
+    '/run/vds/vdsd.sock',
+    '/run/vdsd.sock',
+    process.env.XDG_RUNTIME_DIR ? `${process.env.XDG_RUNTIME_DIR}/vdsd.sock` : null
+  ].filter(Boolean);
+  for (const base of bases) {
+    if (existsSync(`${base}-audio`)) {
+      return `${base}-audio`;
+    }
+  }
+  return `${bases[0]}-audio`;
+}
+
+// Audio output resolution: prefer the virtual USB sink (kernel backend);
+// fall back to vdsd's PCM side channel when running on the uhid backend.
+async function resolveAudioOutput() {
+  const sink = await findBridgeSink();
+  if (sink) {
+    return { kind: 'sink', target: nodeProps(sink)['node.name'] };
+  }
+  if (existsSync(vdsdAudioSocketPath())) {
+    return { kind: 'socket', path: vdsdAudioSocketPath() };
+  }
+  fail('status: capture-unavailable DualSense audio sink not found. '
+    + 'Set the controller card profile to pro-audio (wpctl set-profile), '
+    + 'or start vdsd with the uhid backend for the audio side channel.');
+  return null;
+}
+
+// Streams 4-channel S16 48 kHz PCM to the vdsd audio socket at real-time
+// pace (the daemon queues only a few 10 ms chunks).
+function openSocketWriter(path) {
+  const socket = createConnection(path);
+  socket.on('error', () => {});
+  const bytesPerSecond = SAMPLE_RATE * 4 * 2;
+  let streamStart = null;
+  let sent = 0;
+  return {
+    write(bufferS16) {
+      socket.write(bufferS16);
+    },
+    async writePaced(bufferS16) {
+      const now = Date.now();
+      if (streamStart === null) {
+        streamStart = now;
+      }
+      const elapsed = (now - streamStart) / 1000;
+      const ahead = sent / bytesPerSecond - elapsed;
+      if (ahead > 0.05) {
+        await new Promise((resolve) => setTimeout(resolve, ahead * 1000 - 30));
+      }
+      socket.write(bufferS16);
+      sent += bufferS16.length;
+    },
+    end() {
+      socket.end();
+    }
+  };
+}
+
+function floatTo4chS16(float4ch) {
+  const out = Buffer.alloc(float4ch.length * 2);
+  for (let i = 0; i < float4ch.length; i += 1) {
+    const clamped = Math.max(-1, Math.min(1, float4ch[i]));
+    out.writeInt16LE(Math.round(clamped * 32767), i * 2);
+  }
+  return out;
 }
 
 function biquadLowpass(cutoffHz) {
@@ -153,9 +219,12 @@ function readHapticsConfig(args) {
 }
 
 async function runRenderLoopbackHaptics(args) {
-  const sink = await requireBridgeSink();
-  const target = nodeProps(sink)['node.name'];
+  const output = await resolveAudioOutput();
   const processor = new HapticsProcessor(readHapticsConfig(args));
+  if (output.kind === 'socket') {
+    return runRenderLoopbackHapticsToSocket(output.path, processor);
+  }
+  const target = output.target;
 
   const record = spawn('pw-record', [
     '--raw',
@@ -227,14 +296,111 @@ async function runRenderLoopbackHaptics(args) {
   process.on('SIGINT', () => shutdown(0));
 }
 
+// uhid backend: capture the default sink monitor with pw-record, run the
+// same DSP, and stream 4-channel PCM to the vdsd audio socket.
+function runRenderLoopbackHapticsToSocket(socketPath, processor) {
+  const writer = openSocketWriter(socketPath);
+  const record = spawn('pw-record', [
+    '--raw',
+    '-P', '{ stream.capture.sink = true }',
+    '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '2',
+    '--latency', '256',
+    '-'
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  record.on('spawn', () => {
+    process.stderr.write('status: recording-started\n');
+  });
+
+  let carry = Buffer.alloc(0);
+  record.stdout.on('data', (chunk) => {
+    let data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+    const frameBytes = 2 * 4;
+    const usable = data.length - (data.length % frameBytes);
+    carry = data.subarray(usable);
+    if (usable === 0) {
+      return;
+    }
+    const input = new Float32Array(data.buffer, data.byteOffset, usable / 4);
+    writer.write(floatTo4chS16(processor.process(input)));
+  });
+
+  const shutdown = (code, detail) => {
+    if (detail) {
+      process.stderr.write(`${detail}\n`);
+    }
+    record.kill();
+    writer.end();
+    process.exit(code);
+  };
+  record.stderr.on('data', (chunk) => process.stderr.write(chunk));
+  record.on('exit', (code) => shutdown(code ?? 1, 'capture stream ended'));
+
+  const control = createInterface({ input: process.stdin });
+  control.on('line', (line) => {
+    const parts = line.trim().split(/\s+/);
+    if (parts[0] === 'haptics-config' && parts.length >= 6) {
+      processor.setConfig({
+        gainPercent: Number(parts[1]),
+        bassFocus: parts[2],
+        response: parts[3],
+        attack: parts[4],
+        release: parts[5]
+      });
+    } else if (parts[0] === 'stop') {
+      shutdown(0);
+    }
+  });
+  process.on('SIGTERM', () => shutdown(0));
+  process.on('SIGINT', () => shutdown(0));
+  return new Promise(() => {});
+}
+
+async function playToneToSocket(socketPath, audioPath, volume) {
+  const decode = spawn('ffmpeg', [
+    '-v', 'error', '-i', audioPath,
+    '-f', 's16le', '-ar', `${SAMPLE_RATE}`, '-ac', '2', '-'
+  ], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const writer = openSocketWriter(socketPath);
+  let carry = Buffer.alloc(0);
+  const pending = [];
+  decode.stdout.on('data', (chunk) => {
+    let data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+    const usable = data.length - (data.length % 4);
+    carry = data.subarray(usable);
+    if (usable === 0) {
+      return;
+    }
+    const frames = usable / 4;
+    const out = Buffer.alloc(frames * 8);
+    for (let f = 0; f < frames; f += 1) {
+      const left = data.readInt16LE(f * 4);
+      const right = data.readInt16LE(f * 4 + 2);
+      out.writeInt16LE(Math.round(left * volume), f * 8);
+      out.writeInt16LE(Math.round(right * volume), f * 8 + 2);
+    }
+    pending.push(writer.writePaced(out));
+  });
+  await new Promise((resolve, reject) => {
+    decode.on('error', () => reject(new Error('ffmpeg is required for the speaker test on the uhid backend')));
+    decode.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`))));
+  });
+  await Promise.all(pending);
+  writer.end();
+}
+
 async function runPlayTestTone(args) {
-  const sink = await requireBridgeSink();
-  const target = nodeProps(sink)['node.name'];
   const audioPath = argValue(args, '--test-audio-path');
   if (!audioPath) {
     fail('missing --test-audio-path');
   }
   const volume = Math.max(0, Math.min(100, Number(argValue(args, '--speaker-volume') ?? 100))) / 100;
+  const output = await resolveAudioOutput();
+  if (output.kind === 'socket') {
+    await playToneToSocket(output.path, audioPath, volume);
+    return;
+  }
+  const target = output.target;
   await new Promise((resolve, reject) => {
     const play = spawn('pw-play', ['--target', target, '--volume', `${volume}`, audioPath], {
       stdio: ['ignore', 'ignore', 'inherit']
@@ -268,10 +434,21 @@ function buildHapticsTestWave(gainPercent) {
 }
 
 async function runPlayTestHaptics(args) {
-  const sink = await requireBridgeSink();
-  const target = nodeProps(sink)['node.name'];
   const gain = Number(argValue(args, '--haptics-gain') ?? 100);
   const wave = buildHapticsTestWave(gain);
+  const output = await resolveAudioOutput();
+  if (output.kind === 'socket') {
+    const writer = openSocketWriter(output.path);
+    const bytes = floatTo4chS16(wave);
+    const blockBytes = (SAMPLE_RATE / 50) * 8; // 20 ms blocks
+    for (let offset = 0; offset < bytes.length; offset += blockBytes) {
+      await writer.writePaced(bytes.subarray(offset, offset + blockBytes));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    writer.end();
+    return;
+  }
+  const target = output.target;
   await new Promise((resolve, reject) => {
     const play = spawn('pw-play', [
       '--raw',
@@ -312,7 +489,13 @@ async function runDefaultRenderStatus() {
 }
 
 async function runSetDefaultRenderBridge() {
-  const sink = await requireBridgeSink();
+  const sink = await findBridgeSink();
+  if (!sink) {
+    if (existsSync(vdsdAudioSocketPath())) {
+      return; // uhid backend: no system audio endpoint to switch
+    }
+    fail('DualSense audio sink not found.');
+  }
   await new Promise((resolve, reject) => {
     execFile('wpctl', ['set-default', `${sink.id}`], (error) => (error ? reject(error) : resolve()));
   });

@@ -37,8 +37,32 @@ fi
 
 echo "==> udev rules"
 cp "$repo/vds/99-vds-dualsense-udev.rules" /etc/udev/rules.d/
+cat > /etc/udev/rules.d/99-vds-access.rules <<'RULES'
+# vds group access to the virtual controller ports, uhid, and the
+# DualSense touchpad node (for pointer suppression).
+KERNEL=="vds[0-9]*", GROUP="vds", MODE="0660"
+KERNEL=="uhid", GROUP="vds", MODE="0660"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="*DualSense*Touchpad*", GROUP="vds", MODE="0660"
+RULES
 udevadm control --reload-rules
-udevadm trigger --subsystem-match=input || true
+udevadm trigger || true
+
+echo "==> hardening: vdsd runs as the unprivileged vds user"
+install -d -o root -g vds -m 2775 /var/lib/vds
+touch /var/log/vdsd.log && chown root:vds /var/log/vdsd.log && chmod 664 /var/log/vdsd.log
+install -d /etc/systemd/system/vdsd.service.d
+cat > /etc/systemd/system/vdsd.service.d/hardening.conf <<'UNIT'
+[Service]
+User=vds
+Group=vds
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
+RuntimeDirectory=vds
+ExecStart=
+ExecStart=/usr/local/bin/vdsd --socket /run/vds/vdsd.sock
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=yes
+UNIT
 
 echo "==> starting vdsd.service"
 systemctl daemon-reload

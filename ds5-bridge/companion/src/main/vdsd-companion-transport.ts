@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { existsSync } from 'node:fs';
 import { createConnection } from 'node:net';
 
 type OpenOptions = {
@@ -18,8 +19,18 @@ const DEFAULT_OPEN_RETRY_DELAY_MS = 50;
 const REPORT_LENGTH = 64;
 const DEFAULT_SOCKET_PATH = '/run/vdsd.sock';
 
+// Known daemon socket locations: hardened system service, legacy root
+// daemon, and the per-user uhid-backend service.
 export function defaultVdsdSocketPath(): string {
-  return process.env.VDSD_SOCKET ?? DEFAULT_SOCKET_PATH;
+  if (process.env.VDSD_SOCKET) {
+    return process.env.VDSD_SOCKET;
+  }
+  const candidates = [
+    '/run/vds/vdsd.sock',
+    DEFAULT_SOCKET_PATH,
+    process.env.XDG_RUNTIME_DIR ? `${process.env.XDG_RUNTIME_DIR}/vdsd.sock` : null
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find((candidate) => existsSync(candidate)) ?? DEFAULT_SOCKET_PATH;
 }
 
 /**
