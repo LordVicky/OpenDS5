@@ -19,7 +19,7 @@ describe('renderer behavior guards', () => {
     expect(appSource).not.toContain('setHost' + 'EncodedAudioEnabled');
     expect(appSource).not.toContain('Disable Host ' + 'Encoding?');
     expect(appSource).not.toContain('Enable host ' + 'encoded audio');
-    expect(appSource).toContain('Pico Local');
+    expect(appSource).toContain('Bridge Local');
   });
 
   it('requires explicit confirmation and a disconnected controller before emergency device repair', () => {
@@ -121,18 +121,12 @@ describe('renderer behavior guards', () => {
     expect(appSource).not.toContain('Math.min(255, Math.round(length))');
   });
 
-  it('exposes Pico firmware maintenance actions in Bridge Settings', () => {
-    expect(appSource).toContain('function mountPicoBootloader()');
-    expect(appSource).toContain('function flashPicoFirmware()');
-    expect(appSource).toContain('function nukePicoFlash()');
-    expect(appSource).toContain('window.bridge.mountPicoBootloader()');
-    expect(appSource).toContain('window.bridge.flashPicoFirmware()');
-    expect(appSource).toContain('window.bridge.nukePicoFlash()');
-    expect(appSource).toContain('<strong>Firmware</strong>');
-    expect(appSource).not.toContain('<strong>Pico Firmware</strong>');
-    expect(appSource).toContain('pico-firmware-dual-action');
-    expect(appSource).toContain('picoFirmwareMessage');
-    expect(appSource).toContain('picoFirmwareError');
+  it('does not expose Pico firmware maintenance actions (Linux port has no Pico)', () => {
+    expect(appSource).not.toContain('function mountPicoBootloader()');
+    expect(appSource).not.toContain('function flashPicoFirmware()');
+    expect(appSource).not.toContain('function nukePicoFlash()');
+    expect(appSource).not.toContain('pico-firmware-dual-action');
+    expect(appSource).not.toContain('picoFirmwareMessage');
   });
 
   it('exposes the battery percentage tray icon preference in Bridge Settings', () => {

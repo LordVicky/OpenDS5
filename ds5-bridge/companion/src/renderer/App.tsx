@@ -1377,7 +1377,7 @@ function FeatureTipsPanel({
       key: 'headphones',
       icon: <Headphones size={16} />,
       title: 'Headphones',
-      text: 'Headphones use the same Pico-local audio path as the controller speaker.'
+      text: 'Headphones use the same bridge-local audio path as the controller speaker.'
     });
   } else {
     tips.push({
@@ -2849,8 +2849,6 @@ export function App() {
   const [startupTutorialSupportCountdown, setStartupTutorialSupportCountdown] = useState(5);
   const [deviceCleanupMessage, setDeviceCleanupMessage] = useState<string | null>(null);
   const [deviceCleanupError, setDeviceCleanupError] = useState<string | null>(null);
-  const [picoFirmwareMessage, setPicoFirmwareMessage] = useState<string | null>(null);
-  const [picoFirmwareError, setPicoFirmwareError] = useState<string | null>(null);
   const hapticsEditingRef = useRef(false);
   const classicRumbleEditingRef = useRef(false);
   const speakerVolumeEditingRef = useRef(false);
@@ -3605,7 +3603,7 @@ export function App() {
     ? 'Switching Mode'
     : !connected
     ? 'Unavailable'
-    : 'Pico Local';
+    : 'Bridge Local';
   const audioPathTooltip = personaTransitionActive
     ? 'Waiting for the controller to re-enumerate.'
     : audioPathLabel;
@@ -3821,7 +3819,7 @@ export function App() {
       : 'Offline';
   const overviewAudioPathState = !connected
     ? '--'
-    : 'Pico Local';
+    : 'Bridge Local';
   const overviewAudioPathDetail = personaTransitionActive
     ? 'Switching Mode'
     : !connected
@@ -3972,7 +3970,7 @@ export function App() {
     ];
     if (audio) {
       lines.push(
-        'audioPath=pico-local',
+        'audioPath=bridge-local',
         `controllerStateReady=${audio.controllerStateReady ? 'true' : 'false'}`,
         `headsetPlugged=${audio.headsetPlugged ? 'true' : 'false'}`,
         `headsetAudioRoute=${audio.headsetAudioRoute ? 'true' : 'false'}`,
@@ -5725,43 +5723,6 @@ export function App() {
     }
   }
 
-  async function runPicoFirmwareAction(
-    label: string,
-    action: () => Promise<{ ok: boolean; cancelled?: boolean; message: string }>
-  ) {
-    if (pendingAction !== null) {
-      return;
-    }
-    setPendingAction(label);
-    setPicoFirmwareMessage(null);
-    setPicoFirmwareError(null);
-    try {
-      const result = await action();
-      if (!result.cancelled) {
-        if (result.ok) {
-          setPicoFirmwareMessage(result.message);
-        } else {
-          setPicoFirmwareError(result.message);
-        }
-      }
-    } catch (error) {
-      setPicoFirmwareError(error instanceof Error ? error.message : 'Pico firmware action failed.');
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
-  function mountPicoBootloader() {
-    void runPicoFirmwareAction('pico-firmware-mount', () => window.bridge.mountPicoBootloader());
-  }
-
-  function flashPicoFirmware() {
-    void runPicoFirmwareAction('pico-firmware-flash', () => window.bridge.flashPicoFirmware());
-  }
-
-  function nukePicoFlash() {
-    void runPicoFirmwareAction('pico-firmware-nuke', () => window.bridge.nukePicoFlash());
-  }
 
   function toggleAudioEnabled() {
     if (!snapshot) return;
@@ -6361,7 +6322,7 @@ export function App() {
                 <div className="overview-fields">
                   <div>
                     <span>Route</span>
-                    <strong className={overviewAudioPathState === 'Pico Local' ? 'success-value' : ''}>
+                    <strong className={overviewAudioPathState === 'Bridge Local' ? 'success-value' : ''}>
                       {overviewAudioPathState}
                     </strong>
                   </div>
@@ -6645,6 +6606,24 @@ export function App() {
                       </div>
                     </div>
                     <strong>{lightbarBrightnessValue}%</strong>
+                  </label>
+                  <label className={`overview-slider-row ${!connected ? 'disabled' : ''}`}>
+                    <span>Touchpad Mouse</span>
+                    <div className="overview-range-control overview-toggle-control">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={snapshot.settings.touchpadMouseEnabled}
+                        className={`switch ${snapshot.settings.touchpadMouseEnabled ? 'on' : ''}`}
+                        disabled={!connected || pendingAction !== null}
+                        onClick={() => void runAction('touchpad-mouse', () => (
+                          window.bridge.setTouchpadMouseEnabled(!snapshot.settings.touchpadMouseEnabled)
+                        ))}
+                      >
+                        <span />
+                      </button>
+                    </div>
+                    <strong>{snapshot.settings.touchpadMouseEnabled ? 'On' : 'Off'}</strong>
                   </label>
                 </div>
               </section>
@@ -9443,21 +9422,6 @@ export function App() {
                     <span />
                   </button>
                 </div>
-                <div className="settings-menu-row">
-                  <div className="settings-menu-copy">
-                    <strong>Pico LED</strong>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={snapshot.settings.ledEnabled}
-                    className={`switch ${snapshot.settings.ledEnabled ? 'on' : ''}`}
-                    disabled={!connected}
-                    onClick={() => void runAction('led', () => window.bridge.setLedEnabled(!snapshot.settings.ledEnabled))}
-                  >
-                    <span />
-                  </button>
-                </div>
                 <div className="settings-menu-section-label">Connection Behavior</div>
                 <div className="settings-menu-row">
                   <div className="settings-menu-copy">
@@ -9505,51 +9469,6 @@ export function App() {
                   >
                     <span />
                   </button>
-                </div>
-                <div className="settings-menu-row pico-firmware-row">
-                  <div className="pico-firmware-header">
-                    <strong>Firmware</strong>
-                    <div className="pico-firmware-actions">
-                      <button
-                        type="button"
-                        className="heading-action danger"
-                        disabled={pendingAction !== null}
-                        onClick={nukePicoFlash}
-                      >
-                        <IconRadioactive size={14} />
-                        {pendingAction === 'pico-firmware-nuke' ? 'Nuking...' : 'Nuke'}
-                      </button>
-                      <div className="pico-firmware-dual-action" role="group" aria-label="Pico firmware bootloader actions">
-                        <button
-                          type="button"
-                          className="heading-action"
-                          disabled={pendingAction !== null}
-                          onClick={mountPicoBootloader}
-                        >
-                          <IconUsb size={14} />
-                          {pendingAction === 'pico-firmware-mount' ? 'Mounting...' : 'Mount'}
-                        </button>
-                        <button
-                          type="button"
-                          className="heading-action"
-                          disabled={pendingAction !== null}
-                          onClick={flashPicoFirmware}
-                        >
-                          <IconUpload size={14} />
-                          {pendingAction === 'pico-firmware-flash' ? 'Flashing...' : 'Flash'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="settings-menu-copy pico-firmware-copy">
-                    <span>Mount reboots the Pico into UF2 mode. Flash copies a selected firmware UF2. Nuke wipes flash with Pico Universal Flash Nuke.</span>
-                    {picoFirmwareMessage ? (
-                      <span className="pico-firmware-message good">{picoFirmwareMessage}</span>
-                    ) : null}
-                    {picoFirmwareError ? (
-                      <span className="pico-firmware-message bad">{picoFirmwareError}</span>
-                    ) : null}
-                  </div>
                 </div>
               </div>
               <div className="bridge-settings-column">

@@ -497,24 +497,8 @@ describe('companion layout CSS', () => {
     );
   });
 
-  it('keeps Pico firmware maintenance actions compact inside Bridge Settings', () => {
-    expect(appSource).toContain('className="settings-menu-row pico-firmware-row"');
-    expect(appSource).not.toContain('<strong>Pico Firmware</strong>');
-    expect(cssBlock('.pico-firmware-row', 'grid-template-columns: minmax(0, 1fr);')).toContain('gap: 7px;');
-    expect(cssBlock('.pico-firmware-header', 'grid-template-columns: minmax(0, 1fr) auto;')).toContain(
-      'align-items: center;'
-    );
-    expect(cssBlock('.pico-firmware-actions', 'flex-wrap: wrap;')).toContain('justify-content: flex-end;');
-    expect(cssBlock('.pico-firmware-actions .heading-action', 'min-height: 30px;')).toContain('white-space: nowrap;');
-    expect(cssBlock('.pico-firmware-actions .heading-action.danger', 'background: var(--danger-selected);')).toContain(
-      'box-shadow: inset 0 -2px 0 var(--danger-border-strong);'
-    );
-    expect(cssBlock('.pico-firmware-dual-action .heading-action:first-child', 'border-top-left-radius: var(--control-radius);')).toContain(
-      'border-bottom-left-radius: var(--control-radius);'
-    );
-    expect(cssBlock('.pico-firmware-copy > span', 'overflow-wrap: anywhere;')).toContain('text-wrap: pretty;');
-    expect(cssBlock('.pico-firmware-message.good', 'color: var(--success);')).toContain('color: var(--success);');
-    expect(cssBlock('.pico-firmware-message.bad', 'color: var(--danger);')).toContain('color: var(--danger);');
+  it('does not render Pico firmware maintenance UI (Linux port has no Pico)', () => {
+    expect(appSource).not.toContain('className="settings-menu-row pico-firmware-row"');
   });
 
   it('uses solid command-chip tokens for overview status actions', () => {
