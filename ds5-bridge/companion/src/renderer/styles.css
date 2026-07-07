@@ -2695,10 +2695,18 @@ button {
   align-content: stretch;
 }
 
-.overview-toggle-control {
+.overview-heading-toggle {
+  margin-left: auto;
   display: flex;
-  justify-content: flex-end;
   align-items: center;
+  gap: 9px;
+}
+
+.overview-heading-toggle span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .overview-panel-heading {

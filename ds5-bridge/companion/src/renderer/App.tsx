@@ -6458,6 +6458,21 @@ export function App() {
                   <div>
                     <h3>Quick Controls</h3>
                   </div>
+                  <div className="overview-heading-toggle">
+                    <span>Touchpad Mouse</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={snapshot.settings.touchpadMouseEnabled}
+                      className={`switch ${snapshot.settings.touchpadMouseEnabled ? 'on' : ''}`}
+                      disabled={!connected || pendingAction !== null}
+                      onClick={() => void runAction('touchpad-mouse', () => (
+                        window.bridge.setTouchpadMouseEnabled(!snapshot.settings.touchpadMouseEnabled)
+                      ))}
+                    >
+                      <span />
+                    </button>
+                  </div>
                 </div>
                 <div className="overview-slider-list">
                   <label className={`overview-slider-row ${(!connected || !snapshot.settings.hapticsEnabled) ? 'disabled' : ''}`}>
@@ -6606,24 +6621,6 @@ export function App() {
                       </div>
                     </div>
                     <strong>{lightbarBrightnessValue}%</strong>
-                  </label>
-                  <label className={`overview-slider-row ${!connected ? 'disabled' : ''}`}>
-                    <span>Touchpad</span>
-                    <div className="overview-range-control overview-toggle-control">
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={snapshot.settings.touchpadMouseEnabled}
-                        className={`switch ${snapshot.settings.touchpadMouseEnabled ? 'on' : ''}`}
-                        disabled={!connected || pendingAction !== null}
-                        onClick={() => void runAction('touchpad-mouse', () => (
-                          window.bridge.setTouchpadMouseEnabled(!snapshot.settings.touchpadMouseEnabled)
-                        ))}
-                      >
-                        <span />
-                      </button>
-                    </div>
-                    <strong>{snapshot.settings.touchpadMouseEnabled ? 'On' : 'Off'}</strong>
                   </label>
                 </div>
               </section>
