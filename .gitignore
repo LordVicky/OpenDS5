@@ -4,3 +4,12 @@ build/
 *.o
 *.ko
 .vite/
+*.mod
+*.mod.c
+*.o.cmd
+*.ko.cmd
+*.mod.cmd
+.module-common*
+Module.symvers
+modules.order
+vds/module/.*.cmd
