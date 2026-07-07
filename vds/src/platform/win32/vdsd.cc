@@ -44,6 +44,7 @@
 #include "vds_profile.hh"
 #include "vds_protocol.hh"
 #include "vds_win32.hh"
+#include "vds_companion.hh"
 #include "vdsd_common.hh"
 
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
@@ -2193,10 +2194,12 @@ std::string handle_supervisor_control_command(
   const std::vector<vds::VdsdControlPortStatus> port_statuses =
       vds::build_vdsd_control_port_statuses(port_candidates, port_bindings);
 
+  // Companion protocol state persists for the daemon lifetime.
+  static vds::CompanionRuntime companion;
   return vds::handle_vdsd_control_command(
       command, db_path, controller_statuses, port_statuses,
       [] { return list_windows_controller_targets(); }, trace_flags,
-      reload_requested, logger);
+      reload_requested, companion, logger);
 }
 
 void run_configured_bridge_worker(vds::ControllerConfig config,

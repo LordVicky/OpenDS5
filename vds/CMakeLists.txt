@@ -87,7 +87,7 @@ add_library(vdsctl_common OBJECT src/vdsctl_common.cc)
 target_include_directories(vdsctl_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(vdsctl_common PUBLIC jsonl vds_config)
 
-add_library(vdsd_common OBJECT src/vdsd_common.cc)
+add_library(vdsd_common OBJECT src/vdsd_common.cc src/vds_companion.cc)
 target_include_directories(
   vdsd_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
                      ${CMAKE_CURRENT_SOURCE_DIR}/src)

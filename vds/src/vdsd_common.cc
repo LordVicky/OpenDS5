@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "jsonl.hh"
+#include "vds_companion.hh"
 #include "vds_config.hh"
 #include "vds_log.hh"
 #include "vdsd_common.hh"
@@ -635,7 +636,8 @@ std::string handle_vdsd_control_command(
     std::span<const VdsdControlControllerStatus> controllers,
     std::span<const VdsdControlPortStatus> ports,
     const std::function<std::vector<ControllerTarget>()> &list_targets,
-    std::uint32_t &trace_flags, bool &reload_requested, Logger &logger) {
+    std::uint32_t &trace_flags, bool &reload_requested,
+    CompanionRuntime &companion, Logger &logger) {
   try {
     constexpr std::string_view context = "control request";
     const std::vector<JsonlField> fields = parse_jsonl_object(request, context);
@@ -657,6 +659,10 @@ std::string handle_vdsd_control_command(
     }
     if (command == "trace") {
       return handle_trace_control_request(fields, trace_flags, logger);
+    }
+    if (command == "companion") {
+      return handle_companion_control_request(fields, companion, db_path,
+                                              controllers, logger);
     }
 
     logger.log("control", LogLevel::Warn,

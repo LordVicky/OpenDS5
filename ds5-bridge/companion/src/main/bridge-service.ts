@@ -89,7 +89,7 @@ import {
 import { CompanionDebugConfig } from './debug-config';
 import { HidDiscoveryClient } from './hid-discovery-client';
 import { SettingsStore, normalizeUiScalePercent, normalizeUiThemePreset } from './settings-store';
-import { WinUsbCompanionTransport } from './winusb-companion-transport';
+import { openCompanionTransport, type CompanionTransport } from './companion-transport';
 
 const POLL_INTERVAL_MS = 500;
 const SHORTCUT_POLL_INTERVAL_MS = 50;
@@ -1200,7 +1200,7 @@ async function runElevatedWindowsDeviceCleanup(scriptPath: string, logPath: stri
 }
 
 export class BridgeService extends EventEmitter {
-  private device: WinUsbCompanionTransport | null = null;
+  private device: CompanionTransport | null = null;
   private devicePath: string | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private hostPersonaTransitionPollTimer: NodeJS.Timeout | null = null;
@@ -3480,7 +3480,7 @@ export class BridgeService extends EventEmitter {
   private async openAndReadStatus() {
     try {
       if (!this.device) {
-        this.device = await WinUsbCompanionTransport.open({
+        this.device = await openCompanionTransport({
           retryTimeoutMs: this.isHostPersonaTransitionActive() ? HOST_PERSONA_TRANSITION_OPEN_RETRY_MS : 0
         });
         const openedDevice = this.device;
@@ -3516,7 +3516,7 @@ export class BridgeService extends EventEmitter {
     return null;
   }
 
-  private async handleCompanionTransportClose(closedDevice: WinUsbCompanionTransport): Promise<void> {
+  private async handleCompanionTransportClose(closedDevice: CompanionTransport): Promise<void> {
     if (this.device !== closedDevice) {
       return;
     }

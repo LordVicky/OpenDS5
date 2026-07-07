@@ -66,10 +66,8 @@ vi.mock('node-hid', () => ({
   }
 }));
 
-vi.mock('./winusb-companion-transport', () => ({
-  WinUsbCompanionTransport: {
-    open: winUsbTransportMock.open
-  }
+vi.mock('./companion-transport', () => ({
+  openCompanionTransport: winUsbTransportMock.open
 }));
 
 vi.mock('./audio-helper', async (importOriginal) => {

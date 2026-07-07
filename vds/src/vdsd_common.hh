@@ -16,6 +16,7 @@
 namespace vds {
 
 class Logger;
+struct CompanionRuntime;
 
 inline constexpr std::uint32_t kTraceInput = 1u << 0;
 inline constexpr std::uint32_t kTraceOutput = 1u << 1;
@@ -114,6 +115,7 @@ std::string handle_vdsd_control_command(
     std::span<const VdsdControlControllerStatus> controllers,
     std::span<const VdsdControlPortStatus> ports,
     const std::function<std::vector<ControllerTarget>()> &list_targets,
-    std::uint32_t &trace_flags, bool &reload_requested, Logger &logger);
+    std::uint32_t &trace_flags, bool &reload_requested,
+    CompanionRuntime &companion, Logger &logger);
 
 } // namespace vds

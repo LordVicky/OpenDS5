@@ -44,6 +44,7 @@
 #include "vds_profile.hh"
 #include "vds_protocol.hh"
 #include "vds_udev.hh"
+#include "vds_companion.hh"
 #include "vdsd_common.hh"
 
 namespace {
@@ -1770,22 +1771,32 @@ void handle_control_client(int control_fd, std::span<const VirtualPort> ports,
                              std::string(std::strerror(errno)));
   }
 
-  std::array<char, 256> buffer{};
-  ssize_t got = 0;
-  do {
-    got = ::read(client_fd.get(), buffer.data(), buffer.size() - 1);
-  } while (got < 0 && errno == EINTR);
-  if (got < 0) {
-    throw std::runtime_error("read control client failed: " +
-                             std::string(std::strerror(errno)));
+  // Companion requests carry a 64-byte report as a JSON array, so a request
+  // line can exceed a single small read; accumulate until newline or EOF.
+  constexpr std::size_t kMaxControlRequest = 8192;
+  std::array<char, 512> buffer{};
+  std::string request;
+  while (request.find('\n') == std::string::npos &&
+         request.size() < kMaxControlRequest) {
+    ssize_t got = 0;
+    do {
+      got = ::read(client_fd.get(), buffer.data(), buffer.size());
+    } while (got < 0 && errno == EINTR);
+    if (got < 0) {
+      throw std::runtime_error("read control client failed: " +
+                               std::string(std::strerror(errno)));
+    }
+    if (got == 0) {
+      break;
+    }
+    request.append(buffer.data(), static_cast<std::size_t>(got));
   }
-  if (got <= 0) {
+  if (request.empty()) {
     return;
   }
 
   std::string reply;
-  const std::string command =
-      trim_command(std::string(buffer.data(), static_cast<std::size_t>(got)));
+  const std::string command = trim_command(std::move(request));
   std::vector<vds::VdsdControlControllerStatus> controller_statuses;
   controller_statuses.reserve(controllers.size());
   for (const auto &controller : controllers) {
@@ -1830,10 +1841,12 @@ void handle_control_client(int control_fd, std::span<const VirtualPort> ports,
   const std::vector<vds::VdsdControlPortStatus> port_statuses =
       vds::build_vdsd_control_port_statuses(port_candidates, port_bindings);
 
+  // Companion protocol state persists for the daemon lifetime.
+  static vds::CompanionRuntime companion;
   reply = vds::handle_vdsd_control_command(
       command, db_path, controller_statuses, port_statuses,
       [] { return vds::list_bluez_controller_targets(); }, trace_flags,
-      reload_requested, logger);
+      reload_requested, companion, logger);
 
   try {
     vds::write_full(client_fd.get(), reply);
