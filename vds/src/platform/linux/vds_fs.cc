@@ -32,10 +32,10 @@ std::filesystem::path db_directory(const std::filesystem::path &db_path) {
 }
 
 void chmod_db_file_if_exists(const std::filesystem::path &db_path) {
-  if (::chmod(db_path.c_str(), kVdsFileMode) < 0 && errno != ENOENT) {
-    throw std::runtime_error("failed to chmod " + db_path.string() + ": " +
-                             std::strerror(errno));
-  }
+  // Best effort: a pre-existing db owned by another user (an earlier root
+  // install) is still readable and atomically replaceable through the
+  // group-writable state directory.
+  (void)::chmod(db_path.c_str(), kVdsFileMode);
 }
 
 class LinuxFileLock final : public vds::FileLock {

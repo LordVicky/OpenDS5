@@ -7,6 +7,10 @@ set -e
 case "$1" in
   kernel)
     modprobe vds_hcd
+    # heal ownership/permissions left over from older root-mode installs
+    chgrp vds /dev/vds[0-9]* 2>/dev/null && chmod 660 /dev/vds[0-9]* || true
+    [ -d /var/lib/vds ] && chown -R vds:vds /var/lib/vds || true
+    [ -e /var/log/vdsd.log ] && chown vds:vds /var/log/vdsd.log || true
     systemctl reset-failed vdsd.service 2>/dev/null || true
     systemctl enable --now vdsd.service
     ;;

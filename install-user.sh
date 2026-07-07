@@ -28,6 +28,9 @@ echo "==> vds group + udev rules (uhid, touchpad)"
 groupadd -f vds
 usermod -aG vds "$user"
 cat > /etc/udev/rules.d/99-vds-access.rules <<'RULES'
+# vds group access to the virtual controller ports, uhid, and the
+# DualSense touchpad node (for pointer suppression).
+KERNEL=="vds[0-9]*", GROUP="vds", MODE="0660"
 KERNEL=="uhid", SUBSYSTEM=="misc", OPTIONS+="static_node=uhid", GROUP="vds", MODE="0660"
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="*DualSense*Touchpad*", GROUP="vds", MODE="0660"
 RULES
