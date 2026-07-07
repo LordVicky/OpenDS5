@@ -169,13 +169,14 @@ async function runRenderLoopbackHaptics(args) {
     '-'
   ], { stdio: ['pipe', 'ignore', 'pipe'] });
 
-  let started = false;
+  // Report readiness on stream startup: a suspended default sink delivers no
+  // monitor frames until something plays, and the app only waits 8 s.
+  record.on('spawn', () => {
+    process.stdout.write('status: recording-started\n');
+  });
+
   let carry = Buffer.alloc(0);
   record.stdout.on('data', (chunk) => {
-    if (!started) {
-      started = true;
-      process.stdout.write('status: recording-started\n');
-    }
     let data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
     const frameBytes = 2 * 4;
     const usable = data.length - (data.length % frameBytes);
