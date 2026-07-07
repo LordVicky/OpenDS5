@@ -12,7 +12,7 @@ import process from 'node:process';
 const SAMPLE_RATE = 48000;
 const BRIDGE_NODE_PATTERN = /dualsense|vds/i;
 
-const BASS_FOCUS_CUTOFF_HZ = { deep: 55, balanced: 90, punchy: 140, wide: 220 };
+const BASS_FOCUS_CUTOFF_HZ = { deep: 80, balanced: 160, punchy: 240, wide: 400 }; // matches UI labels
 const RESPONSE_GAIN = { subtle: 0.6, balanced: 1.0, strong: 1.5 };
 const ATTACK_MS = { soft: 30, balanced: 15, fast: 8, sharp: 3 };
 const RELEASE_MS = { tight: 60, balanced: 120, smooth: 250, long: 450 };
@@ -130,7 +130,11 @@ class HapticsProcessor {
       const peak = Math.max(Math.abs(left), Math.abs(right));
       const coeff = peak > this.envelope ? this.attackCoeff : this.releaseCoeff;
       this.envelope = coeff * this.envelope + (1 - coeff) * peak;
-      const drive = this.gain * this.responseGain;
+      // Music bass peaks well below full scale and the daemon quantizes
+      // haptics to 8 bits, so drive hard into the tanh limiter; gate the
+      // noise floor so silence does not buzz the actuators.
+      const gate = this.envelope < 0.003 ? 0 : 1;
+      const drive = this.gain * this.responseGain * 4 * gate;
       output[frame * 4 + 2] = Math.tanh(left * drive);
       output[frame * 4 + 3] = Math.tanh(right * drive);
     }
