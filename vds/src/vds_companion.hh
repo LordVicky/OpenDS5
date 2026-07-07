@@ -5,6 +5,7 @@
 
 #include <array>
 #include <chrono>
+#include <deque>
 #include <optional>
 #include <cstdint>
 #include <span>
@@ -67,17 +68,45 @@ struct CompanionActuation {
   std::chrono::steady_clock::time_point test_rumble_until{};
 };
 
+inline constexpr std::size_t kCompanionRemapButtonCount = 21;
+inline constexpr std::size_t kCompanionMaxChordBindings = 16;
+inline constexpr std::size_t kCompanionMaxPendingInputEvents = 8;
+
+struct CompanionChordBinding {
+  std::uint8_t event = 0;   // 0x20+ chord function slot event code
+  std::uint8_t starter = 0; // 1 ps, 2 lfn, 3 rfn, 4 mute
+  std::uint8_t button = 0;  // REMAP_BUTTON_IDS index
+};
+
+// Per-port state for chord detection and press-scoped suppression.
+struct CompanionInputState {
+  std::uint32_t prev_pressed = 0;
+  std::uint32_t consumed_mask = 0;
+};
+
 struct CompanionRuntime {
   std::chrono::steady_clock::time_point started_at =
       std::chrono::steady_clock::now();
   CompanionSettings settings;
   CompanionActuation actuation;
+  std::array<std::uint8_t, kCompanionRemapButtonCount> button_remap{};
+  bool button_remap_active = false;
+  std::vector<CompanionChordBinding> chord_bindings;
+  std::deque<std::uint8_t> pending_input_events;
   std::uint16_t settings_revision = 0;
   std::uint8_t last_command_id = 0;
   std::uint8_t last_command_sequence = 0;
   std::uint8_t last_result_code = 0;
   std::uint8_t last_detail_code = 0;
 };
+
+// Rewrites a virtual USB DualSense input report in place: applies the
+// companion button remap table and detects chord bindings (starter held +
+// button pressed), queueing their event codes for the app to poll via the
+// companion INPUT report.
+void companion_translate_input(CompanionRuntime &runtime,
+                               CompanionInputState &state,
+                               std::span<std::uint8_t> report);
 
 // Clears expired momentary effects; returns true when state changed.
 bool expire_companion_actuation(CompanionRuntime &runtime,

@@ -71,9 +71,14 @@ effects, lightbar, remaps) onto DualSense output reports sent through vdsd.
    pair drives the actuators). Requires the card's pro-audio profile and
    the vds WirePlumber conf. Speaker + haptics + music-follow confirmed on
    hardware.
-5. **M4 — input features**: remapping, chords, personas (may need uinput or
-   vds profile support — vds `--profile` already does ds5/dse persona
-   switching).
+5. **M4 — input features** ✅ (remapping + chords; personas stay
+   DualSense-only pending kernel descriptor profiles):
+   `companion_translate_input` in vds_companion.cc rewrites input reports in
+   the daemon — 21-button remap table (hat re-encoding, analog trigger
+   preservation) and chord detection (starter held + button, press-scoped
+   suppression, event queue served via companion INPUT report 0x04). App-side
+   chord actions run through wtype (keyboard) and playerctl/wpctl (media) on
+   Linux.
 6. **M5 — packaging**: AppImage/deb/Arch package, systemd + udev integration
    (vds ships `vdsd.service.in` and udev rules).
 

@@ -198,6 +198,9 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
     actuation.persistent_trigger = {};
     actuation.test_trigger = {};
     actuation.test_rumble_active = false;
+    runtime.button_remap_active = false;
+    runtime.chord_bindings.clear();
+    runtime.pending_input_events.clear();
     return kAckOk;
   case 0x07: // SET_SPEAKER_VOLUME
     settings.speaker_volume_percent = std::min<std::uint16_t>(value, 100);
@@ -255,14 +258,50 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
   case 0x24: // SET_PLAYER_LED_ENABLED
     settings.player_led_enabled = value != 0;
     return kAckOk;
+  case 0x1E: { // SET_BUTTON_REMAP (payload: 21 target indexes)
+    std::array<std::uint8_t, kCompanionRemapButtonCount> table{};
+    bool identity = true;
+    for (std::size_t i = 0; i < kCompanionRemapButtonCount; ++i) {
+      const std::uint8_t target = report[11 + i];
+      if (target >= kCompanionRemapButtonCount) {
+        return kAckErrInvalidValue;
+      }
+      table[i] = target;
+      identity = identity && target == i;
+    }
+    runtime.button_remap = table;
+    runtime.button_remap_active = !identity;
+    return kAckOk;
+  }
+  case 0x23: { // SET_CHORD_BINDINGS (payload: [event, starter, button] * n)
+    std::vector<CompanionChordBinding> bindings;
+    for (std::size_t slot = 0; slot < kCompanionMaxChordBindings; ++slot) {
+      const std::size_t offset = 11 + slot * 3;
+      if (offset + 2 >= kCompanionReportLength) {
+        break;
+      }
+      const std::uint8_t event = report[offset];
+      if (event == 0) {
+        break;
+      }
+      const std::uint8_t starter = report[offset + 1];
+      const std::uint8_t button = report[offset + 2];
+      if (starter < 1 || starter > 4 ||
+          button >= kCompanionRemapButtonCount) {
+        return kAckErrInvalidValue;
+      }
+      bindings.push_back(CompanionChordBinding{event, starter, button});
+    }
+    runtime.chord_bindings = std::move(bindings);
+    runtime.pending_input_events.clear();
+    return kAckOk;
+  }
   // Settings accepted and stored by the app but not yet actuated here.
   case 0x0B: // SET_HAPTICS_BUFFER_LENGTH
   case 0x12: // SET_POLLING_RATE_MODE
   case 0x19: // SET_DUPLEX_ENABLED
   case 0x1D: // SET_SPEAKER_VOLUME_SHORTCUT_ENABLED
-  case 0x1E: // SET_BUTTON_REMAP
   case 0x22: // SET_AUDIO_REACTIVE_HAPTICS
-  case 0x23: // SET_CHORD_BINDINGS
   case 0x25: // SET_CLASSIC_RUMBLE_V1
   case 0x32: // SET_SPEAKER_GAIN
     return kAckOk;
@@ -390,6 +429,192 @@ std::uint8_t validate_command_report(const CompanionReport &report) {
 
 } // namespace
 
+namespace {
+
+// REMAP_BUTTON_IDS order (protocol.ts): l2 l1 create dpad-up dpad-left
+// dpad-down dpad-right l3 r2 r1 options triangle circle cross square r3
+// lb rb lfn rfn ps. Byte/bit positions are USB input report offsets
+// (report[0] is the report id; buttons live in report[8..10]).
+struct ButtonSpec {
+  std::uint8_t byte;
+  std::uint8_t mask;
+};
+constexpr std::uint8_t kDpadByte = 8;
+constexpr ButtonSpec kButtonSpecs[kCompanionRemapButtonCount] = {
+    {9, 0x04},  // l2
+    {9, 0x01},  // l1
+    {9, 0x10},  // create
+    {0, 0},     // dpad-up (hat encoded)
+    {0, 0},     // dpad-left
+    {0, 0},     // dpad-down
+    {0, 0},     // dpad-right
+    {9, 0x40},  // l3
+    {9, 0x08},  // r2
+    {9, 0x02},  // r1
+    {9, 0x20},  // options
+    {8, 0x80},  // triangle
+    {8, 0x40},  // circle
+    {8, 0x20},  // cross
+    {8, 0x10},  // square
+    {9, 0x80},  // r3
+    {10, 0x40}, // lb (Edge)
+    {10, 0x80}, // rb (Edge)
+    {10, 0x10}, // lfn (Edge)
+    {10, 0x20}, // rfn (Edge)
+    {10, 0x01}, // ps
+};
+constexpr std::uint8_t kIndexL2 = 0;
+constexpr std::uint8_t kIndexDpadUp = 3;
+constexpr std::uint8_t kIndexDpadLeft = 4;
+constexpr std::uint8_t kIndexDpadDown = 5;
+constexpr std::uint8_t kIndexDpadRight = 6;
+constexpr std::uint8_t kIndexR2 = 8;
+constexpr std::uint8_t kIndexLfn = 18;
+constexpr std::uint8_t kIndexRfn = 19;
+constexpr std::uint8_t kIndexPs = 20;
+constexpr std::size_t kAnalogL2Offset = 5;
+constexpr std::size_t kAnalogR2Offset = 6;
+constexpr std::uint8_t kMuteButtonMask = 0x04; // report[10]
+
+// Hat value -> up/right/down/left bits, 8 = neutral.
+constexpr std::uint8_t kHatToDirections[9] = {0x1, 0x3, 0x2, 0x6, 0x4,
+                                              0xc, 0x8, 0x9, 0x0};
+
+std::uint8_t directions_to_hat(std::uint8_t directions) {
+  for (std::uint8_t hat = 0; hat < 8; ++hat) {
+    if (kHatToDirections[hat] == directions) {
+      return hat;
+    }
+  }
+  return 8;
+}
+
+std::uint32_t read_pressed_buttons(std::span<const std::uint8_t> report) {
+  std::uint32_t pressed = 0;
+  const std::uint8_t directions = kHatToDirections[std::min<std::uint8_t>(
+      report[kDpadByte] & 0x0f, 8)];
+  if (directions & 0x1) pressed |= 1u << kIndexDpadUp;
+  if (directions & 0x2) pressed |= 1u << kIndexDpadRight;
+  if (directions & 0x4) pressed |= 1u << kIndexDpadDown;
+  if (directions & 0x8) pressed |= 1u << kIndexDpadLeft;
+  for (std::size_t i = 0; i < kCompanionRemapButtonCount; ++i) {
+    const ButtonSpec &spec = kButtonSpecs[i];
+    if (spec.mask != 0 && (report[spec.byte] & spec.mask) != 0) {
+      pressed |= 1u << i;
+    }
+  }
+  return pressed;
+}
+
+void write_pressed_buttons(std::span<std::uint8_t> report,
+                           std::uint32_t pressed) {
+  std::uint8_t directions = 0;
+  if (pressed & (1u << kIndexDpadUp)) directions |= 0x1;
+  if (pressed & (1u << kIndexDpadRight)) directions |= 0x2;
+  if (pressed & (1u << kIndexDpadDown)) directions |= 0x4;
+  if (pressed & (1u << kIndexDpadLeft)) directions |= 0x8;
+  report[kDpadByte] = static_cast<std::uint8_t>(
+      (report[kDpadByte] & 0xf0) | directions_to_hat(directions));
+  report[9] = 0;
+  report[10] &= static_cast<std::uint8_t>(
+      ~(0x01 | 0x10 | 0x20 | 0x40 | 0x80)); // keep touchpad/mute bits
+  report[8] &= 0x0f;
+  for (std::size_t i = 0; i < kCompanionRemapButtonCount; ++i) {
+    const ButtonSpec &spec = kButtonSpecs[i];
+    if (spec.mask != 0 && (pressed & (1u << i)) != 0) {
+      report[spec.byte] |= spec.mask;
+    }
+  }
+}
+
+bool starter_held(std::uint8_t starter, std::uint32_t pressed,
+                  std::span<const std::uint8_t> report) {
+  switch (starter) {
+  case 1:
+    return (pressed & (1u << kIndexPs)) != 0;
+  case 2:
+    return (pressed & (1u << kIndexLfn)) != 0;
+  case 3:
+    return (pressed & (1u << kIndexRfn)) != 0;
+  case 4:
+    return (report[10] & kMuteButtonMask) != 0;
+  default:
+    return false;
+  }
+}
+
+} // namespace
+
+void companion_translate_input(CompanionRuntime &runtime,
+                               CompanionInputState &state,
+                               std::span<std::uint8_t> report) {
+  if (report.size() < 11 ||
+      (!runtime.button_remap_active && runtime.chord_bindings.empty())) {
+    return;
+  }
+
+  std::uint32_t pressed = read_pressed_buttons(report);
+  const std::uint32_t previous = state.prev_pressed;
+  state.prev_pressed = pressed;
+  state.consumed_mask &= pressed; // released buttons are usable again
+
+  for (const CompanionChordBinding &binding : runtime.chord_bindings) {
+    const std::uint32_t button_bit = 1u << binding.button;
+    if (!starter_held(binding.starter, pressed, report)) {
+      continue;
+    }
+    if ((pressed & button_bit) != 0 && (previous & button_bit) == 0 &&
+        (state.consumed_mask & button_bit) == 0) {
+      if (runtime.pending_input_events.size() <
+          kCompanionMaxPendingInputEvents) {
+        runtime.pending_input_events.push_back(binding.event);
+      }
+    }
+    if ((pressed & button_bit) != 0) {
+      state.consumed_mask |= button_bit;
+    }
+  }
+  pressed &= ~state.consumed_mask;
+
+  if (runtime.button_remap_active) {
+    std::uint32_t remapped = 0;
+    // Identity-mapped triggers keep their analog curve even below the
+    // digital press threshold.
+    std::uint8_t analog_l2 =
+        runtime.button_remap[kIndexL2] == kIndexL2 ? report[kAnalogL2Offset]
+                                                   : 0;
+    std::uint8_t analog_r2 =
+        runtime.button_remap[kIndexR2] == kIndexR2 ? report[kAnalogR2Offset]
+                                                   : 0;
+    for (std::size_t source = 0; source < kCompanionRemapButtonCount;
+         ++source) {
+      if ((pressed & (1u << source)) == 0) {
+        continue;
+      }
+      const std::uint8_t target = runtime.button_remap[source];
+      remapped |= 1u << target;
+      if (target == kIndexL2 || target == kIndexR2) {
+        // Preserve the analog curve when a trigger stays a trigger;
+        // digital sources drive the remapped trigger fully.
+        const std::uint8_t value =
+            source == kIndexL2 ? report[kAnalogL2Offset]
+            : source == kIndexR2 ? report[kAnalogR2Offset]
+                                 : 0xff;
+        if (target == kIndexL2) {
+          analog_l2 = std::max(analog_l2, value);
+        } else {
+          analog_r2 = std::max(analog_r2, value);
+        }
+      }
+    }
+    report[kAnalogL2Offset] = analog_l2;
+    report[kAnalogR2Offset] = analog_r2;
+    pressed = remapped;
+  }
+
+  write_pressed_buttons(report, pressed);
+}
+
 bool expire_companion_actuation(CompanionRuntime &runtime,
                                 std::chrono::steady_clock::time_point now) {
   CompanionActuation &actuation = runtime.actuation;
@@ -448,6 +673,15 @@ std::string handle_companion_control_request(
     }
     if (report_id == kReportIdAck) {
       return format_report_reply(build_ack_report(runtime));
+    }
+    if (report_id == 0x04) { // INPUT: next queued shortcut/chord event
+      CompanionReport report{};
+      report[0] = 0x04;
+      if (!runtime.pending_input_events.empty()) {
+        report[1] = runtime.pending_input_events.front();
+        runtime.pending_input_events.pop_front();
+      }
+      return format_report_reply(report);
     }
     throw std::runtime_error("unsupported companion report id " +
                              std::to_string(report_id));

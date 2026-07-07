@@ -168,6 +168,7 @@ struct VirtualPort {
   std::uint32_t speaker_waveout_phase = 0;
   std::uint16_t haptics_gain_percent = 100;
   std::uint8_t battery_status = 0xff;
+  vds::CompanionInputState companion_input;
   std::array<std::vector<std::uint8_t>, 256> feature_cache;
   std::array<bool, 256> feature_cached;
   std::vector<std::uint8_t> pending_feature_reports;
@@ -572,6 +573,7 @@ void reset_virtual_port(VirtualPort &port) {
   port.speaker_waveout_phase = 0;
   port.haptics_gain_percent = 100;
   port.battery_status = 0xff;
+  port.companion_input = {};
   port.feature_cache = {};
   port.feature_cached = {};
   port.pending_feature_reports.clear();
@@ -940,12 +942,15 @@ bool handle_vds_frame(VirtualPort &port, vds::BtL2capBackend *bt_backend,
 }
 
 bool handle_bt_input(VirtualPort &port, vds::BtL2capBackend &bt_backend,
+                     vds::CompanionRuntime &companion,
                      std::uint32_t trace_flags, vds::Logger &logger) {
   const auto read_time = Clock::now();
-  const auto report = bt_backend.read_input_report();
+  auto report = bt_backend.read_input_report();
   if (!report) {
     return false;
   }
+  vds::companion_translate_input(companion, port.companion_input,
+                                 std::span<std::uint8_t>(*report));
   // USB input payload offset 52 (report byte 53) carries the DualSense
   // power status: low nibble battery capacity 0-10, high nibble state.
   port.battery_status = (*report)[53];
@@ -2233,8 +2238,8 @@ int main(int argc, char **argv) {
           if ((revents & EPOLLIN) != 0) {
             for (int packet = 0; packet < kMaxBtPacketsPerWake; ++packet) {
               try {
-                if (!handle_bt_input(port, *controller.backend, trace_flags,
-                                     logger)) {
+                if (!handle_bt_input(port, *controller.backend, companion,
+                                     trace_flags, logger)) {
                   break;
                 }
               } catch (const std::exception &error) {

@@ -707,11 +707,116 @@ function virtualKeyCodeFor(key: string): number | null {
   return VIRTUAL_KEY_CODES[normalized] ?? null;
 }
 
+const LINUX_MODIFIER_KEYSYMS: Record<number, string> = {
+  0x10: 'shift',
+  0x11: 'ctrl',
+  0x12: 'alt',
+  0x5b: 'logo'
+};
+
+const LINUX_KEYSYMS: Record<number, string> = {
+  0x08: 'BackSpace',
+  0x09: 'Tab',
+  0x0d: 'Return',
+  0x13: 'Pause',
+  0x14: 'Caps_Lock',
+  0x1b: 'Escape',
+  0x20: 'space',
+  0x21: 'Prior',
+  0x22: 'Next',
+  0x23: 'End',
+  0x24: 'Home',
+  0x25: 'Left',
+  0x26: 'Up',
+  0x27: 'Right',
+  0x28: 'Down',
+  0x2c: 'Print',
+  0x2d: 'Insert',
+  0x2e: 'Delete',
+  0x5d: 'Menu',
+  0x90: 'Num_Lock',
+  0x91: 'Scroll_Lock'
+};
+
+const LINUX_MEDIA_COMMANDS: Record<number, [string, string[]]> = {
+  0xb3: ['playerctl', ['play-pause']],
+  0xb0: ['playerctl', ['next']],
+  0xb1: ['playerctl', ['previous']],
+  0xad: ['wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', 'toggle']],
+  0xaf: ['wpctl', ['set-volume', '-l', '1.5', '@DEFAULT_AUDIO_SINK@', '5%+']],
+  0xae: ['wpctl', ['set-volume', '@DEFAULT_AUDIO_SINK@', '5%-']]
+};
+
+function linuxKeysymFor(code: number): string | null {
+  if (LINUX_KEYSYMS[code]) {
+    return LINUX_KEYSYMS[code];
+  }
+  if (code >= 0x30 && code <= 0x39) {
+    return String.fromCharCode(code); // digits
+  }
+  if (code >= 0x41 && code <= 0x5a) {
+    return String.fromCharCode(code).toLowerCase(); // letters
+  }
+  if (code >= 0x70 && code <= 0x87) {
+    return `F${code - 0x70 + 1}`; // F1-F24
+  }
+  return null;
+}
+
+function runCommand(command: string, args: string[]): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, { windowsHide: true });
+    child.on('error', reject);
+    child.on('exit', (code, signal) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${command} exited (${signal ?? code ?? 'unknown'})`));
+      }
+    });
+  });
+}
+
+async function sendLinuxKeySequence(codes: number[]): Promise<void> {
+  if (codes.length === 1 && LINUX_MEDIA_COMMANDS[codes[0]]) {
+    const [command, args] = LINUX_MEDIA_COMMANDS[codes[0]];
+    await runCommand(command, args);
+    return;
+  }
+  const args: string[] = [];
+  for (const code of codes) {
+    const modifier = LINUX_MODIFIER_KEYSYMS[code];
+    if (modifier) {
+      args.push('-M', modifier);
+      continue;
+    }
+    const keysym = linuxKeysymFor(code);
+    if (!keysym) {
+      throw new Error(`No Linux keysym mapping for virtual key 0x${code.toString(16)}.`);
+    }
+    args.push('-k', keysym);
+  }
+  for (const code of [...codes].reverse()) {
+    const modifier = LINUX_MODIFIER_KEYSYMS[code];
+    if (modifier) {
+      args.push('-m', modifier);
+    }
+  }
+  if (args.length === 0) {
+    return;
+  }
+  await runCommand('wtype', args);
+}
+
 async function sendVirtualKeySequence(codes: number[]): Promise<void> {
   const normalized = codes
     .map((code) => Math.max(0, Math.min(0xff, Math.round(code))))
     .filter((code) => Number.isFinite(code) && code > 0);
   if (normalized.length === 0) {
+    return;
+  }
+  if (process.platform !== 'win32') {
+    await sendLinuxKeySequence(normalized);
     return;
   }
   const downCodes = normalized.join(',');
