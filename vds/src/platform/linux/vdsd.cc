@@ -24,6 +24,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <grp.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -389,6 +390,11 @@ int open_control_socket(const std::string &path) {
     const int error = errno;
     throw std::runtime_error("failed to bind control socket " + path + ": " +
                              std::strerror(error));
+  }
+  // When a "vds" group exists, grant it socket access so unprivileged
+  // clients (the companion app, vdsctl) can talk to the daemon.
+  if (const struct group *vds_group = ::getgrnam("vds")) {
+    (void)::chown(path.c_str(), 0, vds_group->gr_gid);
   }
   (void)::chmod(path.c_str(), 0660);
 

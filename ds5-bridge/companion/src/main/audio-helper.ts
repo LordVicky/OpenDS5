@@ -189,7 +189,6 @@ export class SystemAudioHapticsEngine extends EventEmitter {
   }
 
   private async startInternal(config: SystemAudioHapticsConfig, hostPersonaMode: HostPersonaMode): Promise<void> {
-    const helperPath = resolveHelperPath();
     this.activeConfig = config;
     this.activeHostPersonaMode = hostPersonaMode;
     const args = [
@@ -221,8 +220,9 @@ export class SystemAudioHapticsEngine extends EventEmitter {
       }
     }
 
-    const helper = spawn(helperPath, args, {
-      env: buildSystemAudioHapticsHelperEnv(),
+    const launch = helperLaunch(args, buildSystemAudioHapticsHelperEnv());
+    const helper = spawn(launch.command, launch.args, {
+      env: launch.env,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe']
     });
@@ -316,9 +316,9 @@ export class AudioHapticsSessionMonitor extends EventEmitter {
   }
 
   private async startInternal(): Promise<void> {
-    const helperPath = resolveHelperPath();
-    const helper = spawn(helperPath, ['--monitor-audio-sessions'], {
-      env: buildSystemAudioHapticsHelperEnv(),
+    const launch = helperLaunch(['--monitor-audio-sessions'], buildSystemAudioHapticsHelperEnv());
+    const helper = spawn(launch.command, launch.args, {
+      env: launch.env,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe']
     });
@@ -635,6 +635,7 @@ async function runAudioHelperCommand(args: string[]): Promise<{ stdout: string; 
 
 function runAudioHelperCommandOnce(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   const helper = spawn(command, args, {
+    env: process.platform === 'win32' ? undefined : { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -766,16 +767,17 @@ export async function playBridgeSpeakerTestTone(
   speakerVolumePercent = 100,
   hostPersonaMode: HostPersonaMode = 'dualsense'
 ): Promise<void> {
-  const helperPath = resolveHelperPath();
-  const testAudioPath = resolveHelperTestAudioPath(helperPath);
-  const helper = spawn(helperPath, [
+  const testAudioPath = resolveHelperTestAudioPath(resolveHelperPath());
+  const launch = helperLaunch([
     '--play-test-tone',
     ...bridgePersonaArgs(hostPersonaMode),
     '--test-audio-path',
     testAudioPath,
     '--speaker-volume',
     `${normalizeSpeakerVolumePercent(speakerVolumePercent)}`
-  ], {
+  ]);
+  const helper = spawn(launch.command, launch.args, {
+    env: launch.env,
     windowsHide: true,
     stdio: ['ignore', 'ignore', 'pipe']
   });
@@ -824,13 +826,14 @@ export async function playBridgeHapticsTestPattern(
   hapticsGainPercent = 100,
   hostPersonaMode: HostPersonaMode = 'dualsense'
 ): Promise<void> {
-  const helperPath = resolveHelperPath();
-  const helper = spawn(helperPath, [
+  const launch = helperLaunch([
     '--play-test-haptics',
     ...bridgePersonaArgs(hostPersonaMode),
     '--haptics-gain',
     `${normalizeTestHapticsGainPercent(hapticsGainPercent)}`
-  ], {
+  ]);
+  const helper = spawn(launch.command, launch.args, {
+    env: launch.env,
     windowsHide: true,
     stdio: ['ignore', 'ignore', 'pipe']
   });
@@ -936,8 +939,9 @@ export class MicKeepaliveEngine extends EventEmitter {
   }
 
   private async startInternal(): Promise<void> {
-    const helperPath = resolveHelperPath();
-    const helper = spawn(helperPath, ['--mic-keepalive-only', '--mic-device-name', 'DS5 Bridge'], {
+    const launch = helperLaunch(['--mic-keepalive-only', '--mic-device-name', 'DS5 Bridge']);
+    const helper = spawn(launch.command, launch.args, {
+      env: launch.env,
       windowsHide: true,
       stdio: ['pipe', 'ignore', 'pipe']
     });
@@ -979,9 +983,10 @@ export function resolveAudioHelperPath(): string {
 
 export function resolveAudioHelperCommands(args: string[]): AudioHelperCommand[] {
   const helperPath = resolveAudioHelperPath();
+  const launch = helperLaunch(args);
   const commands: AudioHelperCommand[] = [{
-    command: helperPath,
-    args,
+    command: launch.command,
+    args: launch.args,
     label: helperPath
   }];
   for (const dllPath of audioHelperDllFallbackCandidates(helperPath)) {
@@ -996,6 +1001,23 @@ export function resolveAudioHelperCommands(args: string[]): AudioHelperCommand[]
 
 function resolveHelperPath(): string {
   return resolveAudioHelperPath();
+}
+
+type HelperLaunch = { command: string; args: string[]; env: NodeJS.ProcessEnv };
+
+// On Windows the helper is a native exe. Elsewhere it is a Node script run
+// through Electron's bundled Node (ELECTRON_RUN_AS_NODE), so a packaged app
+// does not depend on a system Node installation.
+function helperLaunch(args: string[], baseEnv: NodeJS.ProcessEnv = process.env): HelperLaunch {
+  const helperPath = resolveHelperPath();
+  if (process.platform === 'win32') {
+    return { command: helperPath, args, env: baseEnv };
+  }
+  return {
+    command: process.execPath,
+    args: [helperPath, ...args],
+    env: { ...baseEnv, ELECTRON_RUN_AS_NODE: '1' }
+  };
 }
 
 function audioHelperDllFallbackCandidates(helperPath: string): string[] {

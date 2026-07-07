@@ -33,6 +33,7 @@ function sourceNotice(repoDir) {
 }
 
 exports.default = async function afterPack(context) {
+  const isWindows = context.electronPlatformName === 'win32';
   const exePath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`);
   const repoDir = path.resolve(__dirname, '..', '..');
   const appIcon = path.join(repoDir, 'assets', 'controllers', 'ds5-bridge_app-icon-tile.ico');
@@ -41,6 +42,9 @@ exports.default = async function afterPack(context) {
   fs.copyFileSync(path.join(repoDir, 'NOTICE'), path.join(context.appOutDir, 'NOTICE'));
   fs.writeFileSync(path.join(context.appOutDir, 'SOURCE.txt'), sourceNotice(repoDir), 'utf8');
 
+  if (!isWindows) {
+    return;
+  }
   await rcedit(exePath, {
     icon: appIcon,
     'file-version': appPackage.version,

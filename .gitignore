@@ -13,3 +13,4 @@ build/
 Module.symvers
 modules.order
 vds/module/.*.cmd
+artifacts/

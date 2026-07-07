@@ -115,7 +115,8 @@ describe('bridge haptics test', () => {
     await play;
 
     expect(childProcessMock.spawn).toHaveBeenCalledTimes(1);
-    const args = childProcessMock.spawn.mock.calls[0]![1] as string[];
+    const rawArgs = childProcessMock.spawn.mock.calls[0]![1] as string[];
+    const args = process.platform === 'win32' ? rawArgs : rawArgs.slice(1);
     expect(args).toEqual([
       '--play-test-haptics',
       '--bridge-persona',
@@ -135,7 +136,8 @@ describe('bridge speaker test', () => {
     await play;
 
     expect(childProcessMock.spawn).toHaveBeenCalledTimes(1);
-    const args = childProcessMock.spawn.mock.calls[0]![1] as string[];
+    const rawArgs = childProcessMock.spawn.mock.calls[0]![1] as string[];
+    const args = process.platform === 'win32' ? rawArgs : rawArgs.slice(1);
     expect(args).toEqual([
       '--play-test-tone',
       '--bridge-persona',
@@ -187,7 +189,9 @@ describe('audio haptics session listing', () => {
     await expect(monitor.listSessions()).resolves.toHaveLength(1);
 
     expect(childProcessMock.spawn).toHaveBeenCalledTimes(1);
-    expect(childProcessMock.spawn.mock.calls[0]![1]).toEqual(['--monitor-audio-sessions']);
+    const monitorRawArgs = childProcessMock.spawn.mock.calls[0]![1] as string[];
+    const monitorArgs = process.platform === 'win32' ? monitorRawArgs : monitorRawArgs.slice(1);
+    expect(monitorArgs).toEqual(['--monitor-audio-sessions']);
 
     await monitor.stop();
   });

@@ -22,7 +22,8 @@
     "test:native": "dotnet test native/AudioHelper.Tests/AudioHelper.Tests.csproj --nologo",
     "test:firmware": "cmake -S ../tests/firmware -B ../build-firmware-tests -G Ninja && cmake --build ../build-firmware-tests && ctest --test-dir ../build-firmware-tests --output-on-failure",
     "visual:smoke": "npm run build && node scripts/visual-smoke.mjs",
-    "layout:check": "npm run build && node scripts/layout-check.mjs"
+    "layout:check": "npm run build && node scripts/layout-check.mjs",
+    "installer:linux": "npm run build:app && electron-builder --linux AppImage --x64"
   },
   "build": {
     "appId": "io.github.sundaymoments.ds5bridge",
@@ -37,7 +38,7 @@
       "node_modules/node-hid/binding-options.js",
       "node_modules/node-hid/nodehid.js",
       "node_modules/node-hid/package.json",
-      "node_modules/node-hid/prebuilds/HID-win32-x64/**/*",
+      "node_modules/node-hid/prebuilds/HID-*/**/*",
       "node_modules/pkg-prebuilds/bindings.js",
       "node_modules/pkg-prebuilds/lib/**/*",
       "node_modules/pkg-prebuilds/package.json"
@@ -51,28 +52,6 @@
           "ds5-bridge_app-icon-tile.png",
           "ds5-bridge_mark.ico",
           "ds5-bridge_mark.png"
-        ]
-      },
-      {
-        "from": "native/AudioHelper/bin/publish/win-x64",
-        "to": "native/AudioHelper",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "firmware",
-        "to": "firmware",
-        "filter": [
-          "pico-universal-flash-nuke.uf2",
-          "pico-universal-flash-nuke.uf2.sha256"
-        ]
-      },
-      {
-        "from": "../tools/windows",
-        "to": "tools/windows",
-        "filter": [
-          "clean-ds5bridge-devices.ps1"
         ]
       }
     ],
@@ -91,6 +70,30 @@
             "x64"
           ]
         }
+      ],
+      "extraResources": [
+        {
+          "from": "native/AudioHelper/bin/publish/win-x64",
+          "to": "native/AudioHelper",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "firmware",
+          "to": "firmware",
+          "filter": [
+            "pico-universal-flash-nuke.uf2",
+            "pico-universal-flash-nuke.uf2.sha256"
+          ]
+        },
+        {
+          "from": "../tools/windows",
+          "to": "tools/windows",
+          "filter": [
+            "clean-ds5bridge-devices.ps1"
+          ]
+        }
       ]
     },
     "nsis": {
@@ -103,6 +106,29 @@
       "createStartMenuShortcut": true,
       "shortcutName": "DS5 Bridge",
       "uninstallDisplayName": "DS5 Bridge"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "../assets/controllers/ds5-bridge_app-icon-tile.png",
+      "category": "Game",
+      "executableName": "ds5-bridge",
+      "extraResources": [
+        {
+          "from": "native/audio-helper-linux.mjs",
+          "to": "native/audio-helper-linux.mjs"
+        },
+        {
+          "from": "src/renderer/assets/test-speaker-tone-silence-tail.mp3",
+          "to": "native/test-speaker-tone-silence-tail.mp3"
+        }
+      ]
     }
   },
   "dependencies": {
