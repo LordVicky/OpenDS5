@@ -2819,10 +2819,10 @@ export function App() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [bridgeBackendMode, setBridgeBackendMode] = useState<'kernel' | 'rootless' | 'unknown'>('unknown');
   useEffect(() => {
-    let cancelled = false;
+    let stopped = false;
     const refresh = () => {
       void window.bridge.getBridgeBackendMode().then((mode) => {
-        if (!cancelled) {
+        if (!stopped) {
           setBridgeBackendMode(mode);
         }
       }).catch(() => {});
@@ -2830,7 +2830,7 @@ export function App() {
     refresh();
     const timer = setInterval(refresh, 5000);
     return () => {
-      cancelled = true;
+      stopped = true;
       clearInterval(timer);
     };
   }, []);
