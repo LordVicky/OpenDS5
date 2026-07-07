@@ -112,12 +112,6 @@ async function resolveAudioOutput() {
   }
   const sink = await waitForBridgeSink();
   if (sink) {
-    // PipeWire applies the sink volume on top of our samples; the DualSense
-    // haptic actuators expect full-scale, so pin it (speaker loudness is
-    // governed separately by the companion speaker-volume control).
-    await new Promise((resolve) => {
-      execFile('wpctl', ['set-volume', `${sink.id}`, '1.0'], () => resolve());
-    });
     return { kind: 'sink', target: nodeProps(sink)['node.name'] };
   }
   fail('status: capture-unavailable DualSense audio sink not found. '
