@@ -473,6 +473,21 @@ void cache_feature_report(VirtualPort &port,
       std::vector<std::uint8_t>(report.begin(), report.end());
   port.feature_cached[report_id] = true;
 
+  if (port.is_uhid) {
+    for (auto it = port.pending_uhid_gets.begin();
+         it != port.pending_uhid_gets.end();) {
+      if (it->first == report_id) {
+        (void)port.uhid.reply_get_report(
+            it->second,
+            std::span<const std::uint8_t>(port.feature_cache[report_id]),
+            logger);
+        it = port.pending_uhid_gets.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    return;
+  }
   const auto frame = vds::frame_bytes(VDS_FRAME_USB_FEATURE_REPLY,
                                       port.feature_cache[report_id]);
   (void)write_vds_frame(port, frame, trace, logger);
