@@ -167,6 +167,7 @@ struct VirtualPort {
   bool speaker_waveout_active = false;
   std::uint32_t speaker_waveout_phase = 0;
   std::uint16_t haptics_gain_percent = 100;
+  std::uint8_t battery_status = 0xff;
   std::array<std::vector<std::uint8_t>, 256> feature_cache;
   std::array<bool, 256> feature_cached;
   std::vector<std::uint8_t> pending_feature_reports;
@@ -570,6 +571,7 @@ void reset_virtual_port(VirtualPort &port) {
   port.speaker_waveout_active = false;
   port.speaker_waveout_phase = 0;
   port.haptics_gain_percent = 100;
+  port.battery_status = 0xff;
   port.feature_cache = {};
   port.feature_cached = {};
   port.pending_feature_reports.clear();
@@ -944,6 +946,10 @@ bool handle_bt_input(VirtualPort &port, vds::BtL2capBackend &bt_backend,
   if (!report) {
     return false;
   }
+  // USB input payload offset 52 (report byte 53) carries the DualSense
+  // power status: low nibble battery capacity 0-10, high nibble state.
+  port.battery_status = (*report)[53];
+
   const bool input_trace = trace_enabled(trace_flags, kTraceInput);
   if (input_trace) {
     ++port.trace_state.bt_input_count;
@@ -1811,10 +1817,20 @@ void handle_control_client(int control_fd, std::span<const VirtualPort> ports,
   std::vector<vds::VdsdControlControllerStatus> controller_statuses;
   controller_statuses.reserve(controllers.size());
   for (const auto &controller : controllers) {
+    std::uint8_t battery_status = 0xff;
+    if (controller.virtual_connected) {
+      for (const auto &port : ports) {
+        if (port.path == controller.device) {
+          battery_status = port.battery_status;
+          break;
+        }
+      }
+    }
     controller_statuses.push_back(vds::VdsdControlControllerStatus{
         .address = controller.config.address,
         .connected = controller.virtual_connected,
         .path = controller.virtual_connected ? controller.device : "",
+        .battery_status = battery_status,
     });
   }
 

@@ -97,8 +97,14 @@ CompanionReport build_status_report(
   report[8] = connected != nullptr
                   ? controller_type_value(db_path, connected->address)
                   : 0;
-  report[9] = 255; // Battery percent unknown; worker state plumbing pending.
-  report[10] = 0;  // Raw power state.
+  if (connected != nullptr && connected->battery_status != 0xff) {
+    const std::uint8_t capacity = connected->battery_status & 0x0f;
+    report[9] = static_cast<std::uint8_t>(std::min<unsigned>(capacity, 10) * 10);
+    report[10] = static_cast<std::uint8_t>((connected->battery_status >> 4) & 0x0f);
+  } else {
+    report[9] = 255; // Battery percent unknown.
+    report[10] = 0;  // Raw power state.
+  }
   report[11] = 0;  // Audio recent.
   report[12] = connected != nullptr ? 1 : 0; // Haptics ready.
   write_u16(report, 13, settings.haptics_gain_percent);

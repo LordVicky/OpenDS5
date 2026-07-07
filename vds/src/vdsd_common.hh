@@ -32,6 +32,9 @@ struct VdsdControlControllerStatus {
   std::string address;
   bool connected = false;
   std::string path;
+  // Raw DualSense power status byte from the latest input report: low
+  // nibble battery capacity 0-10, high nibble charging state. 0xff unknown.
+  std::uint8_t battery_status = 0xff;
 };
 
 struct VdsdControlPortStatus {
