@@ -1,0 +1,120 @@
+#!/bin/sh
+set -e
+
+DKMS_NAME="vds_hcd"
+DKMS_VERSION="@DKMS_VERSION@"
+INSTALL_SERVICE="/usr/share/vds/install-service.sh"
+
+is_udev_running() {
+	command -v udevadm >/dev/null 2>&1 && [ -S /run/udev/control ]
+}
+
+print_bluetooth_pairing_notice() {
+	cat <<'NOTICE'
+
+vDS initial Bluetooth pairing
+-----------------------------
+
+Current limitation: run bluetoothd with the input plugin disabled
+(--noplugin=input). vDS needs direct ownership of the Bluetooth HID Control
+and Interrupt L2CAP channels. If the normal BlueZ input plugin is active, it
+can claim the controller first and expose it as a regular Bluetooth gamepad
+instead of letting vDS bridge it as a virtual USB controller.
+
+In simpler terms, using vDS on Linux currently means giving up Bluetooth
+devices like mice or keyboards. A BlueZ userspace stack patch is being prepared
+to remove this limitation.
+
+In the meantime, the helper script can install or remove the required
+bluetoothd systemd drop-in override:
+
+  sudo /usr/share/vds/override-bluetoothd.sh disable-input --restart
+  sudo /usr/share/vds/override-bluetoothd.sh enable-input --restart
+
+Pair each physical controller once before registering it with vdsctl. Start
+bluetoothctl, put the controller in Bluetooth pairing mode by holding Create
+and PS until the light bar blinks rapidly, then use the MAC address printed by
+scan on:
+
+  agent NoInputNoOutput
+  default-agent
+  pairable on
+  scan on
+  pair XX:XX:XX:XX:XX:XX
+  trust XX:XX:XX:XX:XX:XX
+  scan off
+  quit
+
+When re-pairing a controller that BlueZ already knows, run
+remove XX:XX:XX:XX:XX:XX before scan on.
+
+NOTICE
+}
+
+print_audio_setup_notice() {
+	cat <<'NOTICE'
+
+vDS audio setup
+---------------
+
+Configure the virtual controller audio output as 48 kHz 4-channel S16_LE PCM.
+The exact setup differs by audio stack, such as PipeWire, PulseAudio, ALSA, or
+JACK.
+
+For PipeWire/WirePlumber, set the controller card profile to pro-audio. Find
+the WirePlumber device id:
+
+  wpctl status
+
+List the available profile indexes for that device:
+
+  pw-cli e <device-id> EnumProfile | awk '/Profile:index/{getline; idx=$2} /Profile:name/{getline; gsub(/"/, "", $2); print idx, $2}'
+
+Set the pro-audio profile:
+
+  wpctl set-profile <device-id> <pro-audio-profile-index>
+
+WARNING:
+The microphone/source node is disabled on purpose. vDS currently supports
+controller speaker and haptics output, but not microphone input. If
+WirePlumber, games, or tools such as pavucontrol open the capture endpoint,
+the extra USB audio traffic can disrupt controller speaker and haptics output,
+as well as main audio playback.
+
+After setting the pro-audio profile, install the included WirePlumber rule. It
+gives the virtual controller stable display names, sets the output node to 4
+channels, disables channelmix normalization, disables the unsupported microphone
+source node, and lowers its priority:
+
+  mkdir -p ~/.config/wireplumber/wireplumber.conf.d
+  cp /usr/share/doc/vds/examples/99-vds-dualsense-wireplumber.conf ~/.config/wireplumber/wireplumber.conf.d/
+
+Restart the user audio services after changing this file:
+
+  systemctl --user restart pipewire pipewire-pulse wireplumber
+
+NOTICE
+}
+
+case "$1" in
+configure)
+	if dkms status -m "$DKMS_NAME" -v "$DKMS_VERSION" 2>/dev/null | grep -Fq "$DKMS_NAME/$DKMS_VERSION"; then
+		dkms remove -m "$DKMS_NAME" -v "$DKMS_VERSION" --all
+	fi
+	dkms add -m "$DKMS_NAME" -v "$DKMS_VERSION"
+	dkms build -m "$DKMS_NAME" -v "$DKMS_VERSION"
+	dkms install -m "$DKMS_NAME" -v "$DKMS_VERSION"
+
+	if is_udev_running; then
+		udevadm control --reload-rules || true
+		udevadm trigger --subsystem-match=input || true
+	fi
+	if [ -x "$INSTALL_SERVICE" ]; then
+		"$INSTALL_SERVICE" --start || true
+	fi
+	print_bluetooth_pairing_notice
+	print_audio_setup_notice
+	;;
+esac
+
+exit 0
