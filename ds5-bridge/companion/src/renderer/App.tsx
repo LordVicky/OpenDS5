@@ -6608,7 +6608,7 @@ export function App() {
                     <strong>{lightbarBrightnessValue}%</strong>
                   </label>
                   <label className={`overview-slider-row ${!connected ? 'disabled' : ''}`}>
-                    <span>Touchpad Mouse</span>
+                    <span>Touchpad</span>
                     <div className="overview-range-control overview-toggle-control">
                       <button
                         type="button"

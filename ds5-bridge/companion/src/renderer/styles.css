@@ -2691,8 +2691,14 @@ button {
 }
 
 .overview-sliders {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(min-content, 1fr);
   align-content: stretch;
+}
+
+.overview-toggle-control {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
 }
 
 .overview-panel-heading {
