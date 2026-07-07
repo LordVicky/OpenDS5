@@ -530,7 +530,7 @@ describe('companion layout CSS', () => {
     const overviewRangeTicks = cssBlock('.overview-range-ticks', 'height: 5px;');
 
     expect(cssBlock('.overview-sliders', 'grid-template-rows: auto minmax(min-content, 1fr);')).toContain(
-      'grid-template-rows: auto minmax(0, 1fr);'
+      'align-content: stretch;'
     );
     expect(overviewSliderList).toContain('border: 1px solid var(--surface-border);');
     expect(overviewSliderList).toContain('border-radius: var(--card-radius);');
