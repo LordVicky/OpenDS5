@@ -74,6 +74,7 @@ export interface CompanionSettings {
   hostPersonaMode: HostPersonaMode;
   notifyControllerConnection: boolean;
   notifyLowBattery: boolean;
+  touchpadMouseEnabled: boolean;
   duplexMicEnabled: boolean;
   controllerPowerSavingEnabled: boolean;
   selectedControllerProfileId: string;

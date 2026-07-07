@@ -9574,6 +9574,24 @@ export function App() {
                 </div>
                 <div className="settings-menu-row">
                   <div className="settings-menu-copy">
+                    <strong>Touchpad Mouse Input</strong>
+                    <span>Let the touchpad move the desktop cursor. Turn off to stop games treating touchpad gestures as camera movement; in-game touch features keep working</span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={snapshot.settings.touchpadMouseEnabled}
+                    className={`switch ${snapshot.settings.touchpadMouseEnabled ? 'on' : ''}`}
+                    disabled={pendingAction !== null}
+                    onClick={() => void runAction('touchpad-mouse', () => (
+                      window.bridge.setTouchpadMouseEnabled(!snapshot.settings.touchpadMouseEnabled)
+                    ))}
+                  >
+                    <span />
+                  </button>
+                </div>
+                <div className="settings-menu-row">
+                  <div className="settings-menu-copy">
                     <strong>Player Slot LED</strong>
                     <span>Show the controller player indicator lights</span>
                   </div>

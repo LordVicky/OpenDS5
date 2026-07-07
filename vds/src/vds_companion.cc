@@ -376,6 +376,9 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
     return kAckOk;
   case 0x11: // SLEEP_CONTROLLER
     return connected ? kAckOk : kAckErrNotConnected;
+  case 0x40: // SET_TOUCHPAD_POINTER (Linux-port extension)
+    settings.touchpad_pointer_enabled = value != 0;
+    return kAckOk;
   default:
     logger.log("companion", LogLevel::Warn,
                "unknown companion command id " + std::to_string(command_id));

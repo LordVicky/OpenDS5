@@ -689,6 +689,10 @@ for (let index = 1; index <= 24; index += 1) {
   VIRTUAL_KEY_CODES[`F${index}`] = 0x6f + index;
 }
 
+// Linux-port companion extension: vdsd grabs/releases the touchpad evdev
+// pointer device (raw HID touch for games is unaffected).
+const COMMAND_SET_TOUCHPAD_POINTER = 0x40;
+
 const MEDIA_ACTION_KEY_CODES: Record<Extract<ChordFunction, { type: 'media' }>['action'], number> = {
   'play-pause': 0xb3,
   'next-track': 0xb0,
@@ -2907,6 +2911,13 @@ export class BridgeService extends EventEmitter {
     return this.getSnapshot();
   }
 
+  async setTouchpadMouseEnabled(enabled: boolean): Promise<BridgeSnapshot> {
+    await this.sendSettingCommand(COMMAND_SET_TOUCHPAD_POINTER, enabled ? 1 : 0, {
+      touchpadMouseEnabled: enabled
+    });
+    return this.getSnapshot();
+  }
+
   async setNotifyLowBattery(enabled: boolean): Promise<BridgeSnapshot> {
     this.snapshot.settings = this.settingsStore.update({ notifyLowBattery: enabled });
     this.lowBatteryToastActive = false;
@@ -3761,6 +3772,12 @@ export class BridgeService extends EventEmitter {
     await this.sendCommand(COMMAND_ID.SET_PLAYER_LED_ENABLED, settings.playerLedEnabled ? 1 : 0, {
       expectSettingsRevisionChange
     });
+    if (process.platform !== 'win32') {
+      await this.sendCommand(COMMAND_SET_TOUCHPAD_POINTER, settings.touchpadMouseEnabled ? 1 : 0, {
+        expectSettingsRevisionChange,
+        throwOnCommandError: false
+      });
+    }
     await this.sendCommand(COMMAND_ID.SET_IDLE_DISCONNECT_ENABLED, settings.idleDisconnectEnabled ? 1 : 0, {
       expectSettingsRevisionChange
     });

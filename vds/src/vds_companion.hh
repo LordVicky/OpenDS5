@@ -45,6 +45,9 @@ struct CompanionSettings {
   bool usb_suspend_disconnect_enabled = false;
   bool sleep_keybind_enabled = false;
   std::uint8_t host_persona_mode = 0;
+  // Linux-port extension (command 0x40): expose the touchpad as a desktop
+  // pointer. When false the daemon grabs the touchpad evdev node.
+  bool touchpad_pointer_enabled = true;
 };
 
 struct CompanionTriggerEffect {

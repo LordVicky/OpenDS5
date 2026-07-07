@@ -24,7 +24,9 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <dirent.h>
 #include <grp.h>
+#include <linux/input.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -1894,6 +1896,46 @@ void handle_control_client(int control_fd, std::span<const VirtualPort> ports,
   }
 }
 
+// Grabs every DualSense touchpad evdev node (EVIOCGRAB) so the compositor
+// stops receiving pointer events from it; raw HID touch used by games is
+// unaffected. Returns the grabbed fds.
+std::vector<vds::UniqueFd> grab_dualsense_touchpads(vds::Logger &logger) {
+  std::vector<vds::UniqueFd> grabs;
+  DIR *dir = ::opendir("/dev/input");
+  if (dir == nullptr) {
+    return grabs;
+  }
+  while (const dirent *entry = ::readdir(dir)) {
+    if (std::strncmp(entry->d_name, "event", 5) != 0) {
+      continue;
+    }
+    const std::string node = std::string("/dev/input/") + entry->d_name;
+    vds::UniqueFd fd(::open(node.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC));
+    if (!fd) {
+      continue;
+    }
+    char name[256] = {};
+    if (::ioctl(fd.get(), EVIOCGNAME(sizeof(name) - 1), name) < 0) {
+      continue;
+    }
+    if (std::strstr(name, "DualSense") == nullptr ||
+        std::strstr(name, "Touchpad") == nullptr) {
+      continue;
+    }
+    if (::ioctl(fd.get(), EVIOCGRAB, 1) < 0) {
+      logger.log("companion", vds::LogLevel::Warn,
+                 node + " touchpad grab failed: " +
+                     std::string(std::strerror(errno)));
+      continue;
+    }
+    logger.log("companion", vds::LogLevel::Info,
+               node + " touchpad pointer grabbed (" + name + ")");
+    grabs.push_back(std::move(fd));
+  }
+  ::closedir(dir);
+  return grabs;
+}
+
 // Translates companion settings and momentary effects into per-port output
 // overrides, then forwards the resulting BT state to connected controllers.
 void apply_companion_state(std::vector<VirtualPort> &ports,
@@ -1940,6 +1982,23 @@ void apply_companion_state(std::vector<VirtualPort> &ports,
           effect.mode, effect.start_percent, effect.wall_percent,
           effect.force_percent);
     }
+  }
+
+  // Touchpad pointer suppression lives for the daemon lifetime alongside
+  // the companion runtime state.
+  static std::vector<vds::UniqueFd> touchpad_grabs;
+  bool any_connected = false;
+  for (const auto &controller : controllers) {
+    any_connected = any_connected || controller.virtual_connected;
+  }
+  if (!settings.touchpad_pointer_enabled && any_connected) {
+    if (touchpad_grabs.empty()) {
+      touchpad_grabs = grab_dualsense_touchpads(logger);
+    }
+  } else if (!touchpad_grabs.empty()) {
+    touchpad_grabs.clear();
+    logger.log("companion", vds::LogLevel::Info,
+               "touchpad pointer released");
   }
 
   for (auto &port : ports) {
