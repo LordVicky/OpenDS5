@@ -3010,6 +3010,13 @@ export class BridgeService extends EventEmitter {
 
     const settings = this.settingsStore.get();
     const hostPersonaMode = this.currentHostPersonaMode();
+    // The audio-haptics loopback engine and the test pattern contend for the
+    // controller sink on Linux; pause the engine around the test.
+    const resumeAudioHaptics = process.platform !== 'win32'
+      && this.systemAudioHapticsEngine.isActive();
+    if (resumeAudioHaptics) {
+      await this.systemAudioHapticsEngine.stop();
+    }
     try {
       await playBridgeHapticsTestPattern(settings.hapticsGainPercent, hostPersonaMode);
     } catch (error) {
@@ -3017,13 +3024,34 @@ export class BridgeService extends EventEmitter {
         return this.skipBridgeHapticsTest(`${hostPersonaModeLabel(hostPersonaMode)} audio endpoint unavailable`);
       }
       throw error;
+    } finally {
+      if (resumeAudioHaptics) {
+        await this.systemAudioHapticsEngine.start(
+          this.systemAudioHapticsConfig(this.settingsStore.get()),
+          this.currentHostPersonaMode()
+        ).catch((error) => this.publishError(error));
+      }
     }
     return this.getSnapshot();
   }
 
   async testSpeaker(): Promise<BridgeSnapshot> {
     const settings = this.settingsStore.get();
-    await playBridgeSpeakerTestTone(settings.speakerVolumePercent, this.currentHostPersonaMode());
+    const resumeAudioHaptics = process.platform !== 'win32'
+      && this.systemAudioHapticsEngine.isActive();
+    if (resumeAudioHaptics) {
+      await this.systemAudioHapticsEngine.stop();
+    }
+    try {
+      await playBridgeSpeakerTestTone(settings.speakerVolumePercent, this.currentHostPersonaMode());
+    } finally {
+      if (resumeAudioHaptics) {
+        await this.systemAudioHapticsEngine.start(
+          this.systemAudioHapticsConfig(this.settingsStore.get()),
+          this.currentHostPersonaMode()
+        ).catch((error) => this.publishError(error));
+      }
+    }
     return this.getSnapshot();
   }
 
