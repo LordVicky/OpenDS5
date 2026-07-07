@@ -7,6 +7,7 @@ set -e
 case "$1" in
   kernel)
     modprobe vds_hcd
+    systemctl reset-failed vdsd.service 2>/dev/null || true
     systemctl enable --now vdsd.service
     ;;
   rootless)
