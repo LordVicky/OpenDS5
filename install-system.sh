@@ -31,6 +31,7 @@ install -m755 -o root "$repo/vds-backend-switch" /usr/local/bin/vds-backend-swit
 
 echo "==> vds group for control socket access"
 groupadd -f vds
+id -u vds >/dev/null 2>&1 || useradd -r -g vds -s /usr/sbin/nologin vds
 if [ -n "$grant_user" ]; then
   usermod -aG vds "$grant_user"
   echo "    added $grant_user to group vds (re-login required once)"
