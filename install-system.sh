@@ -41,11 +41,13 @@ cat > /etc/udev/rules.d/99-vds-access.rules <<'RULES'
 # vds group access to the virtual controller ports, uhid, and the
 # DualSense touchpad node (for pointer suppression).
 KERNEL=="vds[0-9]*", GROUP="vds", MODE="0660"
-KERNEL=="uhid", GROUP="vds", MODE="0660"
+KERNEL=="uhid", SUBSYSTEM=="misc", OPTIONS+="static_node=uhid", GROUP="vds", MODE="0660"
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="*DualSense*Touchpad*", GROUP="vds", MODE="0660"
 RULES
 udevadm control --reload-rules
 udevadm trigger || true
+# static nodes are only re-permissioned at udevd startup; apply now too
+if [ -e /dev/uhid ]; then chgrp vds /dev/uhid && chmod 660 /dev/uhid; fi
 
 echo "==> hardening: vdsd runs as the unprivileged vds user"
 install -d -o root -g vds -m 2775 /var/lib/vds

@@ -27,12 +27,14 @@ echo "==> vds group + udev rules (uhid, touchpad)"
 groupadd -f vds
 usermod -aG vds "$user"
 cat > /etc/udev/rules.d/99-vds-access.rules <<'RULES'
-KERNEL=="uhid", GROUP="vds", MODE="0660"
+KERNEL=="uhid", SUBSYSTEM=="misc", OPTIONS+="static_node=uhid", GROUP="vds", MODE="0660"
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="*DualSense*Touchpad*", GROUP="vds", MODE="0660"
 RULES
 cp "$repo/vds/99-vds-dualsense-udev.rules" /etc/udev/rules.d/
 udevadm control --reload-rules
 udevadm trigger || true
+# static nodes are only re-permissioned at udevd startup; apply now too
+if [ -e /dev/uhid ]; then chgrp vds /dev/uhid && chmod 660 /dev/uhid; fi
 
 echo "==> user service"
 user_home="$(getent passwd "$user" | cut -d: -f6)"

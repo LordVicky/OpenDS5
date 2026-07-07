@@ -3,7 +3,9 @@
 
 #include <array>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
+#include <vector>
 #include <stdexcept>
 #include <string>
 
@@ -66,13 +68,32 @@ std::string request_daemon(const std::string &socket_path,
 
 } // namespace
 
+// Daemon socket resolution: VDSD_SOCKET env override, then the hardened
+// system service, legacy root daemon, and per-user (uhid backend) paths.
+std::string resolve_control_socket() {
+  if (const char *env = std::getenv("VDSD_SOCKET")) {
+    return env;
+  }
+  std::vector<std::string> candidates{"/run/vds/vdsd.sock",
+                                      kDefaultControlSocket};
+  if (const char *runtime_dir = std::getenv("XDG_RUNTIME_DIR")) {
+    candidates.push_back(std::string(runtime_dir) + "/vdsd.sock");
+  }
+  for (const auto &candidate : candidates) {
+    if (::access(candidate.c_str(), F_OK) == 0) {
+      return candidate;
+    }
+  }
+  return kDefaultControlSocket;
+}
+
 int main(int argc, char **argv) {
   return vds::run_vdsctl_app(argc, argv, vds::kVersion, vds::kBuildYear,
                              vds::VdsctlPlatform{
                                  .request_control =
                                      [](const std::string &command) {
                                        return request_daemon(
-                                           kDefaultControlSocket, command);
+                                           resolve_control_socket(), command);
                                      },
                              });
 }
