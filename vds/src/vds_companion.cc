@@ -205,12 +205,12 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
   case 0x07: // SET_SPEAKER_VOLUME
     settings.speaker_volume_percent = std::min<std::uint16_t>(value, 100);
     return kAckOk;
-  case 0x08: // SET_LIGHTBAR_COLOR (payload: r, g, b, brightness)
+  case 0x08: // SET_LIGHTBAR_COLOR (value: brightness percent; payload: r,g,b)
     settings.lightbar_red = report[11];
     settings.lightbar_green = report[12];
     settings.lightbar_blue = report[13];
     settings.lightbar_brightness_percent =
-        std::min<std::uint8_t>(report[14], 100);
+        static_cast<std::uint8_t>(std::min<std::uint16_t>(value, 100));
     return kAckOk;
   case 0x09: // SET_LIGHTBAR_OVERRIDE
     settings.lightbar_override_enabled = value != 0;
