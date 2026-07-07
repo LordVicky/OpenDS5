@@ -65,10 +65,25 @@ function isBridgeSink(object) {
 
 async function findBridgeSink() {
   const objects = await pwDump();
-  // Prefer the ALSA sink of the virtual controller over loopback filters.
+  // Only the virtual controller's ALSA sink is a valid target; loopback
+  // filters with DualSense-ish names (leftover user configs) are dead ends.
   const sinks = objects.filter(isBridgeSink);
-  const alsaSink = sinks.find((sink) => (nodeProps(sink)['node.name'] ?? '').startsWith('alsa_output'));
-  return alsaSink ?? sinks[0] ?? null;
+  return sinks.find((sink) => (nodeProps(sink)['node.name'] ?? '').startsWith('alsa_output')) ?? null;
+}
+
+// The USB card takes a moment to enumerate after the controller bridges.
+async function waitForBridgeSink(timeoutMs = 4000) {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    const sink = await findBridgeSink();
+    if (sink) {
+      return sink;
+    }
+    if (Date.now() > deadline) {
+      return null;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
 }
 
 function vdsdAudioSocketPath() {
@@ -91,12 +106,13 @@ function vdsdAudioSocketPath() {
 // Audio output resolution: prefer the virtual USB sink (kernel backend);
 // fall back to vdsd's PCM side channel when running on the uhid backend.
 async function resolveAudioOutput() {
-  const sink = await findBridgeSink();
-  if (sink) {
-    return { kind: 'sink', target: nodeProps(sink)['node.name'] };
-  }
+  // uhid mode advertises its PCM side channel; otherwise wait for the card.
   if (existsSync(vdsdAudioSocketPath())) {
     return { kind: 'socket', path: vdsdAudioSocketPath() };
+  }
+  const sink = await waitForBridgeSink();
+  if (sink) {
+    return { kind: 'sink', target: nodeProps(sink)['node.name'] };
   }
   fail('status: capture-unavailable DualSense audio sink not found. '
     + 'Set the controller card profile to pro-audio (wpctl set-profile), '

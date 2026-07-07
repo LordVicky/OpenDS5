@@ -74,6 +74,6 @@ systemctl enable --now vdsd.service
 
 echo
 echo "Done. Remaining user-level steps (no sudo):"
-echo "  cp $repo/vds/99-vds-dualsense-wireplumber.conf ~/.config/wireplumber/wireplumber.conf.d/"
+echo "  cp $repo/vds/99-vds-dualsense-wireplumber.conf $repo/vds/50-vds-proaudio-wireplumber.conf ~/.config/wireplumber/wireplumber.conf.d/"
 echo "  systemctl --user restart pipewire pipewire-pulse wireplumber"
 echo "  (and log out/in once so the vds group membership applies)"
