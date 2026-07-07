@@ -139,8 +139,13 @@ CompanionReport build_status_report(
   report[33] = settings.lightbar_blue;
   report[34] = settings.lightbar_brightness_percent;
   write_u16(report, 43, settings.idle_disconnect_timeout_minutes);
-  report[45] = 0; // Signal strength dBm.
-  report[46] = 0; // Signal strength invalid until worker plumbing lands.
+  if (connected != nullptr && connected->rssi_valid) {
+    report[45] = static_cast<std::uint8_t>(connected->rssi);
+    report[46] = 1;
+  } else {
+    report[45] = 0;
+    report[46] = 0; // Signal strength unavailable.
+  }
   report[47] = 0; // Adaptive trigger output recent.
   report[48] = settings.host_persona_mode;
   report[49] = 0x01; // Supported personas: DualSense only for now.

@@ -35,6 +35,10 @@ struct VdsdControlControllerStatus {
   // Raw DualSense power status byte from the latest input report: low
   // nibble battery capacity 0-10, high nibble charging state. 0xff unknown.
   std::uint8_t battery_status = 0xff;
+  // Bluetooth link RSSI (HCI Read RSSI; ~0 in golden range, negative when
+  // weaker), valid only while connected.
+  bool rssi_valid = false;
+  std::int8_t rssi = 0;
 };
 
 struct VdsdControlPortStatus {

@@ -24,6 +24,9 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/hci.h>
+#include <bluetooth/hci_lib.h>
 #include <dirent.h>
 #include <grp.h>
 #include <linux/input.h>
@@ -1785,6 +1788,39 @@ void reconcile_controller_configs(std::vector<VirtualPort> &ports,
   controllers = std::move(next_controllers);
 }
 
+// Reads the ACL link RSSI for a connected controller through the HCI
+// device. Returns nothing when the adapter or connection handle is
+// unavailable.
+std::optional<std::int8_t> read_controller_rssi(const std::string &address) {
+  bdaddr_t bdaddr{};
+  if (str2ba(address.c_str(), &bdaddr) < 0) {
+    return std::nullopt;
+  }
+  const int dev_id = hci_get_route(&bdaddr);
+  if (dev_id < 0) {
+    return std::nullopt;
+  }
+  const int dd = hci_open_dev(dev_id);
+  if (dd < 0) {
+    return std::nullopt;
+  }
+  std::optional<std::int8_t> result;
+  std::vector<std::uint8_t> buffer(sizeof(hci_conn_info_req) +
+                                   sizeof(hci_conn_info));
+  auto *request = reinterpret_cast<hci_conn_info_req *>(buffer.data());
+  bacpy(&request->bdaddr, &bdaddr);
+  request->type = ACL_LINK;
+  if (::ioctl(dd, HCIGETCONNINFO, buffer.data()) == 0) {
+    std::int8_t rssi = 0;
+    if (hci_read_rssi(dd, htobs(request->conn_info->handle), &rssi, 200) ==
+        0) {
+      result = rssi;
+    }
+  }
+  hci_close_dev(dd);
+  return result;
+}
+
 void handle_control_client(int control_fd, std::span<const VirtualPort> ports,
                            std::span<const ControllerRuntime> controllers,
                            const std::string &db_path,
@@ -1839,11 +1875,17 @@ void handle_control_client(int control_fd, std::span<const VirtualPort> ports,
         }
       }
     }
+    std::optional<std::int8_t> rssi;
+    if (controller.virtual_connected) {
+      rssi = read_controller_rssi(controller.config.address);
+    }
     controller_statuses.push_back(vds::VdsdControlControllerStatus{
         .address = controller.config.address,
         .connected = controller.virtual_connected,
         .path = controller.virtual_connected ? controller.device : "",
         .battery_status = battery_status,
+        .rssi_valid = rssi.has_value(),
+        .rssi = rssi.value_or(0),
     });
   }
 
