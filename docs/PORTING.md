@@ -56,13 +56,13 @@ effects, lightbar, remaps) onto DualSense output reports sent through vdsd.
    (`vds/src/vds_companion.cc`) emulates companion protocol 1.16;
    `VdsdCompanionTransport` + `openCompanionTransport()` factory in the app.
    Verified end-to-end against the live daemon.
-3. **M2 — output features** ✅ (pending hardware test): companion settings
+3. **M2 — output features** ✅ (hardware-validated 2026-07-07: lightbar + rumble confirmed on a physical DualSense): companion settings
    actuate through `DsCompanionOverrides` layered onto `DsOutputState`
    (`vds/src/vds_protocol.cc`) — lightbar override/brightness, player LED,
    classic rumble gain + 650 ms rumble test, haptics gain (scales BT haptics
    samples), speaker volume, Trigger Lab apply/preview/test with
    firmware-identical zone encoding and 2.5 s test expiry driven by the epoll
-   deadline. Not yet validated against a physical DualSense.
+   deadline.
 4. **M3 — audio & haptics**: PipeWire capture → haptics; assess speaker
    support limits under Bluetooth.
 5. **M4 — input features**: remapping, chords, personas (may need uinput or
