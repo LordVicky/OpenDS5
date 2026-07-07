@@ -166,6 +166,7 @@ struct VirtualPort {
   bool speaker_waveout_selected = true;
   bool speaker_waveout_active = false;
   std::uint32_t speaker_waveout_phase = 0;
+  std::uint16_t haptics_gain_percent = 100;
   std::array<std::vector<std::uint8_t>, 256> feature_cache;
   std::array<bool, 256> feature_cached;
   std::vector<std::uint8_t> pending_feature_reports;
@@ -568,6 +569,7 @@ void reset_virtual_port(VirtualPort &port) {
   port.speaker_waveout_selected = true;
   port.speaker_waveout_active = false;
   port.speaker_waveout_phase = 0;
+  port.haptics_gain_percent = 100;
   port.feature_cache = {};
   port.feature_cached = {};
   port.pending_feature_reports.clear();
@@ -1504,8 +1506,16 @@ bool flush_pending_audio_chunk(VirtualPort &port,
 
   const bool output_trace = trace_enabled(trace_flags, kTraceOutput);
   const auto &chunk = port.pending_audio_chunks.front();
+  vds::HapticsChunk haptics = chunk.haptics;
+  if (port.haptics_gain_percent != 100) {
+    for (auto &sample : haptics) {
+      const int scaled =
+          static_cast<int>(sample) * port.haptics_gain_percent / 100;
+      sample = static_cast<std::int8_t>(std::clamp(scaled, -128, 127));
+    }
+  }
   const auto packet = port.haptics_builder.build_packet(
-      chunk.haptics, chunk.speaker, port.output_state.state());
+      haptics, chunk.speaker, port.output_state.state());
   const auto send_start = Clock::now();
   if (!bt_backend.try_send_output_report(packet)) {
     ++port.trace_state.dropped_audio_haptics_count;
@@ -1760,6 +1770,7 @@ void handle_control_client(int control_fd, std::span<const VirtualPort> ports,
                            std::span<const ControllerRuntime> controllers,
                            const std::string &db_path,
                            std::uint32_t &trace_flags, bool &reload_requested,
+                           vds::CompanionRuntime &companion,
                            vds::Logger &logger) {
   vds::UniqueFd client_fd(
       ::accept4(control_fd, nullptr, nullptr, SOCK_CLOEXEC));
@@ -1841,8 +1852,6 @@ void handle_control_client(int control_fd, std::span<const VirtualPort> ports,
   const std::vector<vds::VdsdControlPortStatus> port_statuses =
       vds::build_vdsd_control_port_statuses(port_candidates, port_bindings);
 
-  // Companion protocol state persists for the daemon lifetime.
-  static vds::CompanionRuntime companion;
   reply = vds::handle_vdsd_control_command(
       command, db_path, controller_statuses, port_statuses,
       [] { return vds::list_bluez_controller_targets(); }, trace_flags,
@@ -1854,6 +1863,73 @@ void handle_control_client(int control_fd, std::span<const VirtualPort> ports,
     if (trace_flags != 0) {
       logger.log("control", vds::LogLevel::Error,
                  std::string("reply failed: ") + error.what());
+    }
+  }
+}
+
+// Translates companion settings and momentary effects into per-port output
+// overrides, then forwards the resulting BT state to connected controllers.
+void apply_companion_state(std::vector<VirtualPort> &ports,
+                           std::vector<ControllerRuntime> &controllers,
+                           vds::CompanionRuntime &companion,
+                           std::uint32_t trace_flags, vds::Logger &logger) {
+  (void)vds::expire_companion_actuation(companion,
+                                        std::chrono::steady_clock::now());
+
+  const vds::CompanionSettings &settings = companion.settings;
+  const vds::CompanionActuation &actuation = companion.actuation;
+
+  vds::DsCompanionOverrides overrides;
+  overrides.lightbar_override = settings.lightbar_override_enabled;
+  overrides.lightbar_color = {settings.lightbar_red, settings.lightbar_green,
+                              settings.lightbar_blue};
+  overrides.lightbar_brightness_percent = settings.lightbar_brightness_percent;
+  overrides.player_led_enabled = settings.player_led_enabled;
+  overrides.classic_rumble_gain_percent = settings.classic_rumble_gain_percent;
+  overrides.trigger_intensity_percent =
+      settings.trigger_effect_intensity_percent;
+  overrides.speaker_volume_percent = settings.speaker_volume_percent;
+  overrides.test_rumble_active = actuation.test_rumble_active;
+  overrides.test_rumble_power = actuation.test_rumble_power;
+
+  const vds::CompanionTriggerEffect &effect =
+      actuation.test_trigger.active ? actuation.test_trigger
+                                    : actuation.persistent_trigger;
+  if (effect.active) {
+    // Target: 0 both, 1 left, 2 right (DS5 Bridge firmware convention).
+    if (effect.target != 2) {
+      overrides.left_trigger_active = true;
+      vds::encode_companion_trigger_effect(
+          std::span<std::uint8_t, vds::kTriggerEffectSize>(
+              overrides.left_trigger),
+          effect.mode, effect.start_percent, effect.wall_percent,
+          effect.force_percent);
+    }
+    if (effect.target != 1) {
+      overrides.right_trigger_active = true;
+      vds::encode_companion_trigger_effect(
+          std::span<std::uint8_t, vds::kTriggerEffectSize>(
+              overrides.right_trigger),
+          effect.mode, effect.start_percent, effect.wall_percent,
+          effect.force_percent);
+    }
+  }
+
+  for (auto &port : ports) {
+    ControllerRuntime *controller =
+        controller_for_port(controllers, port.path);
+    if (controller == nullptr || !controller->backend ||
+        !controller->virtual_connected) {
+      continue;
+    }
+    port.haptics_gain_percent = settings.haptics_gain_percent;
+    port.output_state.set_companion_overrides(overrides);
+    try {
+      forward_bt_state_if_changed(port, *controller->backend, trace_flags,
+                                  logger, "companion update");
+    } catch (const std::exception &error) {
+      logger.log("companion", vds::LogLevel::Warn,
+                 port.path + " companion state send failed: " + error.what());
     }
   }
 }
@@ -1958,6 +2034,8 @@ int main(int argc, char **argv) {
     std::uint32_t trace_flags = 0;
     bool reload_requested = true;
     bool epoll_dirty = true;
+    vds::CompanionRuntime companion;
+    std::uint64_t applied_companion_version = 0;
 
     while (g_stop_requested == 0) {
       if (reload_requested) {
@@ -1979,7 +2057,17 @@ int main(int argc, char **argv) {
       }
 
       std::array<epoll_event, 64> events{};
-      const int timeout_ms = next_wakeup_timeout_ms(ports, controllers);
+      int timeout_ms = next_wakeup_timeout_ms(ports, controllers);
+      if (const auto deadline =
+              vds::next_companion_actuation_deadline(companion)) {
+        const auto until = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               *deadline - std::chrono::steady_clock::now())
+                               .count();
+        const int deadline_ms = static_cast<int>(std::max<long long>(until, 0));
+        if (timeout_ms < 0 || deadline_ms < timeout_ms) {
+          timeout_ms = deadline_ms;
+        }
+      }
       const int ready =
           ::epoll_wait(epoll_fd.get(), events.data(),
                        static_cast<int>(events.size()), timeout_ms);
@@ -1990,6 +2078,18 @@ int main(int argc, char **argv) {
         throw std::runtime_error("epoll_wait failed: " +
                                  std::string(std::strerror(errno)));
       }
+      const auto companion_deadline =
+          vds::next_companion_actuation_deadline(companion);
+      const bool companion_due =
+          companion.actuation.version != applied_companion_version ||
+          (companion_deadline &&
+           std::chrono::steady_clock::now() >= *companion_deadline);
+      if (companion_due) {
+        apply_companion_state(ports, controllers, companion, trace_flags,
+                              logger);
+        applied_companion_version = companion.actuation.version;
+      }
+
       if (ready == 0) {
         flush_pending_outputs(ports, controllers, trace_flags, logger,
                               epoll_dirty);
@@ -2004,7 +2104,7 @@ int main(int argc, char **argv) {
           if ((revents & EPOLLIN) != 0) {
             handle_control_client(control_fd.get(), ports, controllers,
                                   options.db_path, trace_flags,
-                                  reload_requested, logger);
+                                  reload_requested, companion, logger);
           }
           if ((revents & (EPOLLERR | EPOLLHUP)) != 0) {
             throw std::runtime_error("control socket epoll error");
@@ -2137,6 +2237,15 @@ int main(int argc, char **argv) {
             epoll_dirty = true;
           }
         }
+      }
+
+      // epoll_dirty doubles as a connection-change signal so fresh
+      // controllers receive the current companion state.
+      if (companion.actuation.version != applied_companion_version ||
+          epoll_dirty) {
+        apply_companion_state(ports, controllers, companion, trace_flags,
+                              logger);
+        applied_companion_version = companion.actuation.version;
       }
 
       flush_pending_outputs(ports, controllers, trace_flags, logger,

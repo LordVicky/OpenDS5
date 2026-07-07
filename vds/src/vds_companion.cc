@@ -160,13 +160,22 @@ CompanionReport build_ack_report(const CompanionRuntime &runtime) {
   return report;
 }
 
+constexpr auto kTriggerTestDuration = std::chrono::milliseconds(2500);
+constexpr auto kRumbleTestDuration = std::chrono::milliseconds(650);
+
+bool valid_trigger_test_mode(std::uint8_t mode) { return mode <= 2; }
+bool valid_trigger_target(std::uint8_t target) { return target <= 2; }
+bool valid_percent(std::uint8_t value) { return value <= 100; }
+
 std::uint8_t apply_command(CompanionRuntime &runtime,
                            const CompanionReport &report, bool connected,
                            Logger &logger) {
   CompanionSettings &settings = runtime.settings;
+  CompanionActuation &actuation = runtime.actuation;
   const std::uint8_t command_id = report[7];
   const std::uint16_t value =
       static_cast<std::uint16_t>(report[9] | (report[10] << 8));
+  const auto now = std::chrono::steady_clock::now();
 
   switch (command_id) {
   case 0x01: // SET_HAPTICS_GAIN
@@ -180,6 +189,9 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
     return kAckOk;
   case 0x05: // RESTORE_DEFAULTS
     settings = CompanionSettings{};
+    actuation.persistent_trigger = {};
+    actuation.test_trigger = {};
+    actuation.test_rumble_active = false;
     return kAckOk;
   case 0x07: // SET_SPEAKER_VOLUME
     settings.speaker_volume_percent = std::min<std::uint16_t>(value, 100);
@@ -225,28 +237,99 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
     }
     settings.host_persona_mode = 0;
     return kAckOk;
-  // Settings accepted and stored by the app but not yet actuated here; the
-  // output-report bridge to the physical controller wires these up.
-  case 0x0B: // SET_HAPTICS_BUFFER_LENGTH
   case 0x0C: // SET_TRIGGER_EFFECT_INTENSITY
-  case 0x12: // SET_POLLING_RATE_MODE
+    if (value > 100) {
+      return kAckErrInvalidValue;
+    }
+    settings.trigger_effect_intensity_percent = value;
+    return kAckOk;
   case 0x13: // SET_CLASSIC_RUMBLE_GAIN
+    settings.classic_rumble_gain_percent = std::min<std::uint16_t>(value, 400);
+    return kAckOk;
+  case 0x24: // SET_PLAYER_LED_ENABLED
+    settings.player_led_enabled = value != 0;
+    return kAckOk;
+  // Settings accepted and stored by the app but not yet actuated here.
+  case 0x0B: // SET_HAPTICS_BUFFER_LENGTH
+  case 0x12: // SET_POLLING_RATE_MODE
   case 0x19: // SET_DUPLEX_ENABLED
   case 0x1D: // SET_SPEAKER_VOLUME_SHORTCUT_ENABLED
   case 0x1E: // SET_BUTTON_REMAP
   case 0x22: // SET_AUDIO_REACTIVE_HAPTICS
   case 0x23: // SET_CHORD_BINDINGS
-  case 0x24: // SET_PLAYER_LED_ENABLED
   case 0x25: // SET_CLASSIC_RUMBLE_V1
   case 0x32: // SET_SPEAKER_GAIN
     return kAckOk;
-  case 0x04: // TEST_HAPTICS
-  case 0x0D: // TEST_ADAPTIVE_TRIGGERS
+  case 0x04:   // TEST_HAPTICS
+  case 0x14: { // TEST_CLASSIC_RUMBLE
+    if (!connected) {
+      return kAckErrNotConnected;
+    }
+    actuation.test_rumble_active = true;
+    actuation.test_rumble_power = 0xff;
+    actuation.test_rumble_until = now + kRumbleTestDuration;
+    return kAckOk;
+  }
+  case 0x0D: { // TEST_ADAPTIVE_TRIGGERS (value: mode | target << 8)
+    const std::uint8_t mode = static_cast<std::uint8_t>(value & 0xff);
+    const std::uint8_t target = static_cast<std::uint8_t>((value >> 8) & 0xff);
+    if (!valid_trigger_test_mode(mode) || !valid_trigger_target(target)) {
+      return kAckErrInvalidValue;
+    }
+    if (!connected) {
+      return kAckErrNotConnected;
+    }
+    actuation.test_trigger = CompanionTriggerEffect{
+        .active = true,
+        .mode = mode,
+        .target = target,
+        .start_percent = 30,
+        .wall_percent = 70,
+        .force_percent =
+            static_cast<std::uint8_t>(settings.trigger_effect_intensity_percent),
+    };
+    actuation.test_trigger_until = now + kTriggerTestDuration;
+    return kAckOk;
+  }
+  case 0x1F:   // PREVIEW_ADAPTIVE_TRIGGER_EFFECT
+  case 0x20: { // APPLY_ADAPTIVE_TRIGGER_EFFECT
+    const std::uint8_t mode = static_cast<std::uint8_t>(value & 0xff);
+    const std::uint8_t target = static_cast<std::uint8_t>((value >> 8) & 0xff);
+    const std::uint8_t start_percent = report[11];
+    const std::uint8_t wall_percent = report[12];
+    const std::uint8_t force_percent = report[13];
+    if (!valid_trigger_test_mode(mode) || !valid_trigger_target(target) ||
+        !valid_percent(start_percent) || !valid_percent(wall_percent) ||
+        !valid_percent(force_percent)) {
+      return kAckErrInvalidValue;
+    }
+    if (!connected) {
+      return kAckErrNotConnected;
+    }
+    const CompanionTriggerEffect effect{
+        .active = command_id == 0x20 || force_percent > 0,
+        .mode = mode,
+        .target = target,
+        .start_percent = start_percent,
+        .wall_percent = wall_percent,
+        .force_percent = force_percent,
+    };
+    if (command_id == 0x20) {
+      actuation.persistent_trigger = effect;
+    } else {
+      actuation.test_trigger = effect;
+      actuation.test_trigger_until = now + kTriggerTestDuration;
+    }
+    return kAckOk;
+  }
   case 0x0E: // RESET_ADAPTIVE_TRIGGERS
+    if (value != 0) {
+      return kAckErrInvalidValue;
+    }
+    actuation.persistent_trigger = {};
+    actuation.test_trigger = {};
+    return kAckOk;
   case 0x11: // SLEEP_CONTROLLER
-  case 0x14: // TEST_CLASSIC_RUMBLE
-  case 0x1F: // PREVIEW_ADAPTIVE_TRIGGER_EFFECT
-  case 0x20: // APPLY_ADAPTIVE_TRIGGER_EFFECT
     return connected ? kAckOk : kAckErrNotConnected;
   default:
     logger.log("companion", LogLevel::Warn,
@@ -300,6 +383,38 @@ std::uint8_t validate_command_report(const CompanionReport &report) {
 }
 
 } // namespace
+
+bool expire_companion_actuation(CompanionRuntime &runtime,
+                                std::chrono::steady_clock::time_point now) {
+  CompanionActuation &actuation = runtime.actuation;
+  bool changed = false;
+  if (actuation.test_rumble_active && now >= actuation.test_rumble_until) {
+    actuation.test_rumble_active = false;
+    changed = true;
+  }
+  if (actuation.test_trigger.active && now >= actuation.test_trigger_until) {
+    actuation.test_trigger = {};
+    changed = true;
+  }
+  if (changed) {
+    ++actuation.version;
+  }
+  return changed;
+}
+
+std::optional<std::chrono::steady_clock::time_point>
+next_companion_actuation_deadline(const CompanionRuntime &runtime) {
+  const CompanionActuation &actuation = runtime.actuation;
+  std::optional<std::chrono::steady_clock::time_point> deadline;
+  if (actuation.test_rumble_active) {
+    deadline = actuation.test_rumble_until;
+  }
+  if (actuation.test_trigger.active &&
+      (!deadline || actuation.test_trigger_until < *deadline)) {
+    deadline = actuation.test_trigger_until;
+  }
+  return deadline;
+}
 
 std::string handle_companion_control_request(
     std::span<const JsonlField> fields, CompanionRuntime &runtime,
@@ -355,6 +470,7 @@ std::string handle_companion_control_request(
                                                 logger);
     if (runtime.last_result_code == kAckOk) {
       ++runtime.settings_revision;
+      ++runtime.actuation.version;
     }
     return format_ok_reply();
   }

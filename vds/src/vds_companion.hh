@@ -5,6 +5,7 @@
 
 #include <array>
 #include <chrono>
+#include <optional>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -22,6 +23,9 @@ inline constexpr std::uint8_t kCompanionProtocolMinor = 16;
 
 struct CompanionSettings {
   std::uint16_t haptics_gain_percent = 100;
+  std::uint16_t classic_rumble_gain_percent = 100;
+  std::uint16_t trigger_effect_intensity_percent = 100;
+  bool player_led_enabled = true;
   bool led_enabled = true;
   bool idle_disconnect_enabled = false;
   std::uint16_t idle_disconnect_timeout_minutes = 10;
@@ -42,16 +46,46 @@ struct CompanionSettings {
   std::uint8_t host_persona_mode = 0;
 };
 
+struct CompanionTriggerEffect {
+  bool active = false;
+  std::uint8_t mode = 0;
+  std::uint8_t target = 0; // 0 both, 1 left, 2 right
+  std::uint8_t start_percent = 0;
+  std::uint8_t wall_percent = 0;
+  std::uint8_t force_percent = 0;
+};
+
+// Momentary and persistent effects requested through companion commands; the
+// platform daemon translates these into BT output state on connected ports.
+struct CompanionActuation {
+  std::uint64_t version = 0;
+  CompanionTriggerEffect persistent_trigger;
+  CompanionTriggerEffect test_trigger;
+  std::chrono::steady_clock::time_point test_trigger_until{};
+  bool test_rumble_active = false;
+  std::uint8_t test_rumble_power = 0;
+  std::chrono::steady_clock::time_point test_rumble_until{};
+};
+
 struct CompanionRuntime {
   std::chrono::steady_clock::time_point started_at =
       std::chrono::steady_clock::now();
   CompanionSettings settings;
+  CompanionActuation actuation;
   std::uint16_t settings_revision = 0;
   std::uint8_t last_command_id = 0;
   std::uint8_t last_command_sequence = 0;
   std::uint8_t last_result_code = 0;
   std::uint8_t last_detail_code = 0;
 };
+
+// Clears expired momentary effects; returns true when state changed.
+bool expire_companion_actuation(CompanionRuntime &runtime,
+                                std::chrono::steady_clock::time_point now);
+
+// Earliest pending expiry, if any momentary effect is active.
+std::optional<std::chrono::steady_clock::time_point>
+next_companion_actuation_deadline(const CompanionRuntime &runtime);
 
 // Handles {"command":"companion","op":"get"|"set"|"write",...} control
 // requests. "get" takes "report_id" and replies {"OK":true,"report":[64]};

@@ -49,13 +49,20 @@ effects, lightbar, remaps) onto DualSense output reports sent through vdsd.
 
 ## Milestones
 
-1. **M0 — build both upstreams**: `vds` kernel module + vdsd build and run on
-   this machine (CachyOS: DKMS against the cachyos kernel); companion app
-   `npm install && vite build` succeeds with Windows modules stubbed.
-2. **M1 — transport swap**: vdsd companion socket + Electron transport;
-   Overview page shows a live controller.
-3. **M2 — output features**: lightbar, adaptive triggers (Trigger Lab),
-   classic rumble via output reports.
+1. **M0 — build both upstreams** ✅: kernel module (DKMS), vdsd/vdsctl, and
+   companion app all build; 216 upstream tests pass on Linux (Fedora with
+   kernel-cachyos).
+2. **M1 — transport swap** ✅: vdsd `companion` control command
+   (`vds/src/vds_companion.cc`) emulates companion protocol 1.16;
+   `VdsdCompanionTransport` + `openCompanionTransport()` factory in the app.
+   Verified end-to-end against the live daemon.
+3. **M2 — output features** ✅ (pending hardware test): companion settings
+   actuate through `DsCompanionOverrides` layered onto `DsOutputState`
+   (`vds/src/vds_protocol.cc`) — lightbar override/brightness, player LED,
+   classic rumble gain + 650 ms rumble test, haptics gain (scales BT haptics
+   samples), speaker volume, Trigger Lab apply/preview/test with
+   firmware-identical zone encoding and 2.5 s test expiry driven by the epoll
+   deadline. Not yet validated against a physical DualSense.
 4. **M3 — audio & haptics**: PipeWire capture → haptics; assess speaker
    support limits under Bluetooth.
 5. **M4 — input features**: remapping, chords, personas (may need uinput or

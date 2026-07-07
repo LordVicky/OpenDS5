@@ -374,11 +374,238 @@ bt_feature_to_usb_feature_reply(std::span<const std::uint8_t> packet) {
   return std::vector<std::uint8_t>(packet.begin() + 1, packet.end());
 }
 
+namespace {
+
+constexpr std::uint8_t kTriggerEffectOff = 0x05;
+constexpr std::uint8_t kTriggerEffectFeedback = 0x21;
+constexpr std::uint8_t kTriggerEffectWeapon = 0x25;
+constexpr std::uint8_t kTriggerEffectVibration = 0x26;
+
+std::uint8_t trigger_strength_from_percent(std::uint8_t percent) {
+  if (percent == 0) {
+    return 0;
+  }
+  const std::uint8_t clamped = percent > 100 ? 100 : percent;
+  const std::uint8_t strength = static_cast<std::uint8_t>((clamped * 8 + 99) / 100);
+  return strength == 0 ? 1 : strength;
+}
+
+std::uint8_t trigger_position_from_percent(std::uint8_t percent) {
+  const std::uint8_t clamped = percent > 100 ? 100 : percent;
+  return static_cast<std::uint8_t>(
+      std::min<std::uint16_t>(9, (static_cast<std::uint16_t>(clamped) + 5) / 10));
+}
+
+std::uint8_t trigger_frequency_from_percent(std::uint8_t percent) {
+  const std::uint8_t clamped = percent > 100 ? 100 : percent;
+  const std::uint8_t frequency = static_cast<std::uint8_t>(
+      (static_cast<std::uint16_t>(clamped) * 28 + 50) / 100);
+  return frequency == 0 ? 1 : frequency;
+}
+
+void set_trigger_off(std::span<std::uint8_t, kTriggerEffectSize> trigger) {
+  std::fill(trigger.begin(), trigger.end(), 0);
+  trigger[0] = kTriggerEffectOff;
+}
+
+void set_trigger_zones(std::span<std::uint8_t, kTriggerEffectSize> trigger,
+                       std::uint8_t effect, std::uint8_t position,
+                       std::uint8_t strength) {
+  std::fill(trigger.begin(), trigger.end(), 0);
+  position = position > 9 ? 9 : position;
+  strength = strength > 8 ? 8 : strength;
+  const std::uint8_t code = static_cast<std::uint8_t>((strength - 1) & 0x07);
+  std::uint16_t active_zones = 0;
+  std::uint32_t code_zones = 0;
+  for (std::uint8_t zone = position; zone < 10; ++zone) {
+    active_zones |= static_cast<std::uint16_t>(1u << zone);
+    code_zones |= static_cast<std::uint32_t>(code) << (3 * zone);
+  }
+  trigger[0] = effect;
+  trigger[1] = static_cast<std::uint8_t>(active_zones & 0xff);
+  trigger[2] = static_cast<std::uint8_t>((active_zones >> 8) & 0xff);
+  trigger[3] = static_cast<std::uint8_t>(code_zones & 0xff);
+  trigger[4] = static_cast<std::uint8_t>((code_zones >> 8) & 0xff);
+  trigger[5] = static_cast<std::uint8_t>((code_zones >> 16) & 0xff);
+  trigger[6] = static_cast<std::uint8_t>((code_zones >> 24) & 0xff);
+}
+
+std::uint8_t scale_strength_code(std::uint8_t code, std::uint16_t percent) {
+  // Codes store strength-1 (0..7 for strength 1..8).
+  const unsigned strength = code + 1u;
+  unsigned scaled = (strength * percent + 50) / 100;
+  if (percent > 0 && scaled == 0) {
+    scaled = 1;
+  }
+  if (scaled > 8) {
+    scaled = 8;
+  }
+  return scaled == 0 ? 0 : static_cast<std::uint8_t>(scaled - 1);
+}
+
+void scale_trigger_effect(std::uint8_t *trigger, std::uint16_t percent) {
+  if (percent == 100) {
+    return;
+  }
+  switch (trigger[0]) {
+  case kTriggerEffectFeedback:
+  case kTriggerEffectVibration: {
+    if (percent == 0) {
+      trigger[0] = kTriggerEffectOff;
+      std::fill(trigger + 1, trigger + kTriggerEffectSize, 0);
+      return;
+    }
+    const std::uint16_t active_zones =
+        static_cast<std::uint16_t>(trigger[1] | (trigger[2] << 8));
+    std::uint32_t code_zones = static_cast<std::uint32_t>(trigger[3]) |
+                               (static_cast<std::uint32_t>(trigger[4]) << 8) |
+                               (static_cast<std::uint32_t>(trigger[5]) << 16) |
+                               (static_cast<std::uint32_t>(trigger[6]) << 24);
+    for (std::uint8_t zone = 0; zone < 10; ++zone) {
+      if ((active_zones & (1u << zone)) == 0) {
+        continue;
+      }
+      const std::uint8_t code = (code_zones >> (3 * zone)) & 0x07;
+      code_zones &= ~(0x07u << (3 * zone));
+      code_zones |= static_cast<std::uint32_t>(scale_strength_code(code, percent))
+                    << (3 * zone);
+    }
+    trigger[3] = static_cast<std::uint8_t>(code_zones & 0xff);
+    trigger[4] = static_cast<std::uint8_t>((code_zones >> 8) & 0xff);
+    trigger[5] = static_cast<std::uint8_t>((code_zones >> 16) & 0xff);
+    trigger[6] = static_cast<std::uint8_t>((code_zones >> 24) & 0xff);
+    return;
+  }
+  case kTriggerEffectWeapon:
+    if (percent == 0) {
+      trigger[0] = kTriggerEffectOff;
+      std::fill(trigger + 1, trigger + kTriggerEffectSize, 0);
+      return;
+    }
+    trigger[3] = scale_strength_code(trigger[3] & 0x07, percent);
+    return;
+  default:
+    return;
+  }
+}
+
+std::uint8_t scale_byte(std::uint8_t value, std::uint16_t percent) {
+  const unsigned scaled = (static_cast<unsigned>(value) * percent) / 100;
+  return static_cast<std::uint8_t>(scaled > 255 ? 255 : scaled);
+}
+
+} // namespace
+
+void encode_companion_trigger_effect(
+    std::span<std::uint8_t, kTriggerEffectSize> trigger, std::uint8_t mode,
+    std::uint8_t start_percent, std::uint8_t wall_percent,
+    std::uint8_t force_percent) {
+  const std::uint8_t strength = trigger_strength_from_percent(force_percent);
+  std::uint8_t start_position = trigger_position_from_percent(start_percent);
+  std::uint8_t wall_position = trigger_position_from_percent(wall_percent);
+  const std::uint8_t frequency = trigger_frequency_from_percent(wall_percent);
+
+  if (strength == 0) {
+    set_trigger_off(trigger);
+  } else if (mode == 1) {
+    start_position = std::clamp<std::uint8_t>(start_position, 2, 7);
+    wall_position = std::clamp<std::uint8_t>(
+        wall_position, static_cast<std::uint8_t>(start_position + 1), 8);
+    const std::uint16_t zones = static_cast<std::uint16_t>(
+        (1u << start_position) | (1u << wall_position));
+    std::fill(trigger.begin(), trigger.end(), 0);
+    trigger[0] = kTriggerEffectWeapon;
+    trigger[1] = static_cast<std::uint8_t>(zones & 0xff);
+    trigger[2] = static_cast<std::uint8_t>((zones >> 8) & 0xff);
+    trigger[3] = static_cast<std::uint8_t>((strength - 1) & 0x07);
+  } else if (mode == 2) {
+    set_trigger_zones(trigger, kTriggerEffectVibration, start_position,
+                      strength);
+    trigger[9] = frequency;
+  } else {
+    set_trigger_zones(trigger, kTriggerEffectFeedback, start_position,
+                      strength);
+  }
+}
+
 DsOutputState::DsOutputState()
     : state_(kInitialDsState), light_color_{state_[kOutputLedColorOffset + 0],
                                             state_[kOutputLedColorOffset + 1],
                                             state_[kOutputLedColorOffset + 2]},
-      light_brightness_(state_[kOutputLightBrightnessOffset]) {}
+      light_brightness_(state_[kOutputLightBrightnessOffset]) {
+  recompute_effective_state();
+}
+
+void DsOutputState::set_companion_overrides(
+    const DsCompanionOverrides &overrides) {
+  companion_ = overrides;
+  recompute_effective_state();
+}
+
+void DsOutputState::recompute_effective_state() {
+  effective_state_ = state_;
+
+  if (companion_.lightbar_override) {
+    set_state_bit(effective_state_[1], 2, true); // allow_led_color
+    std::array<std::uint8_t, 3> color{};
+    if (companion_.lightbar_enabled) {
+      for (std::size_t i = 0; i < 3; ++i) {
+        color[i] = scale_byte(companion_.lightbar_color[i],
+                              companion_.lightbar_brightness_percent);
+      }
+    }
+    effective_state_[kOutputLedColorOffset + 0] = color[0];
+    effective_state_[kOutputLedColorOffset + 1] = color[1];
+    effective_state_[kOutputLedColorOffset + 2] = color[2];
+  }
+
+  if (!companion_.player_led_enabled) {
+    set_state_bit(effective_state_[1], 4, true); // allow_player_indicators
+    effective_state_[kOutputLedColorOffset - 1] = 0;
+  }
+
+  if (companion_.test_rumble_active) {
+    set_state_bit(effective_state_[0], 0, true); // enable_rumble_emulation
+    set_state_bit(effective_state_[0], 1, true); // use_rumble_not_haptics
+    set_state_bit(effective_state_[38], 2, true);
+    effective_state_[offsetof(vds_set_state_data, rumble_emulation_right)] =
+        companion_.test_rumble_power;
+    effective_state_[offsetof(vds_set_state_data, rumble_emulation_left)] =
+        companion_.test_rumble_power;
+  } else if (companion_.classic_rumble_gain_percent != 100) {
+    const std::size_t right =
+        offsetof(vds_set_state_data, rumble_emulation_right);
+    effective_state_[right] = scale_byte(
+        effective_state_[right], companion_.classic_rumble_gain_percent);
+    effective_state_[right + 1] = scale_byte(
+        effective_state_[right + 1], companion_.classic_rumble_gain_percent);
+  }
+
+  const std::size_t right_ffb = offsetof(vds_set_state_data, right_trigger_ffb);
+  const std::size_t left_ffb = offsetof(vds_set_state_data, left_trigger_ffb);
+  if (companion_.right_trigger_active) {
+    set_state_bit(effective_state_[0], 2, true); // allow_right_trigger_ffb
+    std::copy(companion_.right_trigger.begin(), companion_.right_trigger.end(),
+              effective_state_.begin() + right_ffb);
+  } else {
+    scale_trigger_effect(effective_state_.data() + right_ffb,
+                         companion_.trigger_intensity_percent);
+  }
+  if (companion_.left_trigger_active) {
+    set_state_bit(effective_state_[0], 3, true); // allow_left_trigger_ffb
+    std::copy(companion_.left_trigger.begin(), companion_.left_trigger.end(),
+              effective_state_.begin() + left_ffb);
+  } else {
+    scale_trigger_effect(effective_state_.data() + left_ffb,
+                         companion_.trigger_intensity_percent);
+  }
+
+  if (companion_.speaker_volume_percent != 100) {
+    effective_state_[kOutputSpeakerVolumeOffset] =
+        scale_byte(effective_state_[kOutputSpeakerVolumeOffset],
+                   companion_.speaker_volume_percent);
+  }
+}
 
 BtInitReport DsOutputState::build_bt_init_report() {
   BtInitReport report{};
@@ -386,7 +613,8 @@ BtInitReport DsOutputState::build_bt_init_report() {
   report[1] = 0x10;
   report[2] = 0x10 | (1 << 7);
   report[3] = kDsStateSize;
-  std::copy(state_.begin(), state_.end(), report.begin() + 4);
+  std::copy(effective_state_.begin(), effective_state_.end(),
+            report.begin() + 4);
   fill_output_report_checksum(report);
   return report;
 }
@@ -487,6 +715,7 @@ bool DsOutputState::apply_usb_output_report(
     state_[kOutputLedColorOffset + 2] =
         scale_light_component(light_color_[2], light_brightness_);
   }
+  recompute_effective_state();
   return true;
 }
 
@@ -500,6 +729,7 @@ void DsOutputState::set_audio_out_stream_active(bool active) {
     state_[kOutputSpeakerVolumeOffset] = kOutputSpeakerVolumeMax;
     state_[kOutputAudioControlOffset] = kOutputPathSpeaker;
     state_[kOutputAudioControl2Offset] = kOutputSpeakerPreampGain;
+    recompute_effective_state();
     return;
   }
 
@@ -508,6 +738,7 @@ void DsOutputState::set_audio_out_stream_active(bool active) {
   state_[kOutputSpeakerVolumeOffset] = 0;
   state_[kOutputAudioControlOffset] = kOutputPathHeadphones;
   state_[kOutputAudioControl2Offset] = 0;
+  recompute_effective_state();
 }
 
 BtStateReport DsOutputState::build_bt_state_report() {
@@ -516,7 +747,8 @@ BtStateReport DsOutputState::build_bt_state_report() {
   report[1] = report_sequence_ << 4;
   report_sequence_ = (report_sequence_ + 1) & 0x0f;
   report[2] = 0x10;
-  std::copy(state_.begin(), state_.begin() + kSetStateSize,
+  std::copy(effective_state_.begin(),
+            effective_state_.begin() + kSetStateSize,
             report.begin() + kBtStateOffset);
   fill_output_report_checksum(report);
   return report;

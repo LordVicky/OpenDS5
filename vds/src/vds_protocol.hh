@@ -67,18 +67,52 @@ private:
   std::uint8_t packet_sequence_ = 0;
 };
 
+constexpr std::size_t kTriggerEffectSize = 11;
+
+// DS5 Bridge companion adjustments layered on top of the game-driven output
+// state before each BT send. Percent fields at 100 mean pass-through.
+struct DsCompanionOverrides {
+  bool lightbar_override = false;
+  bool lightbar_enabled = true;
+  std::array<std::uint8_t, 3> lightbar_color{0, 0, 255};
+  std::uint8_t lightbar_brightness_percent = 100;
+  bool player_led_enabled = true;
+  std::uint16_t classic_rumble_gain_percent = 100;
+  std::uint16_t trigger_intensity_percent = 100;
+  bool right_trigger_active = false;
+  std::array<std::uint8_t, kTriggerEffectSize> right_trigger{};
+  bool left_trigger_active = false;
+  std::array<std::uint8_t, kTriggerEffectSize> left_trigger{};
+  bool test_rumble_active = false;
+  std::uint8_t test_rumble_power = 0;
+  std::uint16_t speaker_volume_percent = 100;
+};
+
+// Encodes a DS5 Bridge companion trigger effect (mode 0=feedback, 1=weapon,
+// 2=vibration; percents 0-100) using the same zone packing as the DS5 Bridge
+// Pico firmware.
+void encode_companion_trigger_effect(
+    std::span<std::uint8_t, kTriggerEffectSize> trigger, std::uint8_t mode,
+    std::uint8_t start_percent, std::uint8_t wall_percent,
+    std::uint8_t force_percent);
+
 class DsOutputState {
 public:
   DsOutputState();
 
   bool apply_usb_output_report(std::span<const std::uint8_t> report);
   void set_audio_out_stream_active(bool active);
+  void set_companion_overrides(const DsCompanionOverrides &overrides);
   BtInitReport build_bt_init_report();
   BtStateReport build_bt_state_report();
-  const DsState &state() const { return state_; }
+  const DsState &state() const { return effective_state_; }
 
 private:
+  void recompute_effective_state();
+
   DsState state_{};
+  DsState effective_state_{};
+  DsCompanionOverrides companion_;
   std::array<std::uint8_t, 3> light_color_{};
   std::uint8_t light_brightness_ = 0;
   bool emulate_light_brightness_ = false;
