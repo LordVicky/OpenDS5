@@ -55,7 +55,9 @@ const HELPER_COMMAND_TIMEOUT_MS = 2500;
 const HELPER_SESSION_MONITOR_START_TIMEOUT_MS = 3000;
 const HELPER_SESSION_MONITOR_STOP_TIMEOUT_MS = 500;
 const HELPER_STDERR_MAX_CHARS = 8192;
-const HELPER_RELATIVE_PATH = path.join('native', 'AudioHelper', 'AudioHelper.exe');
+const HELPER_RELATIVE_PATH = process.platform === 'win32'
+  ? path.join('native', 'AudioHelper', 'AudioHelper.exe')
+  : path.join('native', 'audio-helper-linux.mjs');
 const HELPER_TEST_AUDIO_FILE = 'test-speaker-tone-silence-tail.mp3';
 
 const DEV_HELPER_RELATIVE_PATH = path.join(
@@ -956,9 +958,12 @@ export class MicKeepaliveEngine extends EventEmitter {
 
 export function resolveAudioHelperPath(): string {
   const packagedCandidate = process.resourcesPath ? path.join(process.resourcesPath, HELPER_RELATIVE_PATH) : null;
+  const devHelperRelativePath = process.platform === 'win32'
+    ? DEV_HELPER_RELATIVE_PATH
+    : HELPER_RELATIVE_PATH;
   const devCandidates = [
-    path.resolve(process.cwd(), DEV_HELPER_RELATIVE_PATH),
-    path.resolve(__dirname, '..', '..', '..', DEV_HELPER_RELATIVE_PATH)
+    path.resolve(process.cwd(), devHelperRelativePath),
+    path.resolve(__dirname, '..', '..', '..', devHelperRelativePath)
   ];
   const candidates = [
     packagedCandidate,
