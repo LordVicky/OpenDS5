@@ -308,6 +308,7 @@ async function runRenderLoopbackHaptics(args) {
       shutdown(0);
     }
   });
+  control.on('close', () => shutdown(0)); // parent app exited
   process.on('SIGTERM', () => shutdown(0));
   process.on('SIGINT', () => shutdown(0));
 }
