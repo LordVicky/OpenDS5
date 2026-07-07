@@ -4,6 +4,9 @@
 # the per-user service and controller registration itself.
 set -e
 
+# binary reinstalls strip file capabilities; keep rootless mode viable
+setcap 'cap_net_bind_service,cap_net_raw+eip' /usr/local/bin/vdsd 2>/dev/null || true
+
 case "$1" in
   kernel)
     modprobe vds_hcd

@@ -2937,6 +2937,8 @@ export class BridgeService extends EventEmitter {
       await runCommand('pkexec', ['/usr/local/bin/vds-backend-switch', 'kernel']);
     } else {
       await runCommand('pkexec', ['/usr/local/bin/vds-backend-switch', 'rootless']);
+      await runCommand('systemctl', ['--user', 'daemon-reload']).catch(() => {});
+      await runCommand('systemctl', ['--user', 'reset-failed', 'vdsd.service']).catch(() => {});
       await runCommand('systemctl', ['--user', 'enable', '--now', 'vdsd.service']);
     }
 

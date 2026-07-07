@@ -505,16 +505,10 @@ async function runDefaultRenderStatus() {
 }
 
 async function runSetDefaultRenderBridge() {
-  const sink = await findBridgeSink();
-  if (!sink) {
-    if (existsSync(vdsdAudioSocketPath())) {
-      return; // uhid backend: no system audio endpoint to switch
-    }
-    fail('DualSense audio sink not found.');
-  }
-  await new Promise((resolve, reject) => {
-    execFile('wpctl', ['set-default', `${sink.id}`], (error) => (error ? reject(error) : resolve()));
-  });
+  // Windows routes all system audio through the bridge endpoint; on Linux
+  // the controller sink is a dedicated 4-channel device and hijacking the
+  // desktop default sends the user's audio into the controller and breaks
+  // the Audio Haptics capture source. Deliberate no-op.
 }
 
 async function listOutputStreamSessions() {
