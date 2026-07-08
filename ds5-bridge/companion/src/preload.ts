@@ -21,6 +21,7 @@ import type {
   UiThemePreset,
   WindowsDeviceCleanupResult
 } from './shared/types';
+import type { EngineStatus, TriggerProfile } from './shared/trigger-profiles';
 
 const api = {
   getStatus: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:getStatus'),
@@ -217,6 +218,25 @@ const api = {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: BridgeSnapshot) => callback(snapshot);
     ipcRenderer.on('bridge:snapshot', listener);
     return () => ipcRenderer.removeListener('bridge:snapshot', listener);
+  },
+  listTriggerProfiles: (): Promise<TriggerProfile[]> => ipcRenderer.invoke('bridge:listTriggerProfiles'),
+  saveTriggerProfile: (profile: TriggerProfile): Promise<TriggerProfile> => (
+    ipcRenderer.invoke('bridge:saveTriggerProfile', profile)
+  ),
+  deleteTriggerProfile: (id: string): Promise<boolean> => ipcRenderer.invoke('bridge:deleteTriggerProfile', id),
+  setTriggerProfilesEnabled: (enabled: boolean): Promise<EngineStatus> => (
+    ipcRenderer.invoke('bridge:setTriggerProfilesEnabled', enabled)
+  ),
+  pinTriggerProfile: (id: string | null): Promise<EngineStatus> => (
+    ipcRenderer.invoke('bridge:pinTriggerProfile', id)
+  ),
+  getTriggerProfileEngineStatus: (): Promise<EngineStatus> => (
+    ipcRenderer.invoke('bridge:getTriggerProfileEngineStatus')
+  ),
+  onTriggerProfileEngineStatus: (listener: (status: EngineStatus) => void): (() => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, status: EngineStatus) => listener(status);
+    ipcRenderer.on('bridge:triggerProfileEngineStatus', wrapped);
+    return () => ipcRenderer.removeListener('bridge:triggerProfileEngineStatus', wrapped);
   }
 };
 

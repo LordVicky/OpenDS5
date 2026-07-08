@@ -1,22 +1,16 @@
 import { EventEmitter } from 'node:events';
 import type { AdaptiveTriggerPreviewEffect } from '../shared/protocol';
 import { ModifierEvaluator, type ControllerInputState } from '../shared/trigger-modifier-eval';
-import { type TriggerEffectSpec, type TriggerProfile } from '../shared/trigger-profiles';
+import { type EngineStatus, type TriggerEffectSpec, type TriggerProfile } from '../shared/trigger-profiles';
 import type { ActiveProfileChange, GameWatcher } from './game-watcher';
 import type { EvdevInputReader } from './evdev-input-reader';
 import type { TriggerProfileStore } from './trigger-profile-store';
 
+export type { EngineStatus };
+
 export interface TriggerEffectSink {
   applyAdaptiveTriggerEffect(effect: AdaptiveTriggerPreviewEffect): Promise<unknown>;
   resetAdaptiveTriggers(): Promise<unknown>;
-}
-
-export interface EngineStatus {
-  enabled: boolean;
-  suspended: boolean;
-  activeProfileId: string;
-  matchedBy: 'pin' | 'process' | 'default';
-  matchedName: string | null;
 }
 
 type EngineOptions = {

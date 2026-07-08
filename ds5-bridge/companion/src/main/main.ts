@@ -12,6 +12,10 @@ import {
   nukePicoFlash as copyPicoFlashNuke
 } from './pico-firmware-updater';
 import { SettingsStore } from './settings-store';
+import { TriggerProfileStore } from './trigger-profile-store';
+import { GameWatcher } from './game-watcher';
+import { EvdevInputReader } from './evdev-input-reader';
+import { TriggerProfileEngine, type EngineStatus } from './trigger-profile-engine';
 import type {
   AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
@@ -27,6 +31,7 @@ import type {
   TriggerTestTarget
 } from '../shared/protocol';
 import type { BridgeToast } from './bridge-service';
+import type { TriggerProfile } from '../shared/trigger-profiles';
 import type {
   AudioHapticsSession,
   BridgeSnapshot,
@@ -990,7 +995,32 @@ async function runPicoFirmwareIpcAction(
   }
 }
 
-function registerIpc(service: BridgeService): void {
+function registerIpc(
+  service: BridgeService,
+  triggerProfileStore: TriggerProfileStore,
+  triggerProfileEngine: TriggerProfileEngine
+): void {
+  ipcMain.handle('bridge:listTriggerProfiles', () => triggerProfileStore.list());
+  ipcMain.handle('bridge:saveTriggerProfile', (_event, profile: TriggerProfile) => {
+    const saved = triggerProfileStore.save(profile);
+    triggerProfileEngine.refreshProfiles();
+    return saved;
+  });
+  ipcMain.handle('bridge:deleteTriggerProfile', (_event, id: string) => {
+    const deleted = triggerProfileStore.delete(id);
+    triggerProfileEngine.refreshProfiles();
+    return deleted;
+  });
+  ipcMain.handle('bridge:setTriggerProfilesEnabled', async (_event, enabled: boolean) => {
+    await triggerProfileEngine.setEnabled(enabled);
+    return triggerProfileEngine.getStatus();
+  });
+  ipcMain.handle('bridge:pinTriggerProfile', (_event, id: string | null) => {
+    triggerProfileEngine.pinProfile(id);
+    return triggerProfileEngine.getStatus();
+  });
+  ipcMain.handle('bridge:getTriggerProfileEngineStatus', () => triggerProfileEngine.getStatus());
+
   ipcMain.handle('bridge:getStatus', () => service.getSnapshot());
   ipcMain.handle('bridge:listDevices', () => service.listDevices());
   ipcMain.handle('bridge:listAudioHapticsSessions', async () => (
@@ -1123,16 +1153,23 @@ function registerIpc(service: BridgeService): void {
   ipcMain.handle('bridge:testHaptics', () => service.testHaptics());
   ipcMain.handle('bridge:testSpeaker', () => service.testSpeaker());
   ipcMain.handle('bridge:testClassicRumble', () => service.testClassicRumble());
-  ipcMain.handle('bridge:testAdaptiveTriggers', (_event, value?: TriggerTestMode, target?: TriggerTestTarget) => (
-    service.testAdaptiveTriggers(value, target)
-  ));
-  ipcMain.handle('bridge:previewAdaptiveTriggerEffect', (_event, effect: AdaptiveTriggerPreviewEffect) => (
-    service.previewAdaptiveTriggerEffect(effect)
-  ));
-  ipcMain.handle('bridge:applyAdaptiveTriggerEffect', (_event, effect: AdaptiveTriggerPreviewEffect) => (
-    service.applyAdaptiveTriggerEffect(effect)
-  ));
-  ipcMain.handle('bridge:resetAdaptiveTriggers', () => service.resetAdaptiveTriggers());
+  ipcMain.handle('bridge:testAdaptiveTriggers', async (_event, value?: TriggerTestMode, target?: TriggerTestTarget) => {
+    await triggerProfileEngine.suspend();
+    return service.testAdaptiveTriggers(value, target);
+  });
+  ipcMain.handle('bridge:previewAdaptiveTriggerEffect', async (_event, effect: AdaptiveTriggerPreviewEffect) => {
+    await triggerProfileEngine.suspend();
+    return service.previewAdaptiveTriggerEffect(effect);
+  });
+  ipcMain.handle('bridge:applyAdaptiveTriggerEffect', async (_event, effect: AdaptiveTriggerPreviewEffect) => {
+    await triggerProfileEngine.suspend();
+    return service.applyAdaptiveTriggerEffect(effect);
+  });
+  ipcMain.handle('bridge:resetAdaptiveTriggers', async () => {
+    const result = await service.resetAdaptiveTriggers();
+    await triggerProfileEngine.resume();
+    return result;
+  });
   ipcMain.handle('bridge:restoreDefaults', async () => {
     const snapshot = await service.restoreDefaults();
     applySnapshotWindowScale(snapshot);
@@ -1199,7 +1236,22 @@ app.whenReady().then(async () => {
   const settingsStore = new SettingsStore(app.getPath('userData'));
   applyLaunchAtStartup(settingsStore.get().launchAtStartupEnabled);
   bridgeService = new BridgeService(settingsStore);
-  registerIpc(bridgeService);
+  const triggerProfileStore = new TriggerProfileStore(
+    path.join(app.getPath('userData'), 'trigger-profiles')
+  );
+  const triggerProfileEngine = new TriggerProfileEngine({
+    sink: bridgeService,
+    store: triggerProfileStore,
+    watcher: new GameWatcher({}),
+    reader: new EvdevInputReader()
+  });
+  triggerProfileEngine.refreshProfiles();
+  triggerProfileEngine.on('status', (status: EngineStatus) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send('bridge:triggerProfileEngineStatus', status);
+    }
+  });
+  registerIpc(bridgeService, triggerProfileStore, triggerProfileEngine);
 
   mainWindow = createWindow(settingsStore.get().uiScalePercent);
   mainWindow.on('maximize', sendWindowMaximizedState);

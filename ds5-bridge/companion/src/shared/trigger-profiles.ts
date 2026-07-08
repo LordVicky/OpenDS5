@@ -42,6 +42,14 @@ export interface TriggerProfile {
   updatedAtMs: number;
 }
 
+export interface EngineStatus {
+  enabled: boolean;
+  suspended: boolean;
+  activeProfileId: string;
+  matchedBy: 'pin' | 'process' | 'default';
+  matchedName: string | null;
+}
+
 export const DEFAULT_PROFILE_ID = 'default';
 
 const PROFILE_KEYS = ['version', 'id', 'name', 'match', 'triggers', 'updatedAtMs'];
