@@ -1592,7 +1592,7 @@ function SystemProfileSummary({
           <h3>Feel</h3>
         </div>
         <dl>
-          <div><dt>Haptics</dt><dd className={ecoValueClass(hapticsEcoLimited)}>{settings.hapticsEnabled ? (hapticsEcoLimited ? effectiveEcoPercent(settings.hapticsGainPercent) : percentLabel(settings.hapticsGainPercent)) : 'Off'}</dd></div>
+          <div><dt>HD Haptics</dt><dd className={ecoValueClass(hapticsEcoLimited)}>{settings.hapticsEnabled ? (hapticsEcoLimited ? effectiveEcoPercent(settings.hapticsGainPercent) : percentLabel(settings.hapticsGainPercent)) : 'Off'}</dd></div>
           <div><dt>Rumble</dt><dd className={ecoValueClass(rumbleEcoLimited)}>{settings.classicRumbleEnabled ? (rumbleEcoLimited ? effectiveEcoPercent(settings.classicRumbleGainPercent) : percentLabel(settings.classicRumbleGainPercent)) : 'Off'}</dd></div>
           <div><dt>Triggers</dt><dd className={ecoValueClass(triggersEcoLimited)}>{settings.adaptiveTriggersEnabled ? (triggersEcoLimited ? effectiveEcoPercent(settings.triggerEffectIntensityPercent) : percentLabel(settings.triggerEffectIntensityPercent)) : 'Off'}</dd></div>
         </dl>
@@ -3626,7 +3626,7 @@ export function App() {
     : !audioReactiveHapticsSupported
       ? 'Update Firmware'
       : !hapticsEnabled
-        ? 'Haptics Off'
+        ? 'HD Haptics Off'
         : audioReactiveHapticsEnabled
           ? 'Ready'
           : 'Off';
@@ -4404,6 +4404,15 @@ export function App() {
     void commitAudioReactiveHapticsConfig({
       enabled: !snapshot.settings.audioReactiveHapticsEnabled
     });
+  }
+
+  function toggleAudioHapticsFeature() {
+    if (!snapshot) return;
+    const nextEnabled = !audioReactiveHapticsEnabled;
+    // The header switch owns both the feature state and the panel visibility:
+    // on -> enable + reveal the panel, off -> disable + collapse it.
+    setAudioHapticsOpen(nextEnabled);
+    void commitAudioReactiveHapticsConfig({ enabled: nextEnabled });
   }
 
   function setAudioReactiveHapticsMode(mode: AudioReactiveHapticsMode) {
@@ -6476,7 +6485,7 @@ export function App() {
                 </div>
                 <div className="overview-slider-list">
                   <label className={`overview-slider-row ${(!connected || !snapshot.settings.hapticsEnabled) ? 'disabled' : ''}`}>
-                    <span>Haptics</span>
+                    <span>HD Haptics</span>
                     <div className="overview-range-control">
                       <input
                         type="range"
@@ -6736,7 +6745,7 @@ export function App() {
           >
               <div className="feature-heading">
                 <div>
-                  <h2>{audioHapticsOpen ? 'Audio Haptics' : 'Haptics'}</h2>
+                  <h2>{audioHapticsOpen ? 'Audio Haptics' : showClassicRumbleControl ? 'Rumble' : 'HD Haptics'}</h2>
                   <p>{audioHapticsOpen ? 'Turn system audio into haptic feedback.' : 'Adjust controller haptic feedback and run a quick test.'}</p>
                 </div>
                 <div className="audio-heading-controls">
@@ -6750,10 +6759,11 @@ export function App() {
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={audioHapticsOpen}
-                      aria-label={audioHapticsOpen ? 'Exit Audio Haptics' : 'Enter Audio Haptics'}
-                      className={`switch audio-haptics-switch ${audioHapticsOpen ? 'on' : ''}`}
-                      onClick={() => setAudioHapticsOpen((open) => !open)}
+                      aria-checked={audioReactiveHapticsEnabled}
+                      aria-label={audioReactiveHapticsEnabled ? 'Disable Audio Haptics' : 'Enable Audio Haptics'}
+                      className={`switch audio-haptics-switch ${audioReactiveHapticsEnabled ? 'on' : ''}`}
+                      disabled={audioReactiveHapticsControlDisabled}
+                      onClick={toggleAudioHapticsFeature}
                     >
                       <span />
                     </button>
@@ -6995,8 +7005,8 @@ export function App() {
                       type="button"
                       className={`feature-icon haptics-enable-button ${showClassicRumbleControl ? 'icon-medium' : 'icon-compact'} ${activeHapticsFeatureEnabled ? 'active' : ''} ${controllerPowerSavingActive && activeHapticsFeatureEnabled ? 'power-saving-active' : ''}`}
                       aria-pressed={activeHapticsFeatureEnabled}
-                      aria-label={showClassicRumbleControl ? 'Enable rumble' : 'Enable haptics'}
-                      title={showClassicRumbleControl ? 'Enable rumble' : 'Enable haptics'}
+                      aria-label={showClassicRumbleControl ? 'Enable rumble' : 'Enable HD haptics'}
+                      title={showClassicRumbleControl ? 'Enable rumble' : 'Enable HD haptics'}
                       disabled={!controllerControlsAvailable || pendingAction !== null}
                       onClick={showClassicRumbleControl ? toggleClassicRumbleEnabled : toggleHapticsEnabled}
                     >
@@ -7014,7 +7024,7 @@ export function App() {
                         className={!showClassicRumbleControl ? 'active' : ''}
                         onClick={() => setShowClassicRumbleControl(false)}
                       >
-                        Haptics
+                        HD Haptics
                       </button>
                       <button
                         type="button"

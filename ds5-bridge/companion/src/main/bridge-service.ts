@@ -2418,28 +2418,40 @@ export class BridgeService extends EventEmitter {
     if (!this.audioReactiveHapticsSupported()) {
       throw new Error('Audio reactive haptics require updated bridge firmware.');
     }
-    const ack = await this.sendCommand(
-      COMMAND_ID.SET_AUDIO_REACTIVE_HAPTICS,
-      this.audioReactiveHapticsCommandEnabled(nextSettings) ? 1 : 0,
-      {
-        expectSettingsRevisionChange: true,
-        extraPayload: this.audioReactiveHapticsCommandPayload(nextSettings)
-      }
-    );
-    if (ack.resultCode === ACK_RESULT.OK) {
-      this.snapshot.settings = this.settingsStore.update(customSettingUpdate({
-        audioReactiveHapticsEnabled: normalized.enabled,
-        audioReactiveHapticsSource: normalized.source,
-        audioReactiveHapticsMode: normalized.mode,
-        audioReactiveHapticsGainPercent: normalized.gainPercent,
-        audioReactiveHapticsBassFocus: normalized.bassFocus,
-        audioReactiveHapticsResponse: normalized.response,
-        audioReactiveHapticsAttack: normalized.attack,
-        audioReactiveHapticsRelease: normalized.release
-      }));
-      await this.updateSystemAudioHapticsEngine();
-      this.emitSnapshot();
+    // The firmware SET_AUDIO_REACTIVE_HAPTICS command only configures the
+    // controller's own DSP passthrough; it is best-effort. The host mirror
+    // engine is what actually produces audio-reactive haptics, so persisting
+    // the setting and reconciling the engine must NOT be gated on the firmware
+    // ack. Otherwise disabling silently no-ops whenever the firmware rejects
+    // the command (e.g. the DSP is already at 0 and settings_revision does not
+    // advance), leaving the host mirror running in games.
+    try {
+      await this.sendCommand(
+        COMMAND_ID.SET_AUDIO_REACTIVE_HAPTICS,
+        this.audioReactiveHapticsCommandEnabled(nextSettings) ? 1 : 0,
+        {
+          expectSettingsRevisionChange: true,
+          extraPayload: this.audioReactiveHapticsCommandPayload(nextSettings)
+        }
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.appendAudioDebugLines([
+        `[AudioReactiveHaptics] firmware DSP command failed (continuing with host engine reconcile): ${message}`
+      ]);
     }
+    this.snapshot.settings = this.settingsStore.update(customSettingUpdate({
+      audioReactiveHapticsEnabled: normalized.enabled,
+      audioReactiveHapticsSource: normalized.source,
+      audioReactiveHapticsMode: normalized.mode,
+      audioReactiveHapticsGainPercent: normalized.gainPercent,
+      audioReactiveHapticsBassFocus: normalized.bassFocus,
+      audioReactiveHapticsResponse: normalized.response,
+      audioReactiveHapticsAttack: normalized.attack,
+      audioReactiveHapticsRelease: normalized.release
+    }));
+    await this.updateSystemAudioHapticsEngine();
+    this.emitSnapshot();
     return this.getSnapshot();
   }
 

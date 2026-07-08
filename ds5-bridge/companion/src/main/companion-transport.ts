@@ -1,6 +1,7 @@
 import type { EventEmitter } from 'node:events';
 import { WinUsbCompanionTransport } from './winusb-companion-transport';
 import { VdsdCompanionTransport } from './vdsd-companion-transport';
+import { MockCompanionTransport } from './mock-companion-transport';
 
 export type CompanionTransportOpenOptions = {
   retryTimeoutMs?: number;
@@ -22,6 +23,9 @@ export interface CompanionTransport extends EventEmitter {
 export function openCompanionTransport(
   options: CompanionTransportOpenOptions = {}
 ): Promise<CompanionTransport> {
+  if (process.env.DS5_BRIDGE_MOCK_CONTROLLER === '1') {
+    return MockCompanionTransport.open(options);
+  }
   if (process.platform === 'win32') {
     return WinUsbCompanionTransport.open(options);
   }

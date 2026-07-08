@@ -1284,6 +1284,44 @@ describe('BridgeService', () => {
     expect(passthroughCommand?.slice(11, 18)).toEqual([0x81, 150, 0, 2, 2, 3, 2]);
   });
 
+  it('disables audio reactive haptics and stops the host mirror even when the firmware command fails', async () => {
+    const service = serviceFixture({ audioReactiveHapticsEnabled: true });
+    const device = new MockHidDevice();
+    device.settingsRevision = 4;
+    device.status = statusReport({
+      controllerConnected: true,
+      hostPersonaMode: 'dualsense',
+      settingsRevision: 4,
+      uptimeSeconds: 30
+    });
+    hidMock.state.devicesList = [companionDeviceInfo()];
+    hidMock.state.openDevices.set('companion-path', device);
+
+    const start = vi.fn(async () => undefined);
+    const stop = vi.fn(async () => undefined);
+    const internals = service as unknown as {
+      systemAudioHapticsEngine: {
+        start: typeof start;
+        stop: typeof stop;
+        isActive(): boolean;
+      };
+    };
+    internals.systemAudioHapticsEngine = { start, stop, isActive: () => true };
+
+    await poll(service);
+    await flushReapply();
+    stop.mockClear();
+
+    // Firmware rejects the disable command (the audio-reactive DSP is already
+    // at 0 because the host mirror does the work), so the command throws.
+    device.ackResults = [ACK_RESULT.ERR_INVALID_VALUE];
+
+    const snapshot = await service.setAudioReactiveHapticsConfig({ enabled: false });
+
+    expect(snapshot.settings.audioReactiveHapticsEnabled).toBe(false);
+    expect(stop).toHaveBeenCalled();
+  });
+
   it('restarts system audio haptics immediately after a route change', async () => {
     const service = serviceFixture({
       audioReactiveHapticsEnabled: true
