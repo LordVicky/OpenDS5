@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createDefaultProfile, validateTriggerProfile } from './trigger-profiles';
+import { createDefaultProfile, validateTriggerProfile, type TriggerProfile, type TriggerModifier } from './trigger-profiles';
 
-const valid = {
+const valid: TriggerProfile = {
   version: 1,
   id: 'generic-shooter',
   name: 'Generic Shooter',
@@ -37,16 +37,17 @@ describe('validateTriggerProfile', () => {
 
   it('rejects out-of-range percents', () => {
     const bad = structuredClone(valid);
-    bad.triggers.l2.base.forcePercent = 150;
+    bad.triggers.l2.base!.forcePercent = 150;
     expect(validateTriggerProfile(bad).ok).toBe(false);
   });
 
   it('accepts audio-source modifiers without validating their condition', () => {
     const withAudio = structuredClone(valid);
-    withAudio.triggers.r2.modifiers.push({
+    const audioModifier: TriggerModifier = {
       when: { source: 'audio', condition: 'transient-kick' },
       effect: { mode: 'vibration', startPercent: 0, wallPercent: 0, forcePercent: 100 }
-    });
+    };
+    withAudio.triggers.r2.modifiers.push(audioModifier);
     expect(validateTriggerProfile(withAudio).ok).toBe(true);
   });
 
