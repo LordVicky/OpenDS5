@@ -7732,3 +7732,123 @@ input[type="color"]::-webkit-color-swatch {
   color: var(--danger);
 }
 
+.trigger-profiles-grid {
+  grid-template-columns: minmax(240px, 0.6fr) minmax(360px, 1.4fr);
+  align-items: start;
+}
+
+.trigger-profiles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trigger-profiles-list-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trigger-profiles-list-item-select {
+  flex: 1;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+}
+
+.trigger-profiles-list-item.active .trigger-profiles-list-item-select {
+  background: var(--accent-soft);
+  border-color: var(--accent-border-strong);
+  color: var(--text-strong);
+}
+
+.trigger-profiles-pin-field,
+.trigger-profiles-name-field,
+.trigger-profiles-process-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.trigger-profiles-slot {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.trigger-profiles-slot-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trigger-profiles-no-effect {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.trigger-profiles-effect-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.trigger-profiles-effect-slider {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 10px;
+}
+
+.trigger-profiles-modifiers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.trigger-profiles-modifier {
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.trigger-profiles-modifier-condition {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.trigger-profiles-modifier-param {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.trigger-profiles-modifier-param input {
+  width: 72px;
+}
+
+.trigger-profiles-modifier-add {
+  align-self: flex-start;
+}
+
+.trigger-profiles-save-row {
+  margin-top: 16px;
+}
+

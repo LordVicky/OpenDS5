@@ -52,6 +52,7 @@ import {
   IconSparkleHighlight,
   IconSparkles as Sparkles,
   IconStethoscope,
+  IconTargetArrow,
   IconTestPipe,
   IconTool,
   IconTrash as Trash2,
@@ -131,8 +132,16 @@ import type {
   TriggerTestTarget
 } from '../shared/protocol';
 import type { AudioHapticsSession, BridgeSnapshot, UiScalePercent, UiThemePreset } from '../shared/types';
+import { createDefaultProfile } from '../shared/trigger-profiles';
+import type {
+  EngineStatus,
+  InputConditionType,
+  TriggerEffectSpec,
+  TriggerModifier,
+  TriggerProfile
+} from '../shared/trigger-profiles';
 
-type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'lighting' | 'remapping' | 'chords' | 'system';
+type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
 type StartupTutorialStep = 'feature-toggle' | 'support' | 'done';
 type ControllerType = BridgeStatusPayload['controllerType'];
 type KnownControllerType = Exclude<ControllerType, 'unknown'>;
@@ -240,6 +249,11 @@ type TriggerLabWorkspaceState = {
 };
 type TriggerLabInitialState = TriggerLabWorkspaceState & {
   profiles: TriggerLabCustomProfile[];
+};
+type TriggerProfileSlotKey = 'l2' | 'r2';
+type TriggerProfileDeleteConfirmState = {
+  id: string;
+  name: string;
 };
 type RemapCalloutLayout = {
   top: number;
@@ -359,6 +373,16 @@ const TRIGGER_TEST_MODE_OPTIONS: Array<[string, TriggerTestMode]> = [
 ];
 const TRIGGER_LAB_BUILTIN_PROFILE_OPTIONS: Array<[string, TriggerLabBuiltinProfileId]> = [
   ['Default', 'default']
+];
+const TRIGGER_PROFILE_SLOTS: Array<[TriggerProfileSlotKey, string]> = [
+  ['l2', 'L2'],
+  ['r2', 'R2']
+];
+const TRIGGER_PROFILE_CONDITION_OPTIONS: Array<[string, InputConditionType]> = [
+  ['Trigger Held Over', 'trigger-held-over'],
+  ['Trigger Full Pull', 'trigger-full-pull'],
+  ['Button Held', 'button-held'],
+  ['Rapid Fire', 'rapid-fire']
 ];
 const TRIGGER_LAB_PROFILE_PRESETS: Record<TriggerLabBuiltinProfileId, TriggerLabDraft> = {
   default: {
@@ -717,6 +741,7 @@ const CONTROL_TABS: Array<{ id: ControlTab; label: string; Icon: TablerIcon }> =
   { id: 'audio', label: 'Audio', Icon: IconVolume },
   { id: 'haptics', label: 'Haptics', Icon: Sparkles },
   { id: 'triggers', label: 'Triggers', Icon: IconDeviceGamepad2 },
+  { id: 'trigger-profiles', label: 'Trigger Profiles', Icon: IconTargetArrow },
   { id: 'lighting', label: 'Lighting', Icon: IconBulb },
   { id: 'remapping', label: 'Button Remapping', Icon: IconDeviceGamepad3 },
   { id: 'system', label: 'System', Icon: IconCpu }
@@ -906,6 +931,35 @@ function snapTriggerEffectIntensity(value: number): number {
 
 function snapTriggerLabPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value / TRIGGER_LAB_SLIDER_STEP) * TRIGGER_LAB_SLIDER_STEP));
+}
+
+export function parseProcessNamesInput(input: string): string[] {
+  return input
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0);
+}
+
+export function formatEngineStatusLine(status: EngineStatus, activeProfileName: string): string {
+  if (status.suspended) return `Active: ${activeProfileName} (suspended by Trigger Lab)`;
+  if (status.matchedBy === 'pin') return `Active: ${activeProfileName} (pinned)`;
+  if (status.matchedBy === 'process') return `Active: ${activeProfileName} (matched: ${status.matchedName})`;
+  return `Active: ${activeProfileName} (default)`;
+}
+
+function defaultTriggerEffectSpec(): TriggerEffectSpec {
+  return { mode: 'feedback', startPercent: 0, wallPercent: 0, forcePercent: 0 };
+}
+
+function defaultTriggerModifier(): TriggerModifier {
+  return {
+    when: { source: 'input', condition: 'trigger-held-over', threshold: 50, ms: 200 },
+    effect: defaultTriggerEffectSpec()
+  };
+}
+
+function slugifyTriggerProfileName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 function isTriggerLabBuiltinProfileId(value: string): value is TriggerLabBuiltinProfileId {
@@ -2796,6 +2850,13 @@ export function App() {
   const [triggerLabCustomProfiles, setTriggerLabCustomProfiles] = useState<TriggerLabCustomProfile[]>(triggerLabInitialState.profiles);
   const [triggerLabProfileDialog, setTriggerLabProfileDialog] = useState<TriggerLabProfileDialogState | null>(null);
   const [triggerLabProfileNameDraft, setTriggerLabProfileNameDraft] = useState('');
+  const [triggerProfiles, setTriggerProfiles] = useState<TriggerProfile[]>([]);
+  const [triggerProfilesEnabled, setTriggerProfilesEnabled] = useState(false);
+  const [triggerProfileEngineStatus, setTriggerProfileEngineStatus] = useState<EngineStatus | null>(null);
+  const [selectedTriggerProfileId, setSelectedTriggerProfileId] = useState<string | null>(null);
+  const [triggerProfileDraft, setTriggerProfileDraft] = useState<TriggerProfile | null>(null);
+  const [triggerProfileProcessNamesInput, setTriggerProfileProcessNamesInput] = useState('');
+  const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
   const [remapDraft, setRemapDraft] = useState<Record<RemapButtonId, RemapButtonId>>(DEFAULT_REMAP_DRAFT);
   const [remapProfileDialogMode, setRemapProfileDialogMode] = useState<RemapProfileDialogMode | null>(null);
   const [remapProfileNameDraft, setRemapProfileNameDraft] = useState('');
@@ -3229,6 +3290,30 @@ export function App() {
       }
       window.removeEventListener('mouseup', finishWindowDrag);
       window.removeEventListener('blur', finishWindowDrag);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.bridge.listTriggerProfiles().then((profiles) => {
+      if (cancelled) return;
+      setTriggerProfiles(profiles);
+      if (profiles.length > 0) {
+        loadTriggerProfileDraft(profiles[0]);
+      }
+    });
+    window.bridge.getTriggerProfileEngineStatus().then((status) => {
+      if (cancelled) return;
+      setTriggerProfilesEnabled(status.enabled);
+      setTriggerProfileEngineStatus(status);
+    });
+    const unsubscribe = window.bridge.onTriggerProfileEngineStatus((status) => {
+      setTriggerProfilesEnabled(status.enabled);
+      setTriggerProfileEngineStatus(status);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
     };
   }, []);
 
@@ -5767,6 +5852,113 @@ export function App() {
     ));
   }
 
+  function loadTriggerProfileDraft(profile: TriggerProfile) {
+    setSelectedTriggerProfileId(profile.id);
+    setTriggerProfileDraft(profile);
+    setTriggerProfileProcessNamesInput(profile.match.processNames.join(', '));
+  }
+
+  async function refreshTriggerProfiles(preferredId?: string) {
+    const profiles = await window.bridge.listTriggerProfiles();
+    setTriggerProfiles(profiles);
+    const preferred = preferredId ? profiles.find((profile) => profile.id === preferredId) : undefined;
+    const next = preferred ?? profiles.find((profile) => profile.id === selectedTriggerProfileId) ?? profiles[0];
+    if (next) {
+      loadTriggerProfileDraft(next);
+    } else {
+      setSelectedTriggerProfileId(null);
+      setTriggerProfileDraft(null);
+      setTriggerProfileProcessNamesInput('');
+    }
+    return profiles;
+  }
+
+  function selectTriggerProfile(id: string) {
+    const profile = triggerProfiles.find((entry) => entry.id === id);
+    if (profile) {
+      loadTriggerProfileDraft(profile);
+    }
+  }
+
+  function createTriggerProfile() {
+    const base = createDefaultProfile();
+    const name = 'New Profile';
+    const id = `custom-${Date.now().toString(36)}`;
+    const profile: TriggerProfile = {
+      ...base,
+      id,
+      name,
+      updatedAtMs: Date.now()
+    };
+    setTriggerProfiles((profiles) => [...profiles, profile]);
+    loadTriggerProfileDraft(profile);
+  }
+
+  function duplicateTriggerProfile() {
+    if (!triggerProfileDraft) return;
+    const id = `custom-${Date.now().toString(36)}`;
+    const profile: TriggerProfile = {
+      ...triggerProfileDraft,
+      id,
+      name: `${triggerProfileDraft.name} Copy`,
+      updatedAtMs: Date.now()
+    };
+    setTriggerProfiles((profiles) => [...profiles, profile]);
+    loadTriggerProfileDraft(profile);
+  }
+
+  function openTriggerProfileDeleteConfirm(profile: TriggerProfile) {
+    setTriggerProfileDeleteConfirm({ id: profile.id, name: profile.name });
+  }
+
+  async function confirmDeleteTriggerProfile() {
+    if (!triggerProfileDeleteConfirm) return;
+    await window.bridge.deleteTriggerProfile(triggerProfileDeleteConfirm.id);
+    setTriggerProfileDeleteConfirm(null);
+    await refreshTriggerProfiles();
+  }
+
+  async function saveTriggerProfileDraft() {
+    if (!triggerProfileDraft) return;
+    const processNames = parseProcessNamesInput(triggerProfileProcessNamesInput);
+    const profile: TriggerProfile = {
+      ...triggerProfileDraft,
+      id: triggerProfileDraft.id || slugifyTriggerProfileName(triggerProfileDraft.name),
+      match: { ...triggerProfileDraft.match, processNames },
+      updatedAtMs: Date.now()
+    };
+    const saved = await window.bridge.saveTriggerProfile(profile);
+    await refreshTriggerProfiles(saved.id);
+  }
+
+  async function toggleTriggerProfilesEnabled() {
+    const status = await window.bridge.setTriggerProfilesEnabled(!triggerProfilesEnabled);
+    setTriggerProfilesEnabled(status.enabled);
+    setTriggerProfileEngineStatus(status);
+  }
+
+  async function pinSelectedTriggerProfile(id: string) {
+    const status = await window.bridge.pinTriggerProfile(id === '' ? null : id);
+    setTriggerProfileEngineStatus(status);
+  }
+
+  function updateTriggerProfileSlot(
+    slot: TriggerProfileSlotKey,
+    updater: (config: TriggerProfile['triggers']['l2']) => TriggerProfile['triggers']['l2']
+  ) {
+    setTriggerProfileDraft((draft) => {
+      if (!draft) return draft;
+      return {
+        ...draft,
+        triggers: { ...draft.triggers, [slot]: updater(draft.triggers[slot]) }
+      };
+    });
+  }
+
+  function triggerProfileNameById(id: string): string {
+    return triggerProfiles.find((profile) => profile.id === id)?.name ?? id;
+  }
+
   function toggleLightbarEnabled() {
     if (!snapshot) return;
     void runAction('lightbar-enabled', () => window.bridge.setLightbarEnabled(!snapshot.settings.lightbarEnabled));
@@ -7763,6 +7955,373 @@ export function App() {
           </div>
 
           <div
+            className={`control-page trigger-profiles-page ${activeControlTab === 'trigger-profiles' ? 'active' : ''}`}
+            role="tabpanel"
+            id="control-panel-trigger-profiles"
+            aria-labelledby="control-tab-trigger-profiles"
+            aria-hidden={activeControlTab !== 'trigger-profiles'}
+          >
+            <div className="feature-heading">
+              <div>
+                <h2>Game Trigger Profiles</h2>
+                <p>Automatically switch adaptive trigger effects per game.</p>
+              </div>
+              <div className="inline-switch">
+                <span>Game Trigger Profiles</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={triggerProfilesEnabled}
+                  aria-label="Enable game trigger profiles"
+                  className={`switch ${triggerProfilesEnabled ? 'on' : ''}`}
+                  onClick={() => void toggleTriggerProfilesEnabled()}
+                >
+                  <span />
+                </button>
+              </div>
+            </div>
+
+            {triggerProfileEngineStatus && (
+              <div className="feature-status trigger-profiles-status">
+                <span className="status-badge">
+                  <span className={`dot ${triggerProfileEngineStatus.enabled ? 'ok' : 'warn'}`} />
+                  <strong>
+                    {formatEngineStatusLine(
+                      triggerProfileEngineStatus,
+                      triggerProfileNameById(triggerProfileEngineStatus.activeProfileId)
+                    )}
+                  </strong>
+                </span>
+              </div>
+            )}
+
+            <div className="feature-card-grid trigger-profiles-grid">
+              <section className="feature-card trigger-profiles-list-card">
+                <div className="feature-card-title">
+                  <span className="feature-icon"><IconTargetArrow size={20} /></span>
+                  <div className="title-copy">
+                    <h3>Profiles</h3>
+                    <p>Create profiles matched by process name.</p>
+                  </div>
+                </div>
+                <ul className="trigger-profiles-list">
+                  {triggerProfiles.map((profile) => (
+                    <li
+                      key={profile.id}
+                      className={`trigger-profiles-list-item ${selectedTriggerProfileId === profile.id ? 'active' : ''}`}
+                    >
+                      <button
+                        type="button"
+                        className="trigger-profiles-list-item-select"
+                        onClick={() => selectTriggerProfile(profile.id)}
+                      >
+                        {profile.name}
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-compact trigger-profiles-list-item-delete"
+                        aria-label={`Delete ${profile.name}`}
+                        disabled={profile.id === 'default'}
+                        onClick={() => openTriggerProfileDeleteConfirm(profile)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="segmented-row">
+                  <button type="button" onClick={createTriggerProfile}>
+                    <Plus size={14} />
+                    New Profile
+                  </button>
+                  <button type="button" disabled={!triggerProfileDraft} onClick={duplicateTriggerProfile}>
+                    Duplicate
+                  </button>
+                </div>
+                <label className="trigger-profiles-pin-field">
+                  <span>Pin Active Profile</span>
+                  <CustomSelect
+                    value={triggerProfileEngineStatus?.matchedBy === 'pin' ? (triggerProfileEngineStatus.activeProfileId) : ''}
+                    options={[
+                      ['Auto', ''],
+                      ...triggerProfiles.map((profile): [string, string] => [profile.name, profile.id])
+                    ]}
+                    ariaLabel="Pin active trigger profile"
+                    onChange={(value) => void pinSelectedTriggerProfile(value)}
+                  />
+                </label>
+              </section>
+
+              {triggerProfileDraft && (
+                <section className="feature-card trigger-profiles-editor-card">
+                  <div className="feature-card-title">
+                    <span className="feature-icon"><Pencil size={20} /></span>
+                    <div className="title-copy">
+                      <h3>Editor</h3>
+                      <p>Edit the selected profile's match rules and trigger effects.</p>
+                    </div>
+                  </div>
+
+                  <label className="trigger-profiles-name-field">
+                    <span>Name</span>
+                    <input
+                      value={triggerProfileDraft.name}
+                      maxLength={48}
+                      onChange={(event) => {
+                        const name = event.target.value;
+                        setTriggerProfileDraft((draft) => (draft ? { ...draft, name } : draft));
+                      }}
+                    />
+                  </label>
+
+                  <label className="trigger-profiles-process-field">
+                    <span>Process Names (comma-separated)</span>
+                    <input
+                      value={triggerProfileProcessNamesInput}
+                      placeholder="game.exe, other.exe"
+                      onChange={(event) => setTriggerProfileProcessNamesInput(event.target.value)}
+                    />
+                  </label>
+
+                  {TRIGGER_PROFILE_SLOTS.map(([slot, label]) => {
+                    const slotConfig = triggerProfileDraft.triggers[slot];
+                    return (
+                      <div key={slot} className="trigger-profiles-slot">
+                        <div className="trigger-profiles-slot-heading">
+                          <h4>{label}</h4>
+                          <label className="trigger-profiles-no-effect">
+                            <input
+                              type="checkbox"
+                              checked={slotConfig.base === null}
+                              onChange={(event) => {
+                                const noEffect = event.target.checked;
+                                updateTriggerProfileSlot(slot, (config) => ({
+                                  ...config,
+                                  base: noEffect ? null : defaultTriggerEffectSpec()
+                                }));
+                              }}
+                            />
+                            No Effect
+                          </label>
+                        </div>
+
+                        {slotConfig.base && (
+                          <div className="trigger-profiles-effect">
+                            <CustomSelect
+                              value={slotConfig.base.mode}
+                              options={TRIGGER_TEST_MODE_OPTIONS}
+                              ariaLabel={`${label} base effect mode`}
+                              onChange={(mode) => updateTriggerProfileSlot(slot, (config) => ({
+                                ...config,
+                                base: config.base ? { ...config.base, mode } : config.base
+                              }))}
+                            />
+                            <div className="trigger-profiles-effect-sliders">
+                              {(['startPercent', 'wallPercent', 'forcePercent'] as const).map((key) => (
+                                <label key={key} className="trigger-profiles-effect-slider">
+                                  <span>{key === 'startPercent' ? 'Start' : key === 'wallPercent' ? 'Wall' : 'Force'}</span>
+                                  <TriggerLabMeter
+                                    label={`${label} ${key}`}
+                                    value={slotConfig.base ? slotConfig.base[key] : 0}
+                                    onChange={(value) => updateTriggerProfileSlot(slot, (config) => ({
+                                      ...config,
+                                      base: config.base ? { ...config.base, [key]: value } : config.base
+                                    }))}
+                                    onCommit={(value) => updateTriggerProfileSlot(slot, (config) => ({
+                                      ...config,
+                                      base: config.base ? { ...config.base, [key]: value } : config.base
+                                    }))}
+                                  />
+                                  <strong>{slotConfig.base ? slotConfig.base[key] : 0}%</strong>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="trigger-profiles-modifiers">
+                          {slotConfig.modifiers.map((modifier, modifierIndex) => (
+                            <div key={modifierIndex} className="trigger-profiles-modifier">
+                              <div className="trigger-profiles-modifier-condition">
+                                <CustomSelect
+                                  value={modifier.when.condition as InputConditionType}
+                                  options={TRIGGER_PROFILE_CONDITION_OPTIONS}
+                                  ariaLabel={`${label} modifier ${modifierIndex + 1} condition`}
+                                  onChange={(condition) => updateTriggerProfileSlot(slot, (config) => ({
+                                    ...config,
+                                    modifiers: config.modifiers.map((entry, index) => (
+                                      index === modifierIndex
+                                        ? { ...entry, when: { ...entry.when, condition } }
+                                        : entry
+                                    ))
+                                  }))}
+                                />
+                                {(modifier.when.condition === 'trigger-held-over') && (
+                                  <>
+                                    <label className="trigger-profiles-modifier-param">
+                                      <span>Threshold %</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={modifier.when.threshold ?? 0}
+                                        onChange={(event) => {
+                                          const threshold = Number(event.target.value);
+                                          updateTriggerProfileSlot(slot, (config) => ({
+                                            ...config,
+                                            modifiers: config.modifiers.map((entry, index) => (
+                                              index === modifierIndex
+                                                ? { ...entry, when: { ...entry.when, threshold } }
+                                                : entry
+                                            ))
+                                          }));
+                                        }}
+                                      />
+                                    </label>
+                                    <label className="trigger-profiles-modifier-param">
+                                      <span>Hold ms</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        value={modifier.when.ms ?? 0}
+                                        onChange={(event) => {
+                                          const ms = Number(event.target.value);
+                                          updateTriggerProfileSlot(slot, (config) => ({
+                                            ...config,
+                                            modifiers: config.modifiers.map((entry, index) => (
+                                              index === modifierIndex
+                                                ? { ...entry, when: { ...entry.when, ms } }
+                                                : entry
+                                            ))
+                                          }));
+                                        }}
+                                      />
+                                    </label>
+                                  </>
+                                )}
+                                {modifier.when.condition === 'button-held' && (
+                                  <label className="trigger-profiles-modifier-param">
+                                    <span>Button</span>
+                                    <input
+                                      value={modifier.when.button ?? ''}
+                                      onChange={(event) => {
+                                        const button = event.target.value;
+                                        updateTriggerProfileSlot(slot, (config) => ({
+                                          ...config,
+                                          modifiers: config.modifiers.map((entry, index) => (
+                                            index === modifierIndex
+                                              ? { ...entry, when: { ...entry.when, button } }
+                                              : entry
+                                          ))
+                                        }));
+                                      }}
+                                    />
+                                  </label>
+                                )}
+                                {modifier.when.condition === 'rapid-fire' && (
+                                  <label className="trigger-profiles-modifier-param">
+                                    <span>Presses/sec</span>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={modifier.when.pressesPerSecond ?? 0}
+                                      onChange={(event) => {
+                                        const pressesPerSecond = Number(event.target.value);
+                                        updateTriggerProfileSlot(slot, (config) => ({
+                                          ...config,
+                                          modifiers: config.modifiers.map((entry, index) => (
+                                            index === modifierIndex
+                                              ? { ...entry, when: { ...entry.when, pressesPerSecond } }
+                                              : entry
+                                          ))
+                                        }));
+                                      }}
+                                    />
+                                  </label>
+                                )}
+                                <button
+                                  type="button"
+                                  className="icon-compact trigger-profiles-modifier-remove"
+                                  aria-label={`Remove ${label} modifier ${modifierIndex + 1}`}
+                                  onClick={() => updateTriggerProfileSlot(slot, (config) => ({
+                                    ...config,
+                                    modifiers: config.modifiers.filter((_, index) => index !== modifierIndex)
+                                  }))}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                              <div className="trigger-profiles-effect-sliders">
+                                <CustomSelect
+                                  value={modifier.effect.mode}
+                                  options={TRIGGER_TEST_MODE_OPTIONS}
+                                  ariaLabel={`${label} modifier ${modifierIndex + 1} effect mode`}
+                                  onChange={(mode) => updateTriggerProfileSlot(slot, (config) => ({
+                                    ...config,
+                                    modifiers: config.modifiers.map((entry, index) => (
+                                      index === modifierIndex
+                                        ? { ...entry, effect: { ...entry.effect, mode } }
+                                        : entry
+                                    ))
+                                  }))}
+                                />
+                                {(['startPercent', 'wallPercent', 'forcePercent'] as const).map((key) => (
+                                  <label key={key} className="trigger-profiles-effect-slider">
+                                    <span>{key === 'startPercent' ? 'Start' : key === 'wallPercent' ? 'Wall' : 'Force'}</span>
+                                    <TriggerLabMeter
+                                      label={`${label} modifier ${modifierIndex + 1} ${key}`}
+                                      value={modifier.effect[key]}
+                                      onChange={(value) => updateTriggerProfileSlot(slot, (config) => ({
+                                        ...config,
+                                        modifiers: config.modifiers.map((entry, index) => (
+                                          index === modifierIndex
+                                            ? { ...entry, effect: { ...entry.effect, [key]: value } }
+                                            : entry
+                                        ))
+                                      }))}
+                                      onCommit={(value) => updateTriggerProfileSlot(slot, (config) => ({
+                                        ...config,
+                                        modifiers: config.modifiers.map((entry, index) => (
+                                          index === modifierIndex
+                                            ? { ...entry, effect: { ...entry.effect, [key]: value } }
+                                            : entry
+                                        ))
+                                      }))}
+                                    />
+                                    <strong>{modifier.effect[key]}%</strong>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            className="trigger-profiles-modifier-add"
+                            onClick={() => updateTriggerProfileSlot(slot, (config) => ({
+                              ...config,
+                              modifiers: [...config.modifiers, defaultTriggerModifier()]
+                            }))}
+                          >
+                            <Plus size={14} />
+                            Add Modifier
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div className="trigger-profiles-save-row">
+                    <button type="button" className="primary-action" onClick={() => void saveTriggerProfileDraft()}>
+                      <Save size={14} />
+                      Save
+                    </button>
+                  </div>
+                </section>
+              )}
+            </div>
+          </div>
+
+          <div
             className={`control-page lighting-page ${activeControlTab === 'lighting' ? 'active' : ''}`}
             role="tabpanel"
             id="control-panel-lighting"
@@ -9186,6 +9745,52 @@ export function App() {
                 disabled={pendingAction !== null || (triggerLabProfileDialog.mode !== 'delete' && triggerLabProfileNameDraft.trim().length === 0)}
               >
                 {triggerLabProfileDialog.mode === 'delete' ? 'Delete' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {triggerProfileDeleteConfirm && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setTriggerProfileDeleteConfirm(null)}
+        >
+          <form
+            className="settings-menu bridge-settings-modal remap-profile-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Delete trigger profile"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void confirmDeleteTriggerProfile();
+            }}
+          >
+            <div className="settings-menu-heading bridge-settings-modal-heading">
+              <div className="modal-heading-copy">
+                <Trash2 size={16} />
+                <span>Delete Trigger Profile</span>
+              </div>
+              <button
+                className="modal-close-button"
+                type="button"
+                aria-label="Close delete trigger profile dialog"
+                onClick={() => setTriggerProfileDeleteConfirm(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="remap-profile-dialog-copy">
+              Delete {triggerProfileDeleteConfirm.name}?
+            </p>
+            <div className="remap-profile-dialog-actions">
+              <button type="button" className="secondary-action" onClick={() => setTriggerProfileDeleteConfirm(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="primary-action danger">
+                Delete
               </button>
             </div>
           </form>

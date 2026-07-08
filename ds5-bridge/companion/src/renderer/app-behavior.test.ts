@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parseProcessNamesInput, formatEngineStatusLine } from './App';
 
 const appSource = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'App.tsx'), 'utf8');
 const stylesSource = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'styles.css'), 'utf8');
@@ -268,5 +269,26 @@ describe('renderer behavior guards', () => {
     expect(normalizeSource).toContain("case 'prtsc':");
     expect(normalizeSource).toContain("case 'prtscn':");
     expect(normalizeSource).toContain("return 'Print Screen';");
+  });
+});
+
+describe('trigger profiles panel helpers', () => {
+  it('parses comma-separated process names, trimming and dropping empties', () => {
+    expect(parseProcessNamesInput(' Game.exe, other , ,')).toEqual(['game.exe', 'other']);
+  });
+
+  it('formats the engine status line', () => {
+    expect(formatEngineStatusLine(
+      { enabled: true, suspended: false, activeProfileId: 'shooter', matchedBy: 'process', matchedName: 'game.exe' },
+      'Generic Shooter'
+    )).toBe('Active: Generic Shooter (matched: game.exe)');
+    expect(formatEngineStatusLine(
+      { enabled: true, suspended: false, activeProfileId: 'shooter', matchedBy: 'pin', matchedName: null },
+      'Generic Shooter'
+    )).toBe('Active: Generic Shooter (pinned)');
+    expect(formatEngineStatusLine(
+      { enabled: true, suspended: true, activeProfileId: 'default', matchedBy: 'default', matchedName: null },
+      'Default'
+    )).toBe('Active: Default (suspended by Trigger Lab)');
   });
 });
