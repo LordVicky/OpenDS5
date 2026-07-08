@@ -958,8 +958,47 @@ function defaultTriggerModifier(): TriggerModifier {
   };
 }
 
-function slugifyTriggerProfileName(name: string): string {
+export function slugifyTriggerProfileName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+const PROVISIONAL_TRIGGER_PROFILE_ID_PREFIX = 'draft-';
+
+function makeProvisionalTriggerProfileId(): string {
+  return `${PROVISIONAL_TRIGGER_PROFILE_ID_PREFIX}${Date.now().toString(36)}-${Math.round(Math.random() * 1e6).toString(36)}`;
+}
+
+export function isProvisionalTriggerProfileId(id: string): boolean {
+  return id.startsWith(PROVISIONAL_TRIGGER_PROFILE_ID_PREFIX);
+}
+
+export function uniqueTriggerProfileId(name: string, existingIds: readonly string[]): string {
+  const base = slugifyTriggerProfileName(name);
+  const taken = new Set(existingIds);
+  const isTaken = (candidate: string) => candidate === 'default' || candidate === '' || taken.has(candidate);
+  if (!isTaken(base)) {
+    return base;
+  }
+  let suffix = 2;
+  let candidate = `${base}-${suffix}`;
+  while (isTaken(candidate)) {
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
+  }
+  return candidate;
+}
+
+export function mergeTriggerProfiles(
+  localProfiles: readonly TriggerProfile[],
+  backendProfiles: readonly TriggerProfile[],
+  excludeIds: readonly string[] = []
+): TriggerProfile[] {
+  const backendIds = new Set(backendProfiles.map((profile) => profile.id));
+  const excluded = new Set(excludeIds);
+  const unsavedDrafts = localProfiles.filter(
+    (profile) => !backendIds.has(profile.id) && !excluded.has(profile.id)
+  );
+  return [...backendProfiles, ...unsavedDrafts];
 }
 
 function isTriggerLabBuiltinProfileId(value: string): value is TriggerLabBuiltinProfileId {
@@ -5858,8 +5897,9 @@ export function App() {
     setTriggerProfileProcessNamesInput(profile.match.processNames.join(', '));
   }
 
-  async function refreshTriggerProfiles(preferredId?: string) {
-    const profiles = await window.bridge.listTriggerProfiles();
+  async function refreshTriggerProfiles(preferredId?: string, excludeId?: string) {
+    const backendProfiles = await window.bridge.listTriggerProfiles();
+    const profiles = mergeTriggerProfiles(triggerProfiles, backendProfiles, excludeId ? [excludeId] : []);
     setTriggerProfiles(profiles);
     const preferred = preferredId ? profiles.find((profile) => profile.id === preferredId) : undefined;
     const next = preferred ?? profiles.find((profile) => profile.id === selectedTriggerProfileId) ?? profiles[0];
@@ -5883,7 +5923,7 @@ export function App() {
   function createTriggerProfile() {
     const base = createDefaultProfile();
     const name = 'New Profile';
-    const id = `custom-${Date.now().toString(36)}`;
+    const id = makeProvisionalTriggerProfileId();
     const profile: TriggerProfile = {
       ...base,
       id,
@@ -5896,7 +5936,7 @@ export function App() {
 
   function duplicateTriggerProfile() {
     if (!triggerProfileDraft) return;
-    const id = `custom-${Date.now().toString(36)}`;
+    const id = makeProvisionalTriggerProfileId();
     const profile: TriggerProfile = {
       ...triggerProfileDraft,
       id,
@@ -5913,22 +5953,31 @@ export function App() {
 
   async function confirmDeleteTriggerProfile() {
     if (!triggerProfileDeleteConfirm) return;
-    await window.bridge.deleteTriggerProfile(triggerProfileDeleteConfirm.id);
+    const deletedId = triggerProfileDeleteConfirm.id;
+    await window.bridge.deleteTriggerProfile(deletedId);
     setTriggerProfileDeleteConfirm(null);
-    await refreshTriggerProfiles();
+    await refreshTriggerProfiles(undefined, deletedId);
   }
 
   async function saveTriggerProfileDraft() {
     if (!triggerProfileDraft) return;
     const processNames = parseProcessNamesInput(triggerProfileProcessNamesInput);
+    const previousId = triggerProfileDraft.id;
+    const isProvisional = isProvisionalTriggerProfileId(previousId);
+    const id = isProvisional
+      ? uniqueTriggerProfileId(
+          triggerProfileDraft.name,
+          triggerProfiles.filter((profile) => profile.id !== previousId).map((profile) => profile.id)
+        )
+      : previousId;
     const profile: TriggerProfile = {
       ...triggerProfileDraft,
-      id: triggerProfileDraft.id || slugifyTriggerProfileName(triggerProfileDraft.name),
+      id,
       match: { ...triggerProfileDraft.match, processNames },
       updatedAtMs: Date.now()
     };
     const saved = await window.bridge.saveTriggerProfile(profile);
-    await refreshTriggerProfiles(saved.id);
+    await refreshTriggerProfiles(saved.id, isProvisional ? previousId : undefined);
   }
 
   async function toggleTriggerProfilesEnabled() {
@@ -8163,10 +8212,12 @@ export function App() {
                                       <input
                                         type="number"
                                         min={0}
-                                        max={100}
+                                        max={255}
                                         value={modifier.when.threshold ?? 0}
                                         onChange={(event) => {
-                                          const threshold = Number(event.target.value);
+                                          const raw = Number(event.target.value);
+                                          if (Number.isNaN(raw)) return;
+                                          const threshold = clampByte(raw);
                                           updateTriggerProfileSlot(slot, (config) => ({
                                             ...config,
                                             modifiers: config.modifiers.map((entry, index) => (
@@ -8185,7 +8236,9 @@ export function App() {
                                         min={0}
                                         value={modifier.when.ms ?? 0}
                                         onChange={(event) => {
-                                          const ms = Number(event.target.value);
+                                          const raw = Number(event.target.value);
+                                          if (Number.isNaN(raw)) return;
+                                          const ms = Math.max(0, Math.round(raw));
                                           updateTriggerProfileSlot(slot, (config) => ({
                                             ...config,
                                             modifiers: config.modifiers.map((entry, index) => (
@@ -8223,10 +8276,12 @@ export function App() {
                                     <span>Presses/sec</span>
                                     <input
                                       type="number"
-                                      min={0}
+                                      min={1}
                                       value={modifier.when.pressesPerSecond ?? 0}
                                       onChange={(event) => {
-                                        const pressesPerSecond = Number(event.target.value);
+                                        const raw = Number(event.target.value);
+                                        if (Number.isNaN(raw)) return;
+                                        const pressesPerSecond = Math.max(1, Math.round(raw));
                                         updateTriggerProfileSlot(slot, (config) => ({
                                           ...config,
                                           modifiers: config.modifiers.map((entry, index) => (
