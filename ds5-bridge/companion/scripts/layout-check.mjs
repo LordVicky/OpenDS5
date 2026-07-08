@@ -15,7 +15,8 @@ const app = await electron.launch({
   cwd: root,
   env: {
     ...process.env,
-    DS5_BRIDGE_ALLOW_PARALLEL_AUTOMATION_INSTANCE: '1'
+    DS5_BRIDGE_ALLOW_PARALLEL_AUTOMATION_INSTANCE: '1',
+    DS5_BRIDGE_MOCK_CONTROLLER: '1'
   }
 });
 
@@ -217,7 +218,7 @@ try {
 
   await controlsNav.getByRole('tab', { name: 'Haptics' }).click();
   await page.waitForTimeout(150);
-  await page.getByRole('switch', { name: 'Enter Audio Haptics' }).click();
+  await page.getByRole('switch', { name: 'Enable Audio Haptics' }).click();
   await page.waitForTimeout(150);
 
   const audioHapticsMeasurement = await page.evaluate(() => {
@@ -397,7 +398,7 @@ try {
     }
   }
 
-  await page.getByRole('switch', { name: 'Exit Audio Haptics' }).click();
+  await page.getByRole('switch', { name: 'Disable Audio Haptics' }).click();
   await page.waitForTimeout(150);
 
   for (const tab of testButtonTabs) {

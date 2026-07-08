@@ -76,6 +76,43 @@ describe('renderer behavior guards', () => {
     expect(appSource).not.toContain('Command Pending');
   });
 
+  it('labels the HD haptics control as "HD Haptics" to distinguish it from rumble', () => {
+    const selectorStart = appSource.indexOf('aria-label="Haptics control mode"');
+    expect(selectorStart).toBeGreaterThanOrEqual(0);
+    const selectorEnd = appSource.indexOf('</div>', selectorStart);
+    const selectorSource = appSource.slice(selectorStart, selectorEnd);
+    // The HD-vs-rumble selector should read "HD Haptics" | "Rumble".
+    expect(selectorSource).toContain('HD Haptics');
+    expect(selectorSource).toContain('Rumble');
+
+    // The card heading reflects HD Haptics (not the bare word "Haptics") when
+    // not in audio or rumble mode.
+    const heading = appSource.slice(appSource.indexOf('<h2>{audioHapticsOpen'), appSource.indexOf('</h2>', appSource.indexOf('<h2>{audioHapticsOpen')));
+    expect(heading).toContain("'HD Haptics'");
+  });
+
+  it('audio haptics header switch enables and disables the feature, not just the panel view', () => {
+    // The labeled "Audio Haptics" switch must control the feature (audioReactiveHapticsEnabled),
+    // reflecting its real enabled state, and open/close the panel to match.
+    const start = appSource.indexOf('audio-haptics-switch');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const buttonStart = appSource.lastIndexOf('<button', start);
+    const buttonEnd = appSource.indexOf('</button>', start);
+    const switchSource = appSource.slice(buttonStart, buttonEnd);
+
+    // Reflects the feature state, not the panel-open state.
+    expect(switchSource).toContain('aria-checked={audioReactiveHapticsEnabled}');
+    expect(switchSource).toContain('onClick={toggleAudioHapticsFeature}');
+    // The old view-only wiring must be gone from this switch.
+    expect(switchSource).not.toContain('setAudioHapticsOpen((open) => !open)');
+
+    // The handler flips the feature on/off and syncs the panel visibility.
+    const handler = extractFunction('toggleAudioHapticsFeature');
+    expect(handler).toContain('commitAudioReactiveHapticsConfig');
+    expect(handler).toContain('!audioReactiveHapticsEnabled');
+    expect(handler).toContain('setAudioHapticsOpen');
+  });
+
   it('dims primary feature toggles when the controller is unavailable', () => {
     expect(appSource).toContain('const controllerControlsAvailable = connected && controllerConnected;');
     expect(appSource).toContain("controllerControlsAvailable ? '' : 'controller-unavailable'");
