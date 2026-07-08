@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { AdaptiveTriggerPreviewEffect } from '../shared/protocol';
 import { ModifierEvaluator, type ControllerInputState } from '../shared/trigger-modifier-eval';
-import { DEFAULT_PROFILE_ID, type TriggerEffectSpec, type TriggerProfile } from '../shared/trigger-profiles';
+import { type TriggerEffectSpec, type TriggerProfile } from '../shared/trigger-profiles';
 import type { ActiveProfileChange, GameWatcher } from './game-watcher';
 import type { EvdevInputReader } from './evdev-input-reader';
 import type { TriggerProfileStore } from './trigger-profile-store';
@@ -79,7 +79,7 @@ export class TriggerProfileEngine extends EventEmitter {
       this.reader.stop();
       this.activeProfile = null;
       this.evaluator.setProfile(null);
-      await this.resetIfNeeded(true);
+      await this.enqueue(() => this.resetIfNeeded(true));
     }
     this.emitStatus();
   }
@@ -87,7 +87,7 @@ export class TriggerProfileEngine extends EventEmitter {
   async suspend(): Promise<void> {
     if (this.suspended) return;
     this.suspended = true;
-    await this.resetIfNeeded(true);
+    await this.enqueue(() => this.resetIfNeeded(true));
     this.emitStatus();
   }
 
@@ -95,7 +95,7 @@ export class TriggerProfileEngine extends EventEmitter {
     if (!this.suspended) return;
     this.suspended = false;
     if (this.enabled) {
-      await this.applyBases();
+      await this.enqueue(() => this.applyBasesJob());
     }
     this.emitStatus();
   }
@@ -129,12 +129,28 @@ export class TriggerProfileEngine extends EventEmitter {
     this.activeProfile = this.store.get(change.profileId);
     this.evaluator.setProfile(this.activeProfile);
     if (!this.suspended) {
-      await this.applyBases();
+      await this.enqueue(() => this.applyBasesJob());
     }
     this.emitStatus();
   }
 
-  private async applyBases(): Promise<void> {
+  /**
+   * Appends a sink-touching job to the single write chain so
+   * applyAdaptiveTriggerEffect/resetAdaptiveTriggers calls never interleave.
+   * The chain itself must survive a rejecting job so later work still runs;
+   * the returned promise still resolves/rejects with that job's own outcome.
+   */
+  private enqueue(fn: () => Promise<void>): Promise<void> {
+    const run = this.writeChain.then(fn);
+    this.writeChain = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }
+
+  private async applyBasesJob(): Promise<void> {
+    if (!this.enabled || this.suspended) return;
     const profile = this.activeProfile;
     const l2 = profile?.triggers.l2.base ?? null;
     const r2 = profile?.triggers.r2.base ?? null;
@@ -151,7 +167,7 @@ export class TriggerProfileEngine extends EventEmitter {
     this.latestDesired = resolved;
     if (this.writeScheduled) return;
     this.writeScheduled = true;
-    this.writeChain = this.writeChain.then(async () => {
+    void this.enqueue(async () => {
       this.writeScheduled = false;
       const desired = this.latestDesired;
       this.latestDesired = null;

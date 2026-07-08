@@ -13,10 +13,18 @@ import type { TriggerProfile } from '../shared/trigger-profiles';
 class FakeSink {
   applied: AdaptiveTriggerPreviewEffect[] = [];
   resets = 0;
+  callOrder: string[] = [];
+  applyGate: Promise<void> | null = null;
   async applyAdaptiveTriggerEffect(effect: AdaptiveTriggerPreviewEffect): Promise<void> {
+    this.callOrder.push('apply');
     this.applied.push(effect);
+    if (this.applyGate) {
+      await this.applyGate;
+    }
+    this.callOrder.push('apply-done');
   }
   async resetAdaptiveTriggers(): Promise<void> {
+    this.callOrder.push('reset');
     this.resets += 1;
   }
 }
@@ -116,6 +124,37 @@ describe('TriggerProfileEngine', () => {
     reader.feed({ r2: 255 });
     await flush();
     expect(sink.applied).toHaveLength(appliedBefore);
+    await engine.resume();
+    expect(sink.applied.length).toBeGreaterThan(appliedBefore);
+  });
+
+  it('serializes an in-flight input write against a concurrent suspend', async () => {
+    watcher.pinProfile('shooter');
+    await flush();
+    sink.callOrder = [];
+
+    let releaseApply: () => void = () => {};
+    sink.applyGate = new Promise((resolve) => {
+      releaseApply = resolve;
+    });
+
+    reader.feed({ r2: 255 });
+    await flush();
+    expect(sink.callOrder).toEqual(['apply']);
+
+    const suspendPromise = engine.suspend();
+    await flush();
+    // The suspend's reset must wait for the in-flight apply to finish.
+    expect(sink.callOrder).toEqual(['apply']);
+
+    releaseApply();
+    await suspendPromise;
+
+    expect(sink.callOrder).toEqual(['apply', 'apply-done', 'reset']);
+    expect(engine.getStatus().suspended).toBe(true);
+
+    sink.applyGate = null;
+    const appliedBefore = sink.applied.length;
     await engine.resume();
     expect(sink.applied.length).toBeGreaterThan(appliedBefore);
   });
