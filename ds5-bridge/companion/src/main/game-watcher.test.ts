@@ -67,6 +67,37 @@ describe('GameWatcher', () => {
     watcher.stop();
   });
 
+  it('pinning the already-active process-matched profile updates matchedBy without emitting change', () => {
+    const watcher = makeWatcher(() => ['game.exe']);
+    const changes: string[] = [];
+    watcher.on('change', (change) => changes.push(change.profileId));
+    watcher.start();
+    vi.advanceTimersByTime(6000);
+    expect(watcher.getActive()).toEqual({ profileId: 'shooter', matchedBy: 'process', matchedName: 'game.exe' });
+    expect(changes).toEqual(['shooter']);
+
+    watcher.pinProfile('shooter');
+    expect(changes).toEqual(['shooter']);
+    expect(watcher.getActive().matchedBy).toBe('pin');
+
+    watcher.pinProfile(null);
+    expect(changes).toEqual(['shooter']);
+    expect(watcher.getActive().matchedBy).toBe('process');
+    watcher.stop();
+  });
+
+  it('reports matchedName again after clearing a pin while the process still matches', () => {
+    const watcher = makeWatcher(() => ['game.exe']);
+    watcher.start();
+    vi.advanceTimersByTime(6000);
+    watcher.pinProfile('shooter');
+    expect(watcher.getActive().matchedName).toBeNull();
+
+    watcher.pinProfile(null);
+    expect(watcher.getActive().matchedName).toBe('game.exe');
+    watcher.stop();
+  });
+
   it('breaks same-tier match ties by most recently updated profile', () => {
     const watcher = new GameWatcher({ listProcesses: () => ['game.exe'], pollIntervalMs: 1000, debounceMs: 0 });
     watcher.setProfiles([profile('older', ['game.exe'], 100), profile('newer', ['game.exe'], 200)]);

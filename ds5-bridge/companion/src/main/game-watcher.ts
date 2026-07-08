@@ -93,6 +93,7 @@ export class GameWatcher extends EventEmitter {
     const matched = this.matchProcesses();
     if (matched.profileId === this.active.profileId) {
       this.candidate = null;
+      this.active = matched;
       return;
     }
     const now = Date.now();
@@ -132,7 +133,7 @@ export class GameWatcher extends EventEmitter {
 
   private activate(next: ActiveProfileChange): void {
     this.candidate = null;
-    if (next.profileId === this.active.profileId && next.matchedBy === this.active.matchedBy) {
+    if (next.profileId === this.active.profileId) {
       this.active = next;
       return;
     }
