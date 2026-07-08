@@ -58,6 +58,7 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let trayDefaultIcon: Electron.NativeImage | null = null;
 let bridgeService: BridgeService | null = null;
+let triggerProfileEngine: TriggerProfileEngine | null = null;
 let isQuitting = false;
 let shutdownComplete = false;
 const hasSingleInstanceLock = ALLOW_PARALLEL_AUTOMATION_INSTANCE || app.requestSingleInstanceLock();
@@ -1055,9 +1056,16 @@ function registerIpc(
     service.setTriggerEffectIntensity(value)
   ));
   ipcMain.handle('bridge:setTriggerTestMode', (_event, value: TriggerTestMode) => service.setTriggerTestMode(value));
-  ipcMain.handle('bridge:setAdaptiveTriggersEnabled', (_event, value: boolean) => (
-    service.setAdaptiveTriggersEnabled(value)
-  ));
+  ipcMain.handle('bridge:setAdaptiveTriggersEnabled', async (_event, value: boolean) => {
+    if (!value) {
+      await triggerProfileEngine.suspend();
+    }
+    const result = await service.setAdaptiveTriggersEnabled(value);
+    if (value) {
+      await triggerProfileEngine.resume();
+    }
+    return result;
+  });
   ipcMain.handle('bridge:setSpeakerVolume', (_event, value: number) => service.setSpeakerVolume(value));
   ipcMain.handle('bridge:setSpeakerGainLevel', (_event, value: number) => service.setSpeakerGainLevel(value));
   ipcMain.handle('bridge:setSpeakerEnabled', (_event, value: boolean) => service.setSpeakerEnabled(value));
@@ -1239,7 +1247,7 @@ app.whenReady().then(async () => {
   const triggerProfileStore = new TriggerProfileStore(
     path.join(app.getPath('userData'), 'trigger-profiles')
   );
-  const triggerProfileEngine = new TriggerProfileEngine({
+  triggerProfileEngine = new TriggerProfileEngine({
     sink: bridgeService,
     store: triggerProfileStore,
     watcher: new GameWatcher({}),
@@ -1305,9 +1313,12 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   isQuitting = true;
   const service = bridgeService;
+  const engine = triggerProfileEngine;
   bridgeService = null;
+  triggerProfileEngine = null;
   void (async () => {
     try {
+      await engine?.setEnabled(false);
       await service?.stop();
     } finally {
       shutdownComplete = true;

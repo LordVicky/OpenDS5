@@ -44,11 +44,13 @@ export function findDualSenseEventNode(): string | null {
 type ReaderOptions = {
   devicePath?: string;
   openStream?: (path: string) => NodeJS.ReadableStream;
+  findNode?: () => string | null;
 };
 
 export class EvdevInputReader extends EventEmitter {
-  private readonly devicePath: string | null;
+  private readonly explicitDevicePath: string | null;
   private readonly openStream: (path: string) => NodeJS.ReadableStream;
+  private readonly findNode: () => string | null;
   private stream: NodeJS.ReadableStream | null = null;
   private pending: Buffer = Buffer.alloc(0);
   private l2 = 0;
@@ -57,20 +59,27 @@ export class EvdevInputReader extends EventEmitter {
 
   constructor(options: ReaderOptions = {}) {
     super();
-    this.devicePath = options.devicePath ?? findDualSenseEventNode();
+    this.explicitDevicePath = options.devicePath ?? null;
     this.openStream = options.openStream ?? ((path) => createReadStream(path));
+    this.findNode = options.findNode ?? findDualSenseEventNode;
   }
 
   start(): void {
     if (this.stream) return;
-    if (!this.devicePath) {
+    const devicePath = this.explicitDevicePath ?? this.findNode();
+    if (!devicePath) {
       this.emit('error', new Error('No DualSense evdev node found.'));
       return;
     }
-    const stream = this.openStream(this.devicePath);
+    const stream = this.openStream(devicePath);
     this.stream = stream;
     stream.on('data', (chunk: Buffer) => this.consume(chunk));
-    stream.on('error', (error: Error) => this.emit('error', error));
+    stream.on('error', (error: Error) => {
+      if (this.stream === stream) {
+        this.stream = null;
+      }
+      this.emit('error', error);
+    });
   }
 
   stop(): void {

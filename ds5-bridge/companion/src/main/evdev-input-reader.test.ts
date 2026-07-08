@@ -1,5 +1,5 @@
 import { PassThrough } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { EvdevInputReader } from './evdev-input-reader';
 import type { ControllerInputState } from '../shared/trigger-modifier-eval';
 
@@ -66,5 +66,32 @@ describe('EvdevInputReader', () => {
     const [first, second] = await pending;
     expect(first.buttons.has('l1')).toBe(true);
     expect(second.buttons.has('l1')).toBe(false);
+  });
+
+  it('resolves the device path lazily on each start() rather than once at construction', () => {
+    const stream = new PassThrough();
+    let resolved: string | null = null;
+    const findNode = vi.fn(() => resolved);
+    const reader = new EvdevInputReader({ openStream: () => stream, findNode });
+
+    const errors: Error[] = [];
+    reader.on('error', (error: Error) => errors.push(error));
+
+    reader.start();
+    expect(errors).toHaveLength(1);
+    expect(findNode).toHaveBeenCalledTimes(1);
+
+    resolved = '/dev/input/event7';
+    reader.start();
+    expect(findNode).toHaveBeenCalledTimes(2);
+    expect(errors).toHaveLength(1);
+  });
+
+  it('prefers an explicit devicePath over findNode', () => {
+    const stream = new PassThrough();
+    const findNode = vi.fn(() => '/dev/input/eventX');
+    const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream, findNode });
+    reader.start();
+    expect(findNode).not.toHaveBeenCalled();
   });
 });

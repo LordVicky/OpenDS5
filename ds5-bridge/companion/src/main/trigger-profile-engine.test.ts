@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TriggerProfileEngine } from './trigger-profile-engine';
 import { TriggerProfileStore } from './trigger-profile-store';
 import { GameWatcher } from './game-watcher';
@@ -30,10 +30,16 @@ class FakeSink {
 }
 
 class FakeReader extends EventEmitter {
-  start(): void {}
+  startCount = 0;
+  start(): void {
+    this.startCount += 1;
+  }
   stop(): void {}
   feed(state: Partial<ControllerInputState>): void {
     this.emit('input', { timestampMs: 0, l2: 0, r2: 0, buttons: new Set(), ...state });
+  }
+  fail(error = new Error('no device')): void {
+    this.emit('error', error);
   }
 }
 
@@ -167,5 +173,45 @@ describe('TriggerProfileEngine', () => {
     reader.feed({ r2: 255 });
     await flush();
     expect(sink.applied.filter((effect) => effect.mode === 'vibration')).toHaveLength(0);
+  });
+
+  it('retries reader.start() ~5s after a reader error while enabled, and delivers input once it recovers', async () => {
+    watcher.pinProfile('shooter');
+    await flush();
+    const startsBefore = reader.startCount;
+
+    vi.useFakeTimers();
+    try {
+      reader.fail();
+      // Enabling/status must not break from a reader error.
+      expect(engine.getStatus().enabled).toBe(true);
+      expect(reader.startCount).toBe(startsBefore);
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(reader.startCount).toBe(startsBefore + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    reader.feed({ r2: 255 });
+    await flush();
+    const vibration = sink.applied.filter((effect) => effect.mode === 'vibration');
+    expect(vibration.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('clears the pending retry timer when disabled', async () => {
+    watcher.pinProfile('shooter');
+    await flush();
+    const startsBefore = reader.startCount;
+
+    vi.useFakeTimers();
+    try {
+      reader.fail();
+      await engine.setEnabled(false);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(reader.startCount).toBe(startsBefore);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

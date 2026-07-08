@@ -45,6 +45,8 @@ export class TriggerProfileEngine extends EventEmitter {
   private writeChain: Promise<void> = Promise.resolve();
   private latestDesired: { l2: TriggerEffectSpec | null; r2: TriggerEffectSpec | null } | null = null;
   private writeScheduled = false;
+  private readerRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly READER_RETRY_MS = 5000;
 
   constructor(options: EngineOptions) {
     super();
@@ -58,6 +60,7 @@ export class TriggerProfileEngine extends EventEmitter {
     this.reader.on('input', (state: ControllerInputState) => this.onInput(state));
     this.reader.on('error', () => {
       // No evdev access: static bases still work; modifiers are inert.
+      this.scheduleReaderRetry();
     });
   }
 
@@ -69,6 +72,7 @@ export class TriggerProfileEngine extends EventEmitter {
       this.reader.start();
       await this.onActiveProfileChange(this.watcher.getActive());
     } else {
+      this.clearReaderRetry();
       this.watcher.stop();
       this.reader.stop();
       this.activeProfile = null;
@@ -76,6 +80,22 @@ export class TriggerProfileEngine extends EventEmitter {
       await this.enqueue(() => this.resetIfNeeded(true));
     }
     this.emitStatus();
+  }
+
+  private scheduleReaderRetry(): void {
+    if (!this.enabled || this.readerRetryTimer) return;
+    this.readerRetryTimer = setTimeout(() => {
+      this.readerRetryTimer = null;
+      if (!this.enabled) return;
+      this.reader.start();
+    }, TriggerProfileEngine.READER_RETRY_MS);
+  }
+
+  private clearReaderRetry(): void {
+    if (this.readerRetryTimer) {
+      clearTimeout(this.readerRetryTimer);
+      this.readerRetryTimer = null;
+    }
   }
 
   async suspend(): Promise<void> {
