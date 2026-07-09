@@ -8030,19 +8030,72 @@ export function App() {
               </div>
             </div>
 
-            {triggerProfileEngineStatus && (
-              <div className="feature-status trigger-profiles-status">
-                <span className="status-badge">
-                  <span className={`dot ${triggerProfileEngineStatus.enabled ? 'ok' : 'warn'}`} />
-                  <strong>
-                    {formatEngineStatusLine(
+            <div
+              className="trigger-profiles-status"
+              title={
+                triggerProfileEngineStatus
+                  ? formatEngineStatusLine(
                       triggerProfileEngineStatus,
                       triggerProfileNameById(triggerProfileEngineStatus.activeProfileId)
-                    )}
+                    )
+                  : 'Waiting for engine status'
+              }
+            >
+              <div className="trigger-profiles-status-group">
+                <span className="overview-status-heading">
+                  <Activity size={14} />
+                  Engine
+                </span>
+                <span className="status-badge">
+                  <span
+                    className={`dot ${
+                      triggerProfileEngineStatus && triggerProfileEngineStatus.enabled && !triggerProfileEngineStatus.suspended
+                        ? 'good'
+                        : 'warn'
+                    }`}
+                  />
+                  <strong>
+                    {!triggerProfileEngineStatus
+                      ? 'Waiting for status'
+                      : triggerProfileEngineStatus.suspended
+                        ? 'Suspended by Trigger Lab'
+                        : triggerProfileEngineStatus.enabled
+                          ? 'Running'
+                          : 'Disabled'}
                   </strong>
                 </span>
               </div>
-            )}
+              <div className="trigger-profiles-status-group">
+                <span className="overview-status-heading">
+                  <IconTargetArrow size={14} />
+                  Active Profile
+                </span>
+                <span className="status-badge">
+                  <strong>
+                    {triggerProfileEngineStatus
+                      ? triggerProfileNameById(triggerProfileEngineStatus.activeProfileId)
+                      : '—'}
+                  </strong>
+                </span>
+              </div>
+              <div className="trigger-profiles-status-group">
+                <span className="overview-status-heading">
+                  <IconDeviceGamepad2 size={14} />
+                  Match Source
+                </span>
+                <span className="status-badge">
+                  <strong>
+                    {!triggerProfileEngineStatus
+                      ? '—'
+                      : triggerProfileEngineStatus.matchedBy === 'pin'
+                        ? 'Pinned'
+                        : triggerProfileEngineStatus.matchedBy === 'process'
+                          ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
+                          : 'Default fallback'}
+                  </strong>
+                </span>
+              </div>
+            </div>
 
             <div className="feature-card-grid trigger-profiles-grid">
               <section className="feature-card trigger-profiles-list-card">
@@ -8064,7 +8117,19 @@ export function App() {
                         className="trigger-profiles-list-item-select"
                         onClick={() => selectTriggerProfile(profile.id)}
                       >
-                        {profile.name}
+                        <span className="trigger-profiles-list-item-name">
+                          {profile.name}
+                          {triggerProfileEngineStatus?.activeProfileId === profile.id && (
+                            <span className="dot good" aria-label="Currently active" />
+                          )}
+                        </span>
+                        <span className="trigger-profiles-list-item-meta">
+                          {profile.id === 'default'
+                            ? 'Fallback when no game matches'
+                            : profile.match.processNames.length > 0
+                              ? profile.match.processNames.join(', ')
+                              : 'No process match set'}
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -8101,7 +8166,7 @@ export function App() {
                 </label>
               </section>
 
-              {triggerProfileDraft && (
+              {triggerProfileDraft ? (
                 <section className="feature-card trigger-profiles-editor-card">
                   <div className="feature-card-title">
                     <span className="feature-icon"><Pencil size={20} /></span>
@@ -8111,26 +8176,30 @@ export function App() {
                     </div>
                   </div>
 
-                  <label className="trigger-profiles-name-field">
-                    <span>Name</span>
-                    <input
-                      value={triggerProfileDraft.name}
-                      maxLength={48}
-                      onChange={(event) => {
-                        const name = event.target.value;
-                        setTriggerProfileDraft((draft) => (draft ? { ...draft, name } : draft));
-                      }}
-                    />
-                  </label>
+                  <div className="trigger-profiles-editor-body">
+                  <div className="trigger-profiles-group">
+                    <h4 className="trigger-profiles-group-title">Identity &amp; Matching</h4>
+                    <label className="trigger-profiles-name-field">
+                      <span>Name</span>
+                      <input
+                        value={triggerProfileDraft.name}
+                        maxLength={48}
+                        onChange={(event) => {
+                          const name = event.target.value;
+                          setTriggerProfileDraft((draft) => (draft ? { ...draft, name } : draft));
+                        }}
+                      />
+                    </label>
 
-                  <label className="trigger-profiles-process-field">
-                    <span>Process Names (comma-separated)</span>
-                    <input
-                      value={triggerProfileProcessNamesInput}
-                      placeholder="game.exe, other.exe"
-                      onChange={(event) => setTriggerProfileProcessNamesInput(event.target.value)}
-                    />
-                  </label>
+                    <label className="trigger-profiles-process-field">
+                      <span>Process Names (comma-separated)</span>
+                      <input
+                        value={triggerProfileProcessNamesInput}
+                        placeholder="game.exe, other.exe"
+                        onChange={(event) => setTriggerProfileProcessNamesInput(event.target.value)}
+                      />
+                    </label>
+                  </div>
 
                   {TRIGGER_PROFILE_SLOTS.map(([slot, label]) => {
                     const slotConfig = triggerProfileDraft.triggers[slot];
@@ -8365,11 +8434,27 @@ export function App() {
                     );
                   })}
 
+                  </div>
+
                   <div className="trigger-profiles-save-row">
                     <button type="button" className="primary-action" onClick={() => void saveTriggerProfileDraft()}>
                       <Save size={14} />
                       Save
                     </button>
+                  </div>
+                </section>
+              ) : (
+                <section className="feature-card trigger-profiles-editor-card trigger-profiles-editor-empty">
+                  <div className="feature-card-title">
+                    <span className="feature-icon"><Pencil size={20} /></span>
+                    <div className="title-copy">
+                      <h3>Editor</h3>
+                      <p>Edit the selected profile's match rules and trigger effects.</p>
+                    </div>
+                  </div>
+                  <div className="trigger-profiles-empty-state">
+                    <IconTargetArrow size={22} />
+                    <p>Select a profile on the left, or create a new one to start editing.</p>
                   </div>
                 </section>
               )}
