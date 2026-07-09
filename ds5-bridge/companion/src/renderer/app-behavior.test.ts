@@ -12,6 +12,7 @@ import {
   isProvisionalTriggerProfileId,
   mirrorTriggerSlotBase,
   filterTriggerProfiles,
+  filterSelectOptionsByLabel,
   pickTriggerStripChips
 } from './App';
 import type { TriggerProfile } from '../shared/trigger-profiles';
@@ -437,6 +438,26 @@ function makeStripProfile(id: string, updatedAtMs: number, name = id): TriggerPr
   (profile as { updatedAtMs: number }).updatedAtMs = updatedAtMs;
   return profile;
 }
+
+describe('filterSelectOptionsByLabel', () => {
+  const options: Array<[string, string]> = [
+    ['More profiles', ''],
+    ['Racing Setup', 'racing'],
+    ['Shooter', 'shooter']
+  ];
+
+  it('returns a copy of all options when the query is blank', () => {
+    const result = filterSelectOptionsByLabel(options, '   ');
+    expect(result).toEqual(options);
+    expect(result).not.toBe(options);
+  });
+
+  it('matches labels by case-insensitive substring', () => {
+    expect(filterSelectOptionsByLabel(options, 'SHOOT')).toEqual([['Shooter', 'shooter']]);
+    expect(filterSelectOptionsByLabel(options, 'cing set')).toEqual([['Racing Setup', 'racing']]);
+    expect(filterSelectOptionsByLabel(options, 'nomatch')).toEqual([]);
+  });
+});
 
 describe('pickTriggerStripChips', () => {
   it('shows Default plus the most-recently-updated non-default when nothing is selected', () => {

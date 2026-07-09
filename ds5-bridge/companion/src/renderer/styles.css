@@ -7061,6 +7061,22 @@ button.feature-icon {
   flex: 0 0 auto;
 }
 
+.custom-select-menu-search {
+  flex: 0 0 auto;
+  padding: 0 0 6px;
+}
+
+.custom-select-menu-search input {
+  width: 100%;
+  min-height: 30px;
+}
+
+.custom-select-menu-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .custom-select-floating-layer {
   position: fixed;
   z-index: 10000;
@@ -7938,12 +7954,6 @@ button.trigger-lab-chip {
   padding: 10px 14px;
   background: var(--surface-panel);
   box-shadow: var(--shadow-panel);
-}
-
-.trigger-profiles-strip-search {
-  flex: 0 0 120px;
-  min-width: 0;
-  min-height: 32px;
 }
 
 .trigger-profiles-strip-list {

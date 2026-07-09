@@ -740,6 +740,8 @@ type CustomSelectProps<T extends SelectValue> = {
   suspendOutsideClose?: boolean;
   showSelectedCheck?: boolean;
   closeOnSelect?: boolean;
+  searchable?: boolean;
+  searchPlaceholder?: string;
   getOptionClassName?: (label: string, value: T) => string | undefined;
   renderValue?: (label: string, value: T) => ReactNode;
   renderOption?: (label: string, value: T) => ReactNode;
@@ -980,6 +982,19 @@ export function filterTriggerProfiles(
     profile.name.toLowerCase().includes(needle)
     || profile.match.processNames.some((name) => name.toLowerCase().includes(needle))
   ));
+}
+
+/**
+ * Filter select options by a case-insensitive substring match against the
+ * option label. A blank query returns a copy of every option unchanged.
+ */
+export function filterSelectOptionsByLabel<T>(
+  options: ReadonlyArray<[string, T]>,
+  query: string
+): Array<[string, T]> {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [...options];
+  return options.filter(([label]) => label.toLowerCase().includes(needle));
 }
 
 export type TriggerStripChipSelection = {
@@ -2055,6 +2070,8 @@ function CustomSelect<T extends SelectValue>({
   suspendOutsideClose = false,
   showSelectedCheck = true,
   closeOnSelect = true,
+  searchable = false,
+  searchPlaceholder,
   getOptionClassName,
   renderValue,
   renderOption,
@@ -2063,9 +2080,12 @@ function CustomSelect<T extends SelectValue>({
   onChange
 }: CustomSelectProps<T>) {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const selected = options.find(([, optionValue]) => optionValue === value);
+  const visibleOptions = searchable ? filterSelectOptionsByLabel(options, searchQuery) : options;
   const longList = options.length > 18;
   const defaultMenuMaxHeight = longList ? 360 : 232;
   const [menuMaxHeight, setMenuMaxHeight] = useState(defaultMenuMaxHeight);
@@ -2148,6 +2168,16 @@ function CustomSelect<T extends SelectValue>({
   }, [open, defaultMenuMaxHeight, floatingMenu, floatingMenuMinWidth, longList]);
 
   useEffect(() => {
+    if (!open) {
+      setSearchQuery('');
+      return;
+    }
+    if (searchable) {
+      window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    }
+  }, [open, searchable]);
+
+  useEffect(() => {
     if (!open) return;
     window.requestAnimationFrame(() => {
       const menu = menuRef.current;
@@ -2184,8 +2214,29 @@ function CustomSelect<T extends SelectValue>({
 
   const menu = open ? (
     <div ref={menuRef} className="custom-select-menu" role="listbox" aria-label={ariaLabel}>
+      {searchable && (
+        <div className="custom-select-menu-search">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            placeholder={searchPlaceholder ?? 'Search'}
+            aria-label={`${ariaLabel} search`}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.stopPropagation();
+                setOpen(false);
+              }
+            }}
+          />
+        </div>
+      )}
       <div className="custom-select-menu-options">
-        {options.map(([label, optionValue]) => {
+        {searchable && visibleOptions.length === 0 && (
+          <div className="custom-select-menu-empty">No matches</div>
+        )}
+        {visibleOptions.map(([label, optionValue]) => {
           const selectedOption = optionValue === value;
           const optionClassName = getOptionClassName?.(label, optionValue);
           return (
@@ -2711,7 +2762,6 @@ export function App() {
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
   const [triggerProfilesLinked, setTriggerProfilesLinked] = useState(false);
   const [triggerProfileModifiersOpen, setTriggerProfileModifiersOpen] = useState<Record<TriggerProfileSlotKey, boolean>>({ l2: false, r2: false });
-  const [triggerProfileFilter, setTriggerProfileFilter] = useState('');
   const [gameDetectPopoverOpen, setGameDetectPopoverOpen] = useState(false);
   const [gameDetectCandidates, setGameDetectCandidates] = useState<GameProcessCandidate[]>([]);
   const [gameDetectLoading, setGameDetectLoading] = useState(false);
@@ -7774,14 +7824,10 @@ export function App() {
                 const overflowSelected = overflow.find(
                   (profile) => profile.id === selectedTriggerProfileId
                 ) ?? null;
-                const filteredOverflow = filterTriggerProfiles(overflow, triggerProfileFilter);
-                const dropdownValue = overflowSelected
-                  && filteredOverflow.some((profile) => profile.id === overflowSelected.id)
-                  ? overflowSelected.id
-                  : '';
+                const dropdownValue = overflowSelected ? overflowSelected.id : '';
                 const dropdownOptions: Array<[string, string]> = [
                   ['More profiles', ''],
-                  ...filteredOverflow.map((profile): [string, string] => [profile.name, profile.id])
+                  ...overflow.map((profile): [string, string] => [profile.name, profile.id])
                 ];
                 return (
                   <>
@@ -7818,15 +7864,6 @@ export function App() {
                     </ul>
                     {overflow.length > 0 && (
                       <div className="trigger-profiles-strip-more">
-                        {triggerProfiles.length > 8 && (
-                          <input
-                            className="trigger-profiles-strip-search"
-                            aria-label="Filter trigger profiles"
-                            placeholder="Filter"
-                            value={triggerProfileFilter}
-                            onChange={(event) => setTriggerProfileFilter(event.target.value)}
-                          />
-                        )}
                         <CustomSelect
                           className="trigger-profiles-more-select"
                           value={dropdownValue}
@@ -7835,6 +7872,8 @@ export function App() {
                           floatingMenu
                           floatingMenuMinWidth={240}
                           showSelectedCheck={false}
+                          searchable
+                          searchPlaceholder="Filter profiles"
                           renderValue={() => (
                             <span className="trigger-profiles-more-trigger">
                               {overflowActive && (
