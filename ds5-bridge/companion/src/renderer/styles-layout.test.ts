@@ -543,6 +543,11 @@ describe('companion layout CSS', () => {
     expect(cssBlock('.overview-range-ticks span.endpoint', 'height: 9px;')).toContain('height: 9px;');
   });
 
+  it('lets control pages fill the resizable window width', () => {
+    expect(styles).not.toContain('800px');
+    expect(cssBlock('.control-page', 'grid-template-rows: auto minmax(var(--feature-card-height), auto);')).toContain('width: 100%;');
+  });
+
   it('leaves a no-drag resize strip above the window bar', () => {
     const resizeEdge = cssBlock('.window-resize-edge');
     expect(resizeEdge).toContain('-webkit-app-region: no-drag;');

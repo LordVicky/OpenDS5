@@ -2490,7 +2490,7 @@ button {
 
 .control-page {
   grid-area: 1 / 1;
-  width: min(100%, 800px);
+  width: 100%;
   display: grid;
   grid-template-rows: auto minmax(var(--feature-card-height), auto);
   align-content: start;
@@ -2566,7 +2566,7 @@ button {
 }
 
 .overview-card-grid {
-  width: min(100%, 800px);
+  width: 100%;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--card-gap);
@@ -2675,7 +2675,7 @@ button {
 }
 
 .overview-control-grid {
-  width: min(100%, 800px);
+  width: 100%;
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
@@ -2977,7 +2977,7 @@ button {
 }
 
 .overview-status-panel {
-  width: min(100%, 800px);
+  width: 100%;
   min-height: 88px;
   border: 1px solid var(--surface-border);
   border-radius: var(--card-radius);
