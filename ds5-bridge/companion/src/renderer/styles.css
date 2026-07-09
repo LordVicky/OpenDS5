@@ -820,6 +820,16 @@ button {
   -webkit-app-region: drag;
 }
 
+.window-resize-edge {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  z-index: 1000;
+  -webkit-app-region: no-drag;
+}
+
 .shell.window-dragging,
 .shell.window-dragging * {
   transition: none !important;
