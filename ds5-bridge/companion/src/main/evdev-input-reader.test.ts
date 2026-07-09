@@ -1,6 +1,9 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it, vi } from 'vitest';
-import { EvdevInputReader } from './evdev-input-reader';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EvdevInputReader, findDualSenseEventNode } from './evdev-input-reader';
 import type { ControllerInputState } from '../shared/trigger-modifier-eval';
 
 function event(type: number, code: number, value: number): Buffer {
@@ -93,5 +96,39 @@ describe('EvdevInputReader', () => {
     const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream, findNode });
     reader.start();
     expect(findNode).not.toHaveBeenCalled();
+  });
+});
+
+describe('findDualSenseEventNode', () => {
+  let sysDir: string;
+
+  afterEach(() => rmSync(sysDir, { recursive: true, force: true }));
+
+  // Values captured from real hardware: the DualSense exposes four evdev
+  // nodes whose names all contain "DualSense" — only the gamepad has both
+  // trigger axes (abs bits 2 and 5) and button (key) capabilities.
+  function addNode(entry: string, name: string, abs: string, key: string): void {
+    const capsDir = path.join(sysDir, entry, 'device', 'capabilities');
+    mkdirSync(capsDir, { recursive: true });
+    writeFileSync(path.join(sysDir, entry, 'device', 'name'), `${name}\n`);
+    writeFileSync(path.join(capsDir, 'abs'), `${abs}\n`);
+    writeFileSync(path.join(capsDir, 'key'), `${key}\n`);
+  }
+
+  it('picks the gamepad node, not the headset jack, motion sensors, or touchpad', () => {
+    sysDir = mkdtempSync(path.join(tmpdir(), 'sys-input-'));
+    // Lexicographic readdir order puts event256 (headset jack) first.
+    addNode('event256', 'Sony Interactive Entertainment DualSense Wireless Controller Headset Jack', '0', '0');
+    addNode('event29', 'Sony Interactive Entertainment DualSense Wireless Controller', '3003f', '7fdb000000000000 0 0 0 0');
+    addNode('event30', 'Sony Interactive Entertainment DualSense Wireless Controller Motion Sensors', '3f', '0');
+    addNode('event31', 'Sony Interactive Entertainment DualSense Wireless Controller Touchpad', '2608000 3', '2420 10000 0 0 0 0');
+    expect(findDualSenseEventNode(sysDir)).toBe('/dev/input/event29');
+  });
+
+  it('returns null when no node has both trigger axes and buttons', () => {
+    sysDir = mkdtempSync(path.join(tmpdir(), 'sys-input-'));
+    addNode('event256', 'Sony Interactive Entertainment DualSense Wireless Controller Headset Jack', '0', '0');
+    addNode('event30', 'Sony Interactive Entertainment DualSense Wireless Controller Motion Sensors', '3f', '0');
+    expect(findDualSenseEventNode(sysDir)).toBeNull();
   });
 });

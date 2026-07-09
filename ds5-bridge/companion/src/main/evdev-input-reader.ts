@@ -20,20 +20,54 @@ const BUTTON_NAMES: Record<number, string> = {
   0x13e: 'r3'
 };
 
-export function findDualSenseEventNode(): string | null {
+// Lowest word of the abs capability bitmask; bit 2 = ABS_Z (L2),
+// bit 5 = ABS_RZ (R2).
+const TRIGGER_ABS_MASK = BigInt((1 << ABS_Z) | (1 << ABS_RZ));
+
+function lowestCapabilityWord(raw: string): bigint {
+  const words = raw.trim().split(/\s+/);
+  try {
+    return BigInt(`0x${words[words.length - 1]}`);
+  } catch {
+    return 0n;
+  }
+}
+
+function hasAnyCapabilityBit(raw: string): boolean {
+  return raw
+    .trim()
+    .split(/\s+/)
+    .some((word) => {
+      try {
+        return BigInt(`0x${word}`) !== 0n;
+      } catch {
+        return false;
+      }
+    });
+}
+
+export function findDualSenseEventNode(sysInputDir = '/sys/class/input'): string | null {
   let entries: string[];
   try {
-    entries = readdirSync('/sys/class/input');
+    entries = readdirSync(sysInputDir);
   } catch {
     return null;
   }
   for (const entry of entries) {
     if (!entry.startsWith('event')) continue;
     try {
-      const name = readFileSync(`/sys/class/input/${entry}/device/name`, 'utf8').trim();
-      if (name.toLowerCase().includes('dualsense')) {
-        return `/dev/input/${entry}`;
-      }
+      const name = readFileSync(`${sysInputDir}/${entry}/device/name`, 'utf8').trim();
+      if (!name.toLowerCase().includes('dualsense')) continue;
+      // The DualSense exposes several nodes that all match by name (gamepad,
+      // touchpad, motion sensors, headset jack). Only the gamepad has both
+      // trigger axes and button capabilities.
+      const abs = lowestCapabilityWord(
+        readFileSync(`${sysInputDir}/${entry}/device/capabilities/abs`, 'utf8')
+      );
+      if ((abs & TRIGGER_ABS_MASK) !== TRIGGER_ABS_MASK) continue;
+      const key = readFileSync(`${sysInputDir}/${entry}/device/capabilities/key`, 'utf8');
+      if (!hasAnyCapabilityBit(key)) continue;
+      return `/dev/input/${entry}`;
     } catch {
       // ignore unreadable nodes
     }
