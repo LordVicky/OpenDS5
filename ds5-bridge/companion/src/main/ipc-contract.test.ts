@@ -129,7 +129,7 @@ describe('IPC contract', () => {
     expect(mainSource).toContain("window.webContents.send('bridge:triggerProfileEngineStatus', status)");
   });
 
-  it('suspends the trigger profile engine before Trigger Lab preview/apply/test and resumes after reset', () => {
+  it('suspends the trigger profile engine before manual trigger testing and resumes after reset', () => {
     expect(mainSource).toContain('await triggerProfileEngine.suspend();');
     expect(mainSource).toContain('await triggerProfileEngine.resume();');
   });

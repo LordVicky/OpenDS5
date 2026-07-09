@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
-  AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
   BridgePresetId,
   ChordAssignment,
@@ -162,12 +161,6 @@ const api = {
   testClassicRumble: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:testClassicRumble'),
   testAdaptiveTriggers: (mode?: TriggerTestMode, target?: TriggerTestTarget): Promise<BridgeSnapshot> => (
     ipcRenderer.invoke('bridge:testAdaptiveTriggers', mode, target)
-  ),
-  previewAdaptiveTriggerEffect: (effect: AdaptiveTriggerPreviewEffect): Promise<BridgeSnapshot> => (
-    ipcRenderer.invoke('bridge:previewAdaptiveTriggerEffect', effect)
-  ),
-  applyAdaptiveTriggerEffect: (effect: AdaptiveTriggerPreviewEffect): Promise<BridgeSnapshot> => (
-    ipcRenderer.invoke('bridge:applyAdaptiveTriggerEffect', effect)
   ),
   resetAdaptiveTriggers: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:resetAdaptiveTriggers'),
   restoreDefaults: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:restoreDefaults'),

@@ -375,15 +375,6 @@ describe('companion layout CSS', () => {
     expect(successTipHover).toContain('background: var(--success-selected);');
   });
 
-  it('uses theme text tokens for trigger lab meter labels and values', () => {
-    expect(cssBlock('.trigger-lab-meter-row > span', 'color: var(--text-secondary);')).toContain(
-      'color: var(--text-secondary);'
-    );
-    expect(cssBlock('.trigger-lab-meter-row > strong', 'color: var(--text-strong);')).toContain(
-      'color: var(--text-strong);'
-    );
-  });
-
   it('uses selected tokens for active navigation and audio haptics mode chips', () => {
     const shellTokens = cssBlock('.shell', '--nav-active-bg:');
     const lightTheme = cssBlock('.shell[data-theme="light"]', '--nav-active-base: white;');

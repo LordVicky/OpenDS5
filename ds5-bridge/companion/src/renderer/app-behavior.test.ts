@@ -305,7 +305,7 @@ describe('trigger profiles panel helpers', () => {
     expect(formatEngineStatusLine(
       { enabled: true, suspended: true, activeProfileId: 'default', matchedBy: 'default', matchedName: null },
       'Default'
-    )).toBe('Active: Default (suspended by Trigger Lab)');
+    )).toBe('Active: Default (suspended)');
   });
 });
 
