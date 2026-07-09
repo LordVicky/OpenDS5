@@ -9,7 +9,9 @@ import {
   slugifyTriggerProfileName,
   uniqueTriggerProfileId,
   mergeTriggerProfiles,
-  isProvisionalTriggerProfileId
+  isProvisionalTriggerProfileId,
+  mirrorTriggerSlotBase,
+  filterTriggerProfiles
 } from './App';
 import type { TriggerProfile } from '../shared/trigger-profiles';
 
@@ -378,5 +380,53 @@ describe('mergeTriggerProfiles', () => {
     const backend = [makeTriggerProfile('default'), makeTriggerProfile('racing', 'Racing')];
     const merged = mergeTriggerProfiles(local, backend, ['draft-1']);
     expect(merged.map((p) => p.id)).toEqual(['default', 'racing']);
+  });
+});
+
+describe('mirrorTriggerSlotBase', () => {
+  it('copies the source slot base onto the other slot and leaves the source untouched', () => {
+    const triggers = {
+      l2: { base: { mode: 'weapon', startPercent: 20, wallPercent: 60, forcePercent: 80 }, modifiers: [] },
+      r2: { base: null, modifiers: [{ id: 'm1' }] }
+    } as unknown as TriggerProfile['triggers'];
+    const next = mirrorTriggerSlotBase(triggers, 'l2');
+    expect(next.r2.base).toEqual(triggers.l2.base);
+    // deep clone, not a shared reference
+    expect(next.r2.base).not.toBe(triggers.l2.base);
+    // r2 modifiers are preserved; l2 (source) is unchanged
+    expect(next.r2.modifiers).toBe(triggers.r2.modifiers);
+    expect(next.l2).toBe(triggers.l2);
+  });
+
+  it('mirrors a null base (no effect) from source to the other slot', () => {
+    const triggers = {
+      l2: { base: { mode: 'weapon', startPercent: 10, wallPercent: 40, forcePercent: 70 }, modifiers: [] },
+      r2: { base: null, modifiers: [] }
+    } as unknown as TriggerProfile['triggers'];
+    const next = mirrorTriggerSlotBase(triggers, 'r2');
+    expect(next.l2.base).toBeNull();
+  });
+});
+
+describe('filterTriggerProfiles', () => {
+  it('returns a copy of all profiles when the query is blank', () => {
+    const profiles = [makeTriggerProfile('default'), makeTriggerProfile('shooter')];
+    const result = filterTriggerProfiles(profiles, '   ');
+    expect(result.map((p) => p.id)).toEqual(['default', 'shooter']);
+    expect(result).not.toBe(profiles);
+  });
+
+  it('matches on profile name case-insensitively', () => {
+    const profiles = [makeTriggerProfile('shooter', 'Shooter'), makeTriggerProfile('racing', 'Racing Setup')];
+    expect(filterTriggerProfiles(profiles, 'race').map((p) => p.id)).toEqual([]);
+    expect(filterTriggerProfiles(profiles, 'raci').map((p) => p.id)).toEqual(['racing']);
+    expect(filterTriggerProfiles(profiles, 'SHOOT').map((p) => p.id)).toEqual(['shooter']);
+  });
+
+  it('matches on a process name substring', () => {
+    const profiles = [makeTriggerProfile('shooter', 'Shooter')];
+    profiles[0].match.processNames = ['CoolGame.exe'];
+    expect(filterTriggerProfiles(profiles, 'coolgame').map((p) => p.id)).toEqual(['shooter']);
+    expect(filterTriggerProfiles(profiles, 'nomatch')).toEqual([]);
   });
 });
