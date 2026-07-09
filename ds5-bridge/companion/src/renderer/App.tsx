@@ -5689,6 +5689,7 @@ export function App() {
       ].filter(Boolean).join(' ')}
       data-theme={activeTheme}
     >
+      <div className="window-resize-edge" />
       <div
         className="window-bar"
         onMouseDown={(event) => {
