@@ -12,6 +12,7 @@ import {
   nukePicoFlash as copyPicoFlashNuke
 } from './pico-firmware-updater';
 import { SettingsStore } from './settings-store';
+import { growBoundsToMinimum, loadWindowState, resolveWindowBounds, saveWindowState } from './window-state';
 import { TriggerProfileStore } from './trigger-profile-store';
 import { GameWatcher, listCandidateGameProcesses } from './game-watcher';
 import { EvdevInputReader } from './evdev-input-reader';
@@ -106,6 +107,28 @@ function sendToMainWindow(channel: string, ...args: unknown[]): void {
   window.webContents.send(channel, ...args);
 }
 
+let windowStateSaveTimer: NodeJS.Timeout | null = null;
+
+function persistWindowState(): void {
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+  const maximized = window.isMaximized();
+  const bounds = maximized ? window.getNormalBounds() : window.getBounds();
+  saveWindowState(app.getPath('userData'), { ...bounds, maximized });
+}
+
+function scheduleWindowStateSave(): void {
+  if (windowStateSaveTimer) {
+    clearTimeout(windowStateSaveTimer);
+  }
+  windowStateSaveTimer = setTimeout(() => {
+    windowStateSaveTimer = null;
+    persistWindowState();
+  }, 500);
+}
+
 async function createTrayIcon(): Promise<Electron.NativeImage> {
   const icon = createImageAsset(APP_TRAY_ICON_ICO);
   if (!icon.isEmpty()) {
@@ -125,26 +148,22 @@ function scaledWindowSize(uiScalePercent: UiScalePercent): { width: number; heig
 }
 
 function applyWindowScale(window: BrowserWindow, uiScalePercent: UiScalePercent, recenter: boolean): void {
-  const { width, height } = scaledWindowSize(uiScalePercent);
-  const currentBounds = window.getBounds();
-  const display = screen.getDisplayMatching(currentBounds);
-  const workArea = display.workArea;
-  const centerX = currentBounds.x + (currentBounds.width / 2);
-  const centerY = currentBounds.y + (currentBounds.height / 2);
-  const x = recenter
-    ? Math.round(Math.max(workArea.x, Math.min(centerX - (width / 2), workArea.x + workArea.width - width)))
-    : currentBounds.x;
-  const y = recenter
-    ? Math.round(Math.max(workArea.y, Math.min(centerY - (height / 2), workArea.y + workArea.height - height)))
-    : currentBounds.y;
-
+  const { width: minWidth, height: minHeight } = scaledWindowSize(uiScalePercent);
   window.webContents.setZoomFactor(uiScalePercent / 100);
-  window.setMinimumSize(width, height);
-  window.setMaximumSize(width, height);
-  window.setBounds({ x, y, width, height }, false);
-  window.setResizable(false);
-  window.setMaximizable(false);
-  window.setFullScreenable(false);
+  window.setMinimumSize(minWidth, minHeight);
+
+  const currentBounds = window.getBounds();
+  const workArea = screen.getDisplayMatching(currentBounds).workArea;
+  const grown = growBoundsToMinimum(currentBounds, workArea, minWidth, minHeight);
+  const x = recenter
+    ? Math.round(Math.max(workArea.x, workArea.x + ((workArea.width - grown.width) / 2)))
+    : grown.x;
+  const y = recenter
+    ? Math.round(Math.max(workArea.y, workArea.y + ((workArea.height - grown.height) / 2)))
+    : grown.y;
+  if (recenter || grown !== currentBounds) {
+    window.setBounds({ x, y, width: grown.width, height: grown.height }, false);
+  }
 }
 
 function applySnapshotWindowScale(snapshot: { settings: { uiScalePercent: UiScalePercent } }): void {
@@ -388,20 +407,22 @@ function isAllowedExternalUrl(url: string): boolean {
 }
 
 function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {
-  const { width, height } = scaledWindowSize(uiScalePercent);
+  const { width: minWidth, height: minHeight } = scaledWindowSize(uiScalePercent);
+  const savedState = loadWindowState(app.getPath('userData'));
+  const workArea = screen.getPrimaryDisplay().workArea;
+  const restoredBounds = resolveWindowBounds(savedState, workArea, minWidth, minHeight);
   const rendererIndexPath = path.join(__dirname, '..', '..', 'renderer', 'index.html');
   const window = new BrowserWindow({
-    width,
-    height,
-    minWidth: width,
-    minHeight: height,
-    maxWidth: width,
-    maxHeight: height,
+    width: restoredBounds?.width ?? minWidth,
+    height: restoredBounds?.height ?? minHeight,
+    ...(restoredBounds ? { x: restoredBounds.x, y: restoredBounds.y } : {}),
+    minWidth,
+    minHeight,
     show: false,
     title: 'DS5 Bridge',
     frame: false,
-    resizable: false,
-    maximizable: false,
+    resizable: true,
+    maximizable: true,
     fullscreenable: false,
     transparent: false,
     backgroundColor: '#0b1017',
@@ -435,6 +456,7 @@ function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {
   });
 
   window.on('close', (event) => {
+    persistWindowState();
     if (!isQuitting) {
       event.preventDefault();
       window.hide();
@@ -442,10 +464,17 @@ function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {
   });
   window.on('will-move', () => bridgeService?.pausePollingFor(1200));
   window.on('move', () => bridgeService?.pausePollingFor(700));
+  window.on('resize', scheduleWindowStateSave);
+  window.on('move', scheduleWindowStateSave);
+  window.on('maximize', scheduleWindowStateSave);
+  window.on('unmaximize', scheduleWindowStateSave);
 
   window.loadFile(rendererIndexPath);
   window.webContents.once('did-finish-load', () => {
     applyWindowScale(window, uiScalePercent, false);
+    if (savedState?.maximized) {
+      window.maximize();
+    }
   });
   return window;
 }
@@ -455,7 +484,7 @@ function sendWindowMaximizedState(): void {
   mainWindow.webContents.send('window:maximizedChanged', mainWindow.isMaximized());
 }
 
-function showWindowCentered(): void {
+function showMainWindow(): void {
   if (!mainWindow) {
     return;
   }
@@ -465,12 +494,23 @@ function showWindowCentered(): void {
   }
   restoreMainWindowScale(false);
 
-  const display = screen.getPrimaryDisplay();
   const windowBounds = mainWindow.getBounds();
-  const x = Math.round(display.workArea.x + (display.workArea.width - windowBounds.width) / 2);
-  const y = Math.round(display.workArea.y + (display.workArea.height - windowBounds.height) / 2);
+  const visibleOnAnyDisplay = screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    return windowBounds.x < area.x + area.width
+      && windowBounds.x + windowBounds.width > area.x
+      && windowBounds.y < area.y + area.height
+      && windowBounds.y + windowBounds.height > area.y;
+  });
+  if (!visibleOnAnyDisplay) {
+    const area = screen.getPrimaryDisplay().workArea;
+    mainWindow.setPosition(
+      Math.round(area.x + ((area.width - windowBounds.width) / 2)),
+      Math.round(area.y + ((area.height - windowBounds.height) / 2)),
+      false
+    );
+  }
 
-  mainWindow.setPosition(x, y, false);
   mainWindow.show();
   mainWindow.focus();
 }
@@ -1271,7 +1311,7 @@ app.whenReady().then(async () => {
   mainWindow.on('focus', () => scheduleMainWindowScaleRestore(false));
   mainWindow.once('ready-to-show', () => {
     if (!shouldStartInTray()) {
-      showWindowCentered();
+      showMainWindow();
     }
   });
   powerMonitor.on('resume', () => scheduleMainWindowScaleRestore(true));
@@ -1282,11 +1322,11 @@ app.whenReady().then(async () => {
   tray = new Tray(trayDefaultIcon);
   updateTrayPresentation(bridgeService.getSnapshot());
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: `Open ${APP_NAME}`, click: showWindowCentered },
+    { label: `Open ${APP_NAME}`, click: showMainWindow },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() }
   ]));
-  tray.on('click', showWindowCentered);
+  tray.on('click', showMainWindow);
 
   bridgeService.on('snapshot', (snapshot) => {
     updateTrayPresentation(snapshot);
@@ -1300,7 +1340,7 @@ app.whenReady().then(async () => {
 
 app.on('second-instance', (_event, argv) => {
   if (!shouldStartInTray(argv)) {
-    showWindowCentered();
+    showMainWindow();
   }
 });
 
