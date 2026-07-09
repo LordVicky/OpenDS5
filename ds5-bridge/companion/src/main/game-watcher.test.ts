@@ -224,6 +224,40 @@ describe('listCandidateGameProcesses', () => {
     expect(candidates).toEqual([{ name: 'game.exe', kind: 'proton' }]);
   });
 
+  it('never surfaces wine plumbing, even in the fallback other tier', () => {
+    const candidates = listCandidateGameProcesses(() => [
+      rawProc('wineserver', 'wineserver'),
+      rawProc('wine64', 'wine64'),
+      rawProc('mytool', 'mytool')
+    ]);
+    expect(candidates).toEqual([{ name: 'mytool', kind: 'other' }]);
+  });
+
+  it('keeps comm-only candidates matchable by the watcher (matcher parity)', () => {
+    // A process with an unreadable/empty cmdline still exposes comm; the
+    // watcher's listProcProcesses also indexes comm into the running-names
+    // set, so a comm-derived candidate must still match a saved profile.
+    const candidates = listCandidateGameProcesses(() => [rawProc('Game.exe', null)]);
+    expect(candidates).toEqual([{ name: 'game.exe', kind: 'proton' }]);
+
+    vi.useFakeTimers();
+    try {
+      const watcher = new GameWatcher({
+        // mirrors listProcProcesses(): comm is lowercased and added to the set
+        listProcesses: () => ['game.exe'],
+        pollIntervalMs: 1000,
+        debounceMs: 0
+      });
+      watcher.setProfiles([profile('picked', [candidates[0].name])]);
+      watcher.start();
+      vi.advanceTimersByTime(1000);
+      expect(watcher.getActive().profileId).toBe('picked');
+      watcher.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('returns an empty list when the process read fails entirely', () => {
     const candidates = listCandidateGameProcesses(() => {
       throw new Error('boom');

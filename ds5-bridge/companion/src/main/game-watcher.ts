@@ -125,11 +125,11 @@ export function listCandidateGameProcesses(
   for (const info of infos) {
     const name = normalizedCandidateName(info);
     if (!name) continue;
+    if (PROTON_BLOCKLIST_EXACT.has(name) || matchesPrefix(name, PROTON_BLOCKLIST_PREFIXES)) {
+      continue; // wine plumbing is never a candidate, in any tier
+    }
 
     if (name.endsWith('.exe')) {
-      if (PROTON_BLOCKLIST_EXACT.has(name) || matchesPrefix(name, PROTON_BLOCKLIST_PREFIXES)) {
-        continue;
-      }
       protonNames.add(name);
       continue;
     }
