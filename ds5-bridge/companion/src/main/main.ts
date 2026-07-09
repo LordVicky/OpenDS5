@@ -383,7 +383,7 @@ function isAppFileUrl(url: string, appIndexPath: string): boolean {
 }
 
 function isAllowedExternalUrl(url: string): boolean {
-  return /^https:\/\/ko-fi\.com\/sundaymoments\/?$/i.test(url)
+  return /^https:\/\/ko-fi\.com\/lordvicky\/?$/i.test(url)
     || /^https:\/\/github\.com\/SundayMoments\/?$/i.test(url);
 }
 

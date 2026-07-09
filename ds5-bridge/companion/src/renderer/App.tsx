@@ -1240,7 +1240,7 @@ function StartupTutorial({
             <button
               className="startup-tutorial-kofi-button"
               type="button"
-              aria-label="Support SundayMoments on Ko-fi"
+              aria-label="Support LordVicky on Ko-fi"
               onClick={onSupport}
             >
               <img src={kofiBadgeUrl} alt="" />
@@ -5794,8 +5794,8 @@ export function App() {
               <button
                 className="sidebar-kofi-link"
                 type="button"
-                aria-label="Support SundayMoments on Ko-fi"
-                onClick={() => void window.bridge.openExternal('https://ko-fi.com/sundaymoments')}
+                aria-label="Support LordVicky on Ko-fi"
+                onClick={() => void window.bridge.openExternal('https://ko-fi.com/lordvicky')}
               >
                 <img className="sidebar-kofi-badge" src={kofiBadgeUrl} alt="" />
               </button>
@@ -9106,7 +9106,7 @@ export function App() {
           kofiBadgeUrl={kofiBadgeUrl}
           onFeatureExampleToggle={() => setStartupTutorialFeatureActive((active) => !active)}
           onFeatureStepComplete={() => setStartupTutorialStep('support')}
-          onSupport={() => void window.bridge.openExternal('https://ko-fi.com/sundaymoments')}
+          onSupport={() => void window.bridge.openExternal('https://ko-fi.com/lordvicky')}
           onFinish={() => {
             saveStartupTutorialCompleted();
             setStartupTutorialStep('done');
