@@ -292,6 +292,30 @@ describe('TriggerProfileEngine', () => {
       expect(sink.applied.at(-1)).toMatchObject({ mode: 'weapon', target: 'r2', forcePercent: 90 });
     });
 
+    it('keeps the preview across an active profile change and applies the new profile once cleared', async () => {
+      const store = new TriggerProfileStore(dir);
+      store.save({
+        ...profile,
+        id: 'racer',
+        name: 'Racer',
+        triggers: {
+          l2: { base: null, modifiers: [] },
+          r2: { base: { mode: 'feedback', startPercent: 50, wallPercent: 50, forcePercent: 50 }, modifiers: [] }
+        }
+      });
+      engine.refreshProfiles();
+      watcher.pinProfile('shooter');
+      await flush();
+      await engine.setDraftPreview(draftTriggers);
+      watcher.pinProfile('racer');
+      await flush();
+      // The profile change must not clobber the preview: racer's base never reaches the sink.
+      expect(sink.applied.some((effect) => effect.forcePercent === 50)).toBe(false);
+      await engine.setDraftPreview(null);
+      // Clearing applies the latest active profile's bases (racer), not shooter's.
+      expect(sink.applied.at(-1)).toMatchObject({ mode: 'feedback', target: 'r2', forcePercent: 50 });
+    });
+
     it('serializes preview writes against an in-flight input write', async () => {
       watcher.pinProfile('shooter');
       await flush();
