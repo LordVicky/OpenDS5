@@ -104,4 +104,39 @@ describe('IPC contract', () => {
     expect(mainSource).toContain('TRAY_BATTERY_ICON_CHARGING');
     expect(mainSource).toContain('rawPowerState === 0x01 || rawPowerState === 0x02');
   });
+
+  it('exposes trigger profile engine channels', () => {
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:listTriggerProfiles')");
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:saveTriggerProfile', profile)");
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:deleteTriggerProfile', id)");
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:setTriggerProfilesEnabled', enabled)");
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:pinTriggerProfile', id)");
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:getTriggerProfileEngineStatus')");
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:previewTriggerProfileDraft', triggers)");
+    expect(mainSource).toContain("ipcMain.handle('bridge:listTriggerProfiles'");
+    expect(mainSource).toContain("ipcMain.handle('bridge:saveTriggerProfile'");
+    expect(mainSource).toContain("ipcMain.handle('bridge:deleteTriggerProfile'");
+    expect(mainSource).toContain("ipcMain.handle('bridge:setTriggerProfilesEnabled'");
+    expect(mainSource).toContain("ipcMain.handle('bridge:pinTriggerProfile'");
+    expect(mainSource).toContain("ipcMain.handle('bridge:getTriggerProfileEngineStatus'");
+    expect(mainSource).toContain("ipcMain.handle('bridge:previewTriggerProfileDraft'");
+    expect(mainSource).toContain('await triggerProfileEngine.setDraftPreview(triggers);');
+  });
+
+  it('subscribes to trigger profile engine status broadcasts and returns an unsubscribe function', () => {
+    expect(preloadSource).toContain("ipcRenderer.on('bridge:triggerProfileEngineStatus', wrapped)");
+    expect(preloadSource).toContain("ipcRenderer.removeListener('bridge:triggerProfileEngineStatus', wrapped)");
+    expect(mainSource).toContain("window.webContents.send('bridge:triggerProfileEngineStatus', status)");
+  });
+
+  it('suspends the trigger profile engine before manual trigger testing and resumes after reset', () => {
+    expect(mainSource).toContain('await triggerProfileEngine.suspend();');
+    expect(mainSource).toContain('await triggerProfileEngine.resume();');
+  });
+
+  it('exposes a read-only game-process detection channel', () => {
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:listCandidateGameProcesses')");
+    expect(mainSource).toContain("ipcMain.handle('bridge:listCandidateGameProcesses'");
+    expect(mainSource).toContain('listCandidateGameProcesses()');
+  });
 });

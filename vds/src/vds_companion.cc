@@ -200,7 +200,8 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
     return kAckOk;
   case 0x05: // RESTORE_DEFAULTS
     settings = CompanionSettings{};
-    actuation.persistent_trigger = {};
+    actuation.persistent_trigger_left = {};
+    actuation.persistent_trigger_right = {};
     actuation.test_trigger = {};
     actuation.test_rumble_active = false;
     runtime.button_remap_active = false;
@@ -365,7 +366,14 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
         .force_percent = force_percent,
     };
     if (command_id == 0x20) {
-      actuation.persistent_trigger = effect;
+      // Target: 0 both, 1 left, 2 right. Store per trigger so applying one
+      // trigger's effect never clobbers the other's.
+      if (target != 2) {
+        actuation.persistent_trigger_left = effect;
+      }
+      if (target != 1) {
+        actuation.persistent_trigger_right = effect;
+      }
     } else {
       actuation.test_trigger = effect;
       actuation.test_trigger_until = now + kTriggerTestDuration;
@@ -376,7 +384,8 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
     if (value != 0) {
       return kAckErrInvalidValue;
     }
-    actuation.persistent_trigger = {};
+    actuation.persistent_trigger_left = {};
+    actuation.persistent_trigger_right = {};
     actuation.test_trigger = {};
     return kAckOk;
   case 0x11: // SLEEP_CONTROLLER

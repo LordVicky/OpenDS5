@@ -63,7 +63,10 @@ struct CompanionTriggerEffect {
 // platform daemon translates these into BT output state on connected ports.
 struct CompanionActuation {
   std::uint64_t version = 0;
-  CompanionTriggerEffect persistent_trigger;
+  // Persistent effects are stored per trigger so L2 and R2 can carry
+  // independent effects (an apply with target 0 sets both slots).
+  CompanionTriggerEffect persistent_trigger_left;
+  CompanionTriggerEffect persistent_trigger_right;
   CompanionTriggerEffect test_trigger;
   std::chrono::steady_clock::time_point test_trigger_until{};
   bool test_rumble_active = false;

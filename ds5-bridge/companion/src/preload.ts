@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
-  AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
   BridgePresetId,
   ChordAssignment,
@@ -21,6 +20,8 @@ import type {
   UiThemePreset,
   WindowsDeviceCleanupResult
 } from './shared/types';
+import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/trigger-profiles';
+import type { GameProcessCandidate } from './main/game-watcher';
 
 const api = {
   getStatus: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:getStatus'),
@@ -161,12 +162,6 @@ const api = {
   testAdaptiveTriggers: (mode?: TriggerTestMode, target?: TriggerTestTarget): Promise<BridgeSnapshot> => (
     ipcRenderer.invoke('bridge:testAdaptiveTriggers', mode, target)
   ),
-  previewAdaptiveTriggerEffect: (effect: AdaptiveTriggerPreviewEffect): Promise<BridgeSnapshot> => (
-    ipcRenderer.invoke('bridge:previewAdaptiveTriggerEffect', effect)
-  ),
-  applyAdaptiveTriggerEffect: (effect: AdaptiveTriggerPreviewEffect): Promise<BridgeSnapshot> => (
-    ipcRenderer.invoke('bridge:applyAdaptiveTriggerEffect', effect)
-  ),
   resetAdaptiveTriggers: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:resetAdaptiveTriggers'),
   restoreDefaults: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:restoreDefaults'),
   setButtonRemap: (buttonId: RemapButtonId, targetId: RemapButtonId): Promise<BridgeSnapshot> => (
@@ -217,6 +212,33 @@ const api = {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: BridgeSnapshot) => callback(snapshot);
     ipcRenderer.on('bridge:snapshot', listener);
     return () => ipcRenderer.removeListener('bridge:snapshot', listener);
+  },
+  listTriggerProfiles: (): Promise<TriggerProfile[]> => ipcRenderer.invoke('bridge:listTriggerProfiles'),
+  saveTriggerProfile: (profile: TriggerProfile): Promise<TriggerProfile> => (
+    ipcRenderer.invoke('bridge:saveTriggerProfile', profile)
+  ),
+  deleteTriggerProfile: (id: string): Promise<boolean> => ipcRenderer.invoke('bridge:deleteTriggerProfile', id),
+  setTriggerProfilesEnabled: (enabled: boolean): Promise<EngineStatus> => (
+    ipcRenderer.invoke('bridge:setTriggerProfilesEnabled', enabled)
+  ),
+  pinTriggerProfile: (id: string | null): Promise<EngineStatus> => (
+    ipcRenderer.invoke('bridge:pinTriggerProfile', id)
+  ),
+  getTriggerProfileEngineStatus: (): Promise<EngineStatus> => (
+    ipcRenderer.invoke('bridge:getTriggerProfileEngineStatus')
+  ),
+  previewTriggerProfileDraft: (
+    triggers: { l2: TriggerSlotConfig | null; r2: TriggerSlotConfig | null } | null
+  ): Promise<EngineStatus> => (
+    ipcRenderer.invoke('bridge:previewTriggerProfileDraft', triggers)
+  ),
+  listCandidateGameProcesses: (): Promise<GameProcessCandidate[]> => (
+    ipcRenderer.invoke('bridge:listCandidateGameProcesses')
+  ),
+  onTriggerProfileEngineStatus: (listener: (status: EngineStatus) => void): (() => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, status: EngineStatus) => listener(status);
+    ipcRenderer.on('bridge:triggerProfileEngineStatus', wrapped);
+    return () => ipcRenderer.removeListener('bridge:triggerProfileEngineStatus', wrapped);
   }
 };
 

@@ -23,7 +23,6 @@ import {
   IconDeviceGamepad2,
   IconDeviceGamepad3,
   IconFlame,
-  IconFlask2,
   IconBrandDeezer,
   IconDeviceAudioTape,
   IconBrandXbox,
@@ -33,8 +32,6 @@ import {
   IconHeadphones as Headphones,
   IconKeyboard as Keyboard,
   IconLayoutDashboard,
-  IconLink as LinkIcon,
-  IconLinkOff as LinkOffIcon,
   IconMicrophone as Mic,
   IconMicrophoneOff as MicOff,
   IconMinus as Minus,
@@ -47,11 +44,13 @@ import {
   IconRadioactive,
   IconRefresh as RefreshCcw,
   IconReplace,
+  IconSearch as SearchIcon,
   IconSettings as SettingsIcon,
   IconBluetooth,
   IconSparkleHighlight,
   IconSparkles as Sparkles,
   IconStethoscope,
+  IconTargetArrow,
   IconTestPipe,
   IconTool,
   IconTrash as Trash2,
@@ -131,8 +130,17 @@ import type {
   TriggerTestTarget
 } from '../shared/protocol';
 import type { AudioHapticsSession, BridgeSnapshot, UiScalePercent, UiThemePreset } from '../shared/types';
+import { createDefaultProfile } from '../shared/trigger-profiles';
+import type {
+  EngineStatus,
+  InputConditionType,
+  TriggerEffectSpec,
+  TriggerModifier,
+  TriggerProfile
+} from '../shared/trigger-profiles';
+import type { GameProcessCandidate } from '../main/game-watcher';
 
-type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'lighting' | 'remapping' | 'chords' | 'system';
+type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
 type StartupTutorialStep = 'feature-toggle' | 'support' | 'done';
 type ControllerType = BridgeStatusPayload['controllerType'];
 type KnownControllerType = Exclude<ControllerType, 'unknown'>;
@@ -203,43 +211,10 @@ type ChordAssignmentScrollbarState = {
   top: number;
   height: number;
 };
-type TriggerLabProfileDialogMode = 'save' | 'rename' | 'delete';
-type TriggerLabBuiltinProfileId = 'default';
-type TriggerLabCustomProfileId = 'custom' | `custom-${string}`;
-type TriggerLabProfileId = TriggerLabBuiltinProfileId | TriggerLabCustomProfileId;
-type TriggerLabSide = Extract<TriggerTestTarget, 'l2' | 'r2'>;
-type TriggerLabDraft = {
-  profileId: TriggerLabProfileId;
-  mode: TriggerTestMode;
-  startPercent: number;
-  wallPercent: number;
-  forcePercent: number;
-};
-type TriggerLabCustomProfile = {
-  id: TriggerLabCustomProfileId;
+type TriggerProfileSlotKey = 'l2' | 'r2';
+type TriggerProfileDeleteConfirmState = {
+  id: string;
   name: string;
-  mode: TriggerTestMode;
-  startPercent: number;
-  wallPercent: number;
-  forcePercent: number;
-  active: boolean;
-};
-type TriggerLabProfileDialogState = {
-  mode: TriggerLabProfileDialogMode;
-  side: TriggerLabSide;
-};
-type TriggerLabSplitState = {
-  drafts: Record<TriggerLabSide, TriggerLabDraft>;
-  active: Record<TriggerLabSide, boolean>;
-};
-type TriggerLabWorkspaceState = {
-  linked: boolean;
-  drafts: Record<TriggerLabSide, TriggerLabDraft>;
-  active: Record<TriggerLabSide, boolean>;
-  splitState: TriggerLabSplitState | null;
-};
-type TriggerLabInitialState = TriggerLabWorkspaceState & {
-  profiles: TriggerLabCustomProfile[];
 };
 type RemapCalloutLayout = {
   top: number;
@@ -259,7 +234,6 @@ type FeatureTipsPanelProps = {
   tab: 'audio' | 'haptics' | 'triggers' | 'lighting';
   onSettingsFocusRequest?: (target: SettingsFocusTarget) => void;
   audioHapticsOpen?: boolean;
-  triggerLabOpen?: boolean;
 };
 type SettingsFocusTarget = 'controller-power-saving' | 'sleep-shortcut' | 'volume-shortcut';
 type NotificationFocusTarget = 'controller-status' | 'low-battery' | 'all';
@@ -357,21 +331,16 @@ const TRIGGER_TEST_MODE_OPTIONS: Array<[string, TriggerTestMode]> = [
   ['Weapon', 'weapon'],
   ['Vibration', 'vibration']
 ];
-const TRIGGER_LAB_BUILTIN_PROFILE_OPTIONS: Array<[string, TriggerLabBuiltinProfileId]> = [
-  ['Default', 'default']
+const TRIGGER_PROFILE_SLOTS: Array<[TriggerProfileSlotKey, string]> = [
+  ['l2', 'L2'],
+  ['r2', 'R2']
 ];
-const TRIGGER_LAB_PROFILE_PRESETS: Record<TriggerLabBuiltinProfileId, TriggerLabDraft> = {
-  default: {
-    profileId: 'default',
-    mode: 'weapon',
-    startPercent: 20,
-    wallPercent: 60,
-    forcePercent: 85
-  }
-};
-const TRIGGER_LAB_DEFAULT_DRAFT = TRIGGER_LAB_PROFILE_PRESETS.default;
-const TRIGGER_LAB_AUTO_CUSTOM_PROFILE_ID: TriggerLabCustomProfileId = 'custom';
-const TRIGGER_LAB_AUTO_CUSTOM_PROFILE_NAME = 'Custom';
+const TRIGGER_PROFILE_CONDITION_OPTIONS: Array<[string, InputConditionType]> = [
+  ['Trigger Held Over', 'trigger-held-over'],
+  ['Trigger Full Pull', 'trigger-full-pull'],
+  ['Button Held', 'button-held'],
+  ['Rapid Fire', 'rapid-fire']
+];
 const MUTE_BUTTON_MODE_OPTIONS: Array<[string, MuteButtonMode]> = [
   ['Normal', 'normal'],
   ['Keyboard Key', 'keyboard'],
@@ -717,6 +686,7 @@ const CONTROL_TABS: Array<{ id: ControlTab; label: string; Icon: TablerIcon }> =
   { id: 'audio', label: 'Audio', Icon: IconVolume },
   { id: 'haptics', label: 'Haptics', Icon: Sparkles },
   { id: 'triggers', label: 'Triggers', Icon: IconDeviceGamepad2 },
+  { id: 'trigger-profiles', label: 'Trigger Profiles', Icon: IconTargetArrow },
   { id: 'lighting', label: 'Lighting', Icon: IconBulb },
   { id: 'remapping', label: 'Button Remapping', Icon: IconDeviceGamepad3 },
   { id: 'system', label: 'System', Icon: IconCpu }
@@ -728,8 +698,6 @@ type SinkSelectableAudio = HTMLAudioElement & {
   sinkId?: string;
 };
 const LAST_REMAP_CONTROLLER_TYPE_STORAGE_KEY = 'ds5bridge.lastRemapControllerType';
-const TRIGGER_LAB_CUSTOM_PROFILES_STORAGE_KEY = 'ds5bridge.triggerLabProfiles';
-const TRIGGER_LAB_WORKSPACE_STORAGE_KEY = 'ds5bridge.triggerLabWorkspace';
 const UI_THEME_PRESET_STORAGE_KEY = 'ds5bridge.uiThemePreset';
 const STARTUP_TUTORIAL_COMPLETED_STORAGE_KEY = 'ds5bridge.startupTutorialCompleted.v1';
 const STARTUP_READY_HOLD_MS = 1000;
@@ -908,179 +876,81 @@ function snapTriggerLabPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value / TRIGGER_LAB_SLIDER_STEP) * TRIGGER_LAB_SLIDER_STEP));
 }
 
-function isTriggerLabBuiltinProfileId(value: string): value is TriggerLabBuiltinProfileId {
-  return value === 'default';
+export function parseProcessNamesInput(input: string): string[] {
+  return input
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0);
 }
 
-function isTriggerTestModeValue(value: unknown): value is TriggerTestMode {
-  return value === 'feedback' || value === 'weapon' || value === 'vibration';
-}
-
-function loadTriggerLabCustomProfiles(): TriggerLabCustomProfile[] {
-  try {
-    const rawProfiles = JSON.parse(window.localStorage.getItem(TRIGGER_LAB_CUSTOM_PROFILES_STORAGE_KEY) ?? '[]') as unknown;
-    if (!Array.isArray(rawProfiles)) {
-      return [];
-    }
-    return rawProfiles.flatMap((profile): TriggerLabCustomProfile[] => {
-      if (!profile || typeof profile !== 'object') {
-        return [];
-      }
-      const candidate = profile as Partial<TriggerLabCustomProfile>;
-      if (
-        typeof candidate.id !== 'string'
-        || (candidate.id !== TRIGGER_LAB_AUTO_CUSTOM_PROFILE_ID && !candidate.id.startsWith('custom-'))
-        || typeof candidate.name !== 'string'
-        || candidate.name.trim().length === 0
-        || !isTriggerTestModeValue(candidate.mode)
-      ) {
-        return [];
-      }
-      return [{
-        id: candidate.id as TriggerLabCustomProfileId,
-        name: candidate.name.trim().slice(0, 48),
-        mode: candidate.mode,
-        startPercent: snapTriggerLabPercent(Number(candidate.startPercent ?? 0)),
-        wallPercent: snapTriggerLabPercent(Number(candidate.wallPercent ?? 0)),
-        forcePercent: snapTriggerLabPercent(Number(candidate.forcePercent ?? 0)),
-        active: candidate.active === true
-      }];
-    });
-  } catch {
-    return [];
+export function mergeDetectedProcessName(processNamesInput: string, candidateName: string): string {
+  const existing = parseProcessNamesInput(processNamesInput);
+  const name = candidateName.trim().toLowerCase();
+  if (!name || existing.includes(name)) {
+    return existing.join(', ');
   }
+  return [...existing, name].join(', ');
 }
 
-function saveTriggerLabCustomProfiles(profiles: TriggerLabCustomProfile[]) {
-  window.localStorage.setItem(TRIGGER_LAB_CUSTOM_PROFILES_STORAGE_KEY, JSON.stringify(profiles));
+export function formatEngineStatusLine(status: EngineStatus, activeProfileName: string): string {
+  if (status.suspended) return `Active: ${activeProfileName} (suspended)`;
+  if (status.matchedBy === 'pin') return `Active: ${activeProfileName} (pinned)`;
+  if (status.matchedBy === 'process') return `Active: ${activeProfileName} (matched: ${status.matchedName})`;
+  return `Active: ${activeProfileName} (default)`;
 }
 
-function createTriggerLabProfileId(): TriggerLabCustomProfileId {
-  return `custom-${window.crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`}`;
+function defaultTriggerEffectSpec(): TriggerEffectSpec {
+  return { mode: 'feedback', startPercent: 0, wallPercent: 0, forcePercent: 0 };
 }
 
-function defaultTriggerLabWorkspaceState(): TriggerLabWorkspaceState {
+function defaultTriggerModifier(): TriggerModifier {
   return {
-    linked: true,
-    drafts: {
-      l2: { ...TRIGGER_LAB_DEFAULT_DRAFT },
-      r2: { ...TRIGGER_LAB_DEFAULT_DRAFT }
-    },
-    active: {
-      l2: false,
-      r2: false
-    },
-    splitState: null
+    when: { source: 'input', condition: 'trigger-held-over', threshold: 50, ms: 200 },
+    effect: defaultTriggerEffectSpec()
   };
 }
 
-function triggerLabProfileDraftFromProfile(profile: TriggerLabCustomProfile): TriggerLabDraft {
-  return {
-    profileId: profile.id,
-    mode: profile.mode,
-    startPercent: profile.startPercent,
-    wallPercent: profile.wallPercent,
-    forcePercent: profile.forcePercent
-  };
+export function slugifyTriggerProfileName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-function normalizeTriggerLabWorkspaceDraft(
-  value: unknown,
-  profiles: TriggerLabCustomProfile[]
-): TriggerLabDraft {
-  if (!value || typeof value !== 'object') {
-    return { ...TRIGGER_LAB_DEFAULT_DRAFT };
-  }
+const PROVISIONAL_TRIGGER_PROFILE_ID_PREFIX = 'draft-';
 
-  const candidate = value as Partial<TriggerLabDraft>;
-  if (candidate.profileId === 'default') {
-    return { ...TRIGGER_LAB_DEFAULT_DRAFT };
-  }
-
-  if (typeof candidate.profileId === 'string') {
-    const customProfile = profiles.find((profile) => profile.id === candidate.profileId);
-    if (customProfile) {
-      return triggerLabProfileDraftFromProfile(customProfile);
-    }
-  }
-
-  return { ...TRIGGER_LAB_DEFAULT_DRAFT };
+function makeProvisionalTriggerProfileId(): string {
+  return `${PROVISIONAL_TRIGGER_PROFILE_ID_PREFIX}${Date.now().toString(36)}-${Math.round(Math.random() * 1e6).toString(36)}`;
 }
 
-function triggerLabWorkspaceDraftActive(
-  draft: TriggerLabDraft,
-  storedActive: unknown,
-  profiles: TriggerLabCustomProfile[]
-): boolean {
-  if (draft.profileId === 'default') {
-    return false;
+export function isProvisionalTriggerProfileId(id: string): boolean {
+  return id.startsWith(PROVISIONAL_TRIGGER_PROFILE_ID_PREFIX);
+}
+
+export function uniqueTriggerProfileId(name: string, existingIds: readonly string[]): string {
+  const base = slugifyTriggerProfileName(name);
+  const taken = new Set(existingIds);
+  const isTaken = (candidate: string) => candidate === 'default' || candidate === '' || taken.has(candidate);
+  if (!isTaken(base)) {
+    return base;
   }
-  const profileActive = profiles.find((profile) => profile.id === draft.profileId)?.active ?? false;
-  const active = typeof storedActive === 'boolean' ? storedActive : profileActive;
-  return active && draft.forcePercent > 0;
-}
-
-function loadTriggerLabWorkspaceState(profiles: TriggerLabCustomProfile[]): TriggerLabWorkspaceState {
-  const fallback = defaultTriggerLabWorkspaceState();
-  try {
-    const value = JSON.parse(window.localStorage.getItem(TRIGGER_LAB_WORKSPACE_STORAGE_KEY) ?? 'null') as unknown;
-    if (!value || typeof value !== 'object') {
-      return fallback;
-    }
-
-    const candidate = value as Partial<TriggerLabWorkspaceState>;
-    const l2Draft = normalizeTriggerLabWorkspaceDraft(candidate.drafts?.l2, profiles);
-    const r2Draft = normalizeTriggerLabWorkspaceDraft(candidate.drafts?.r2, profiles);
-    const active = {
-      l2: triggerLabWorkspaceDraftActive(l2Draft, candidate.active?.l2, profiles),
-      r2: triggerLabWorkspaceDraftActive(r2Draft, candidate.active?.r2, profiles)
-    };
-
-    let splitState: TriggerLabSplitState | null = null;
-    if (candidate.splitState && typeof candidate.splitState === 'object') {
-      const splitL2Draft = normalizeTriggerLabWorkspaceDraft(candidate.splitState.drafts?.l2, profiles);
-      const splitR2Draft = normalizeTriggerLabWorkspaceDraft(candidate.splitState.drafts?.r2, profiles);
-      splitState = {
-        drafts: {
-          l2: splitL2Draft,
-          r2: splitR2Draft
-        },
-        active: {
-          l2: triggerLabWorkspaceDraftActive(splitL2Draft, candidate.splitState.active?.l2, profiles),
-          r2: triggerLabWorkspaceDraftActive(splitR2Draft, candidate.splitState.active?.r2, profiles)
-        }
-      };
-    }
-
-    const linked = candidate.linked !== false;
-    const workspaceActive = linked
-      ? { l2: active.l2 || active.r2, r2: active.l2 || active.r2 }
-      : active;
-
-    return {
-      linked,
-      drafts: {
-        l2: l2Draft,
-        r2: r2Draft
-      },
-      active: workspaceActive,
-      splitState
-    };
-  } catch {
-    return fallback;
+  let suffix = 2;
+  let candidate = `${base}-${suffix}`;
+  while (isTaken(candidate)) {
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
   }
+  return candidate;
 }
 
-function loadTriggerLabInitialState(): TriggerLabInitialState {
-  const profiles = loadTriggerLabCustomProfiles();
-  return {
-    ...loadTriggerLabWorkspaceState(profiles),
-    profiles
-  };
-}
-
-function saveTriggerLabWorkspaceState(state: TriggerLabWorkspaceState) {
-  window.localStorage.setItem(TRIGGER_LAB_WORKSPACE_STORAGE_KEY, JSON.stringify(state));
+export function mergeTriggerProfiles(
+  localProfiles: readonly TriggerProfile[],
+  backendProfiles: readonly TriggerProfile[],
+  excludeIds: readonly string[] = []
+): TriggerProfile[] {
+  const backendIds = new Set(backendProfiles.map((profile) => profile.id));
+  const excluded = new Set(excludeIds);
+  const unsavedDrafts = localProfiles.filter(
+    (profile) => !backendIds.has(profile.id) && !excluded.has(profile.id)
+  );
+  return [...backendProfiles, ...unsavedDrafts];
 }
 
 function controllerPowerSavingActiveFromSnapshot(snapshot: BridgeSnapshot | null | undefined): boolean {
@@ -1332,11 +1202,9 @@ function ProfileSaveStatus() {
 function FeatureTipsPanel({
   tab,
   onSettingsFocusRequest,
-  audioHapticsOpen = false,
-  triggerLabOpen = false
+  audioHapticsOpen = false
 }: FeatureTipsPanelProps) {
   const [featureTileSampleActive, setFeatureTileSampleActive] = useState(false);
-  const [triggerLabLinkTipSplit, setTriggerLabLinkTipSplit] = useState(false);
   const tips: Array<{
     key: string;
     icon: ReactNode;
@@ -1358,14 +1226,7 @@ function FeatureTipsPanel({
     }
   ];
 
-  if (tab === 'triggers' && triggerLabOpen) {
-    tips.push({
-      key: 'trigger-lab-override',
-      icon: <IconFlask2 size={16} />,
-      title: 'Lab Override',
-      text: 'Active Lab effects stay applied and ignore incoming game trigger output.'
-    });
-  } else if (tab === 'haptics' && audioHapticsOpen) {
+  if (tab === 'haptics' && audioHapticsOpen) {
     tips.push({
       key: 'audio-haptics',
       icon: <IconDeviceAudioTape size={16} />,
@@ -1389,14 +1250,7 @@ function FeatureTipsPanel({
     });
   }
 
-  if (tab === 'triggers' && triggerLabOpen) {
-    tips.push({
-      key: 'trigger-lab-link',
-      icon: triggerLabLinkTipSplit ? <LinkOffIcon size={16} /> : <LinkIcon size={16} />,
-      title: 'Linked / Split',
-      text: 'When Linked is on, the selected effect mirrors across L2 and R2. Split keeps each trigger separate.'
-    });
-  } else if (tab === 'haptics' && audioHapticsOpen) {
+  if (tab === 'haptics' && audioHapticsOpen) {
     tips.push({
       key: 'audio-haptics-mode',
       icon: <IconBrandDeezer size={16} />,
@@ -1447,16 +1301,6 @@ function FeatureTipsPanel({
                 type="button"
                 aria-label="Open Controller Power Saving settings"
                 onClick={() => onSettingsFocusRequest?.('controller-power-saving')}
-              >
-                {tip.icon}
-              </button>
-            ) : tip.key === 'trigger-lab-link' ? (
-              <button
-                className={`feature-help-icon feature-help-icon-button ${triggerLabLinkTipSplit ? '' : 'active'}`}
-                type="button"
-                aria-pressed={!triggerLabLinkTipSplit}
-                aria-label="Toggle Linked Split tip example"
-                onClick={() => setTriggerLabLinkTipSplit((split) => !split)}
               >
                 {tip.icon}
               </button>
@@ -2780,22 +2624,21 @@ export function App() {
   const [lightbarBrightnessValue, setLightbarBrightnessValue] = useState(100);
   const [triggerEffectIntensityValue, setTriggerEffectIntensityValue] = useState(100);
   const [triggerTarget, setTriggerTarget] = useState<TriggerTestTarget>('both');
-  const triggerLabInitialStateRef = useRef<TriggerLabInitialState | null>(null);
-  if (triggerLabInitialStateRef.current === null) {
-    triggerLabInitialStateRef.current = loadTriggerLabInitialState();
-  }
-  const triggerLabInitialState = triggerLabInitialStateRef.current;
-  const [triggerLabOpen, setTriggerLabOpen] = useState(false);
   const [audioHapticsOpen, setAudioHapticsOpen] = useState(false);
   const [audioHapticsSessions, setAudioHapticsSessions] = useState<AudioHapticsSession[]>([]);
   const [audioHapticsSessionsLoading, setAudioHapticsSessionsLoading] = useState(false);
-  const [triggerLabLinked, setTriggerLabLinked] = useState(triggerLabInitialState.linked);
-  const [triggerLabDrafts, setTriggerLabDrafts] = useState<Record<TriggerLabSide, TriggerLabDraft>>(triggerLabInitialState.drafts);
-  const [triggerLabActive, setTriggerLabActive] = useState<Record<TriggerLabSide, boolean>>(triggerLabInitialState.active);
-  const [triggerLabSplitState, setTriggerLabSplitState] = useState<TriggerLabSplitState | null>(triggerLabInitialState.splitState);
-  const [triggerLabCustomProfiles, setTriggerLabCustomProfiles] = useState<TriggerLabCustomProfile[]>(triggerLabInitialState.profiles);
-  const [triggerLabProfileDialog, setTriggerLabProfileDialog] = useState<TriggerLabProfileDialogState | null>(null);
-  const [triggerLabProfileNameDraft, setTriggerLabProfileNameDraft] = useState('');
+  const [triggerProfiles, setTriggerProfiles] = useState<TriggerProfile[]>([]);
+  const [triggerProfilesEnabled, setTriggerProfilesEnabled] = useState(false);
+  const [triggerProfileEngineStatus, setTriggerProfileEngineStatus] = useState<EngineStatus | null>(null);
+  const [selectedTriggerProfileId, setSelectedTriggerProfileId] = useState<string | null>(null);
+  const [triggerProfileDraft, setTriggerProfileDraft] = useState<TriggerProfile | null>(null);
+  const [triggerProfileProcessNamesInput, setTriggerProfileProcessNamesInput] = useState('');
+  const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
+  const [gameDetectPopoverOpen, setGameDetectPopoverOpen] = useState(false);
+  const [gameDetectCandidates, setGameDetectCandidates] = useState<GameProcessCandidate[]>([]);
+  const [gameDetectLoading, setGameDetectLoading] = useState(false);
+  const gameDetectPopoverRef = useRef<HTMLDivElement>(null);
+  const triggerProfilePreviewArmedRef = useRef(false);
   const [remapDraft, setRemapDraft] = useState<Record<RemapButtonId, RemapButtonId>>(DEFAULT_REMAP_DRAFT);
   const [remapProfileDialogMode, setRemapProfileDialogMode] = useState<RemapProfileDialogMode | null>(null);
   const [remapProfileNameDraft, setRemapProfileNameDraft] = useState('');
@@ -2872,7 +2715,6 @@ export function App() {
   const windowDragReleaseTimerRef = useRef<number | null>(null);
   const startupReadyTimerRef = useRef<number | null>(null);
   const startupReadyArmedRef = useRef(false);
-  const triggerLabRestoreAppliedRef = useRef(false);
   const deferredSnapshotRef = useRef<BridgeSnapshot | null>(null);
   const overviewSleepConfirmArmedRef = useRef(false);
   useEffect(() => () => {
@@ -2882,10 +2724,6 @@ export function App() {
     document.body.classList.remove('chords-assignment-pointer-dragging');
     chordAssignmentDragRef.current = null;
   }, []);
-
-  useEffect(() => {
-    saveTriggerLabCustomProfiles(triggerLabCustomProfiles);
-  }, [triggerLabCustomProfiles]);
 
   useEffect(() => {
     const liveTheme = snapshot?.settings.uiThemePreset;
@@ -2924,15 +2762,6 @@ export function App() {
     };
   }, [startupTutorialStep]);
 
-  useEffect(() => {
-    saveTriggerLabWorkspaceState({
-      linked: triggerLabLinked,
-      drafts: triggerLabDrafts,
-      active: triggerLabActive,
-      splitState: triggerLabSplitState
-    });
-  }, [triggerLabActive, triggerLabDrafts, triggerLabLinked, triggerLabSplitState]);
-
   const personaTransition = snapshot?.personaTransition ?? null;
   const personaTransitionActive = Boolean(personaTransition);
   const connected = snapshot?.state === 'connected';
@@ -2946,11 +2775,6 @@ export function App() {
   const remapModifiedCount = useMemo(() => (
     REMAP_ALL_BUTTON_IDS.filter((buttonId) => remapDraft[buttonId] !== buttonId).length
   ), [remapDraft]);
-  const triggerLabProfileOptions = useMemo<Array<[string, TriggerLabProfileId]>>(() => ([
-    ...TRIGGER_LAB_BUILTIN_PROFILE_OPTIONS,
-    ...triggerLabCustomProfiles.map((profile): [string, TriggerLabProfileId] => [profile.name, profile.id])
-  ]), [triggerLabCustomProfiles]);
-  const triggerLabAnyActive = triggerLabActive.l2 || triggerLabActive.r2;
   const selectedControllerProfile = snapshot?.settings.controllerProfiles.find((profile) => (
     profile.id === snapshot.settings.selectedControllerProfileId
   ));
@@ -3233,6 +3057,57 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    window.bridge.listTriggerProfiles().then((profiles) => {
+      if (cancelled) return;
+      setTriggerProfiles(profiles);
+      if (profiles.length > 0) {
+        loadTriggerProfileDraft(profiles[0]);
+      }
+    });
+    window.bridge.getTriggerProfileEngineStatus().then((status) => {
+      if (cancelled) return;
+      setTriggerProfilesEnabled(status.enabled);
+      setTriggerProfileEngineStatus(status);
+    });
+    const unsubscribe = window.bridge.onTriggerProfileEngineStatus((status) => {
+      setTriggerProfilesEnabled(status.enabled);
+      setTriggerProfileEngineStatus(status);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  // Live-preview edited trigger draft effects on the controller (debounced);
+  // armed only after an actual trigger edit so selecting a profile never writes.
+  useEffect(() => {
+    if (!triggerProfilePreviewArmedRef.current) return;
+    if (activeControlTab !== 'trigger-profiles' || !triggerProfileDraft) return;
+    const triggers = triggerProfileDraft.triggers;
+    const handle = setTimeout(() => {
+      void window.bridge.previewTriggerProfileDraft({ l2: triggers.l2, r2: triggers.r2 });
+    }, 150);
+    return () => clearTimeout(handle);
+  }, [triggerProfileDraft, activeControlTab]);
+
+  // Clear any live draft preview when leaving the Trigger Profiles tab.
+  useEffect(() => {
+    if (activeControlTab === 'trigger-profiles') return;
+    if (!triggerProfilePreviewArmedRef.current) return;
+    triggerProfilePreviewArmedRef.current = false;
+    void window.bridge.previewTriggerProfileDraft(null);
+  }, [activeControlTab]);
+
+  // Clear any live draft preview on unmount.
+  useEffect(() => () => {
+    if (triggerProfilePreviewArmedRef.current) {
+      void window.bridge.previewTriggerProfileDraft(null);
+    }
+  }, []);
+
+  useEffect(() => {
     const controllerAudioReady = connected && controllerConnected;
     if (!audioHapticsOpen || !controllerAudioReady) {
       setAudioHapticsSessions([]);
@@ -3458,6 +3333,45 @@ export function App() {
     };
   }, [showCustomColorPicker]);
 
+  useEffect(() => {
+    if (!gameDetectPopoverOpen) {
+      return;
+    }
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!gameDetectPopoverRef.current?.contains(event.target as Node)) {
+        setGameDetectPopoverOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setGameDetectPopoverOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [gameDetectPopoverOpen]);
+
+  async function detectRunningGame(): Promise<void> {
+    setGameDetectLoading(true);
+    try {
+      const candidates = await window.bridge.listCandidateGameProcesses();
+      setGameDetectCandidates(candidates);
+      setGameDetectPopoverOpen(true);
+    } finally {
+      setGameDetectLoading(false);
+    }
+  }
+
+  function pickDetectedGameProcess(candidateName: string): void {
+    setTriggerProfileProcessNamesInput((current) => mergeDetectedProcessName(current, candidateName));
+  }
+
   const batteryPercent = Math.max(0, Math.min(100, snapshot?.status?.batteryPercent ?? 0));
   const batteryPercentLabel = batteryLabel(snapshot);
   const batteryLevelTone = batteryTone(snapshot?.status?.batteryPercent);
@@ -3552,48 +3466,6 @@ export function App() {
   const percentSliderMax = controllerPowerSavingActive ? CONTROLLER_POWER_SAVING_CAP_PERCENT : 100;
   const OutputIcon = headsetOutputDetected ? Headphones : Volume2;
 
-  useEffect(() => {
-    if (!connected) {
-      triggerLabRestoreAppliedRef.current = false;
-    }
-  }, [connected]);
-
-  useEffect(() => {
-    if (
-      triggerLabRestoreAppliedRef.current
-      || !connected
-      || !adaptiveTriggersSupported
-      || !adaptiveTriggersEnabled
-      || pendingAction !== null
-    ) {
-      return;
-    }
-
-    triggerLabRestoreAppliedRef.current = true;
-    if (!triggerLabAnyActive) {
-      return;
-    }
-
-    if (triggerLabLinked) {
-      const active = triggerLabActive.l2 && triggerLabActive.r2 && triggerLabDrafts.l2.forcePercent > 0;
-      persistTriggerLab('l2', triggerLabDrafts.l2, active, 'trigger-lab-restore', 'both');
-      return;
-    }
-
-    persistTriggerLabSplitState({
-      drafts: triggerLabDrafts,
-      active: triggerLabActive
-    }, 'trigger-lab-restore');
-  }, [
-    adaptiveTriggersEnabled,
-    adaptiveTriggersSupported,
-    connected,
-    pendingAction,
-    triggerLabActive,
-    triggerLabAnyActive,
-    triggerLabDrafts,
-    triggerLabLinked
-  ]);
   const outputControlLabel = headsetOutputDetected ? 'Headphones' : 'Speaker';
   const outputControlLower = headsetOutputDetected ? 'headphones' : 'speaker';
   const outputPresetLower = headsetOutputDetected ? 'headphones' : 'speaker';
@@ -4577,386 +4449,12 @@ export function App() {
     });
   }
 
-  function updateTriggerLabSide(side: TriggerLabSide, update: (current: TriggerLabDraft) => TriggerLabDraft) {
-    setTriggerLabDrafts((current) => {
-      const nextSide = update(current[side]);
-      if (triggerLabLinked) {
-        return { l2: nextSide, r2: nextSide };
-      }
-      return { ...current, [side]: nextSide };
-    });
-  }
-
-  function triggerLabActiveForSide(side: TriggerLabSide) {
-    return triggerLabLinked ? triggerLabActive.l2 && triggerLabActive.r2 : triggerLabActive[side];
-  }
-
-  function setTriggerLabActiveForTarget(side: TriggerLabSide, active: boolean) {
-    setTriggerLabActive((current) => (
-      triggerLabLinked ? { l2: active, r2: active } : { ...current, [side]: active }
-    ));
-  }
-
-  function triggerLabProfileDraft(profileId: TriggerLabProfileId): TriggerLabDraft | null {
-    if (isTriggerLabBuiltinProfileId(profileId)) {
-      return { ...TRIGGER_LAB_PROFILE_PRESETS[profileId] };
-    }
-    const profile = triggerLabCustomProfiles.find((candidate) => candidate.id === profileId);
-    if (!profile) {
-      return null;
-    }
-    return {
-      profileId: profile.id,
-      mode: profile.mode,
-      startPercent: profile.startPercent,
-      wallPercent: profile.wallPercent,
-      forcePercent: profile.forcePercent
-    };
-  }
-
-  function triggerLabProfileName(profileId: TriggerLabProfileId): string {
-    const builtin = TRIGGER_LAB_BUILTIN_PROFILE_OPTIONS.find(([, value]) => value === profileId);
-    if (builtin) {
-      return builtin[0];
-    }
-    return triggerLabCustomProfiles.find((profile) => profile.id === profileId)?.name
-      ?? (profileId === TRIGGER_LAB_AUTO_CUSTOM_PROFILE_ID ? TRIGGER_LAB_AUTO_CUSTOM_PROFILE_NAME : 'Profile');
-  }
-
-  function triggerLabProfileIsCustom(profileId: TriggerLabProfileId): boolean {
-    return triggerLabCustomProfiles.some((profile) => profile.id === profileId);
-  }
-
-  function triggerLabProfileActive(profileId: TriggerLabProfileId): boolean {
-    if (isTriggerLabBuiltinProfileId(profileId)) {
-      return false;
-    }
-    return triggerLabCustomProfiles.find((profile) => profile.id === profileId)?.active ?? false;
-  }
-
-  function triggerLabCustomProfileFromDraft(
-    id: TriggerLabCustomProfileId,
-    name: string,
-    draft: TriggerLabDraft,
-    active: boolean
-  ): TriggerLabCustomProfile {
-    return {
-      id,
-      name: name.trim().slice(0, 48) || TRIGGER_LAB_AUTO_CUSTOM_PROFILE_NAME,
-      mode: draft.mode,
-      startPercent: draft.startPercent,
-      wallPercent: draft.wallPercent,
-      forcePercent: draft.forcePercent,
-      active: active && draft.forcePercent > 0
-    };
-  }
-
-  function upsertTriggerLabCustomProfile(profile: TriggerLabCustomProfile) {
-    setTriggerLabCustomProfiles((current) => {
-      const existingProfile = current.find((candidate) => candidate.id === profile.id);
-      if (!existingProfile) {
-        return [...current, profile];
-      }
-      return current.map((candidate) => (
-        candidate.id === profile.id ? profile : candidate
-      ));
-    });
-  }
-
-  function saveTriggerLabDraftToProfile(draft: TriggerLabDraft, active: boolean) {
-    if (isTriggerLabBuiltinProfileId(draft.profileId)) {
-      return;
-    }
-    upsertTriggerLabCustomProfile(triggerLabCustomProfileFromDraft(
-      draft.profileId,
-      triggerLabProfileName(draft.profileId),
-      draft,
-      active
-    ));
-  }
-
-  function editableTriggerLabDraft(draft: TriggerLabDraft, active: boolean): TriggerLabDraft {
-    if (isTriggerLabBuiltinProfileId(draft.profileId)) {
-      const nextDraft = {
-        ...draft,
-        profileId: TRIGGER_LAB_AUTO_CUSTOM_PROFILE_ID
-      };
-      upsertTriggerLabCustomProfile(triggerLabCustomProfileFromDraft(
-        TRIGGER_LAB_AUTO_CUSTOM_PROFILE_ID,
-        TRIGGER_LAB_AUTO_CUSTOM_PROFILE_NAME,
-        nextDraft,
-        active
-      ));
-      return nextDraft;
-    }
-
-    upsertTriggerLabCustomProfile(triggerLabCustomProfileFromDraft(
-      draft.profileId,
-      triggerLabProfileName(draft.profileId),
-      draft,
-      active
-    ));
-    return draft;
-  }
-
-  function updateEditableTriggerLabSide(
-    side: TriggerLabSide,
-    update: (current: TriggerLabDraft) => TriggerLabDraft
-  ): TriggerLabDraft {
-    const nextDraft = editableTriggerLabDraft(update(triggerLabDrafts[side]), triggerLabActiveForSide(side));
-    updateTriggerLabSide(side, () => nextDraft);
-    return nextDraft;
-  }
-
-  function persistTriggerLab(
-    side: TriggerLabSide,
-    draft: TriggerLabDraft,
-    active: boolean,
-    label: string,
-    target: TriggerTestTarget = triggerLabLinked ? 'both' : side
-  ) {
-    void runAction(label, () => (
-      window.bridge.applyAdaptiveTriggerEffect({
-        mode: draft.mode,
-        target,
-        startPercent: draft.startPercent,
-        wallPercent: draft.wallPercent,
-        forcePercent: active ? draft.forcePercent : 0
-      })
-    ));
-  }
-
-  function persistTriggerLabSplitState(nextState: TriggerLabSplitState, label: string) {
-    void runAction(label, async () => {
-      await window.bridge.applyAdaptiveTriggerEffect({
-        mode: nextState.drafts.l2.mode,
-        target: 'l2',
-        startPercent: nextState.drafts.l2.startPercent,
-        wallPercent: nextState.drafts.l2.wallPercent,
-        forcePercent: nextState.active.l2 ? nextState.drafts.l2.forcePercent : 0
-      });
-      return window.bridge.applyAdaptiveTriggerEffect({
-        mode: nextState.drafts.r2.mode,
-        target: 'r2',
-        startPercent: nextState.drafts.r2.startPercent,
-        wallPercent: nextState.drafts.r2.wallPercent,
-        forcePercent: nextState.active.r2 ? nextState.drafts.r2.forcePercent : 0
-      });
-    });
-  }
-
-  function setTriggerLabProfile(side: TriggerLabSide, profileId: TriggerLabProfileId) {
-    const profileDraft = triggerLabProfileDraft(profileId);
-    if (!profileDraft) {
-      return;
-    }
-    const previousActive = triggerLabActiveForSide(side);
-    const nextActive = triggerLabProfileActive(profileId) && profileDraft.forcePercent > 0;
-    const nextDraft = { ...profileDraft, profileId };
-    updateTriggerLabSide(side, () => nextDraft);
-    setTriggerLabActiveForTarget(side, nextActive);
-    if (previousActive || nextActive) {
-      persistTriggerLab(side, nextDraft, nextActive, `trigger-lab-update-${side}`);
-    }
-  }
-
-  function openTriggerLabProfileDialog(mode: TriggerLabProfileDialogMode, side: TriggerLabSide) {
-    const profileId = triggerLabDrafts[side].profileId;
-    if ((mode === 'rename' || mode === 'delete') && !triggerLabProfileIsCustom(profileId)) {
-      return;
-    }
-    setTriggerLabProfileNameDraft(
-      mode === 'save'
-        ? `Custom Trigger ${triggerLabCustomProfiles.length + 1}`
-        : triggerLabProfileName(profileId)
-    );
-    setTriggerLabProfileDialog({ mode, side });
-  }
-
-  function closeTriggerLabProfileDialog() {
-    setTriggerLabProfileDialog(null);
-    setTriggerLabProfileNameDraft('');
-  }
-
-  function submitTriggerLabProfileDialog() {
-    if (!triggerLabProfileDialog) {
-      return;
-    }
-
-    const side = triggerLabProfileDialog.side;
-    const draft = triggerLabDrafts[side];
-    const nextName = triggerLabProfileNameDraft.trim();
-
-    if (triggerLabProfileDialog.mode === 'save') {
-      if (!nextName) {
-        return;
-      }
-      const id = createTriggerLabProfileId();
-      const nextProfile: TriggerLabCustomProfile = {
-        id,
-        name: nextName,
-        mode: draft.mode,
-        startPercent: draft.startPercent,
-        wallPercent: draft.wallPercent,
-        forcePercent: draft.forcePercent,
-        active: triggerLabActiveForSide(side) && draft.forcePercent > 0
-      };
-      setTriggerLabCustomProfiles((current) => [...current, nextProfile]);
-      updateTriggerLabSide(side, (current) => ({ ...current, profileId: id }));
-      closeTriggerLabProfileDialog();
-      return;
-    }
-
-    if (!triggerLabProfileIsCustom(draft.profileId)) {
-      closeTriggerLabProfileDialog();
-      return;
-    }
-
-    if (triggerLabProfileDialog.mode === 'rename') {
-      if (!nextName || nextName === triggerLabProfileName(draft.profileId)) {
-        closeTriggerLabProfileDialog();
-        return;
-      }
-      setTriggerLabCustomProfiles((current) => current.map((profile) => (
-        profile.id === draft.profileId ? { ...profile, name: nextName } : profile
-      )));
-      closeTriggerLabProfileDialog();
-      return;
-    }
-
-    if (triggerLabProfileDialog.mode === 'delete') {
-      const profileId = draft.profileId;
-      const nextDrafts = {
-        l2: triggerLabDrafts.l2.profileId === profileId ? { ...TRIGGER_LAB_DEFAULT_DRAFT } : triggerLabDrafts.l2,
-        r2: triggerLabDrafts.r2.profileId === profileId ? { ...TRIGGER_LAB_DEFAULT_DRAFT } : triggerLabDrafts.r2
-      };
-      const nextActive = {
-        l2: triggerLabDrafts.l2.profileId === profileId ? false : triggerLabActive.l2,
-        r2: triggerLabDrafts.r2.profileId === profileId ? false : triggerLabActive.r2
-      };
-      setTriggerLabCustomProfiles((current) => current.filter((profile) => profile.id !== profileId));
-      setTriggerLabDrafts(nextDrafts);
-      setTriggerLabActive(nextActive);
-      setTriggerLabSplitState((current) => current
-        ? {
-            drafts: {
-              l2: current.drafts.l2.profileId === profileId ? { ...TRIGGER_LAB_DEFAULT_DRAFT } : current.drafts.l2,
-              r2: current.drafts.r2.profileId === profileId ? { ...TRIGGER_LAB_DEFAULT_DRAFT } : current.drafts.r2
-            },
-            active: {
-              l2: current.drafts.l2.profileId === profileId ? false : current.active.l2,
-              r2: current.drafts.r2.profileId === profileId ? false : current.active.r2
-            }
-          }
-        : null);
-      if (triggerLabActive.l2 || triggerLabActive.r2) {
-        if (triggerLabLinked) {
-          persistTriggerLab('l2', nextDrafts.l2, false, 'trigger-lab-delete-profile', 'both');
-        } else {
-          persistTriggerLabSplitState({ drafts: nextDrafts, active: nextActive }, 'trigger-lab-delete-profile');
-        }
-      }
-      closeTriggerLabProfileDialog();
-    }
-  }
-
-  function setTriggerLabMode(side: TriggerLabSide, mode: TriggerTestMode) {
-    const nextDraft = updateEditableTriggerLabSide(side, (current) => ({ ...current, mode }));
-    if (triggerLabActiveForSide(side)) {
-      persistTriggerLab(side, nextDraft, nextDraft.forcePercent > 0, `trigger-lab-update-${side}`);
-      setTriggerLabActiveForTarget(side, nextDraft.forcePercent > 0);
-    }
-  }
-
-  function setTriggerLabPercent(side: TriggerLabSide, key: 'startPercent' | 'wallPercent' | 'forcePercent', value: number) {
-    updateEditableTriggerLabSide(side, (current) => ({
-      ...current,
-      [key]: snapTriggerLabPercent(value),
-    }));
-  }
-
-  function commitTriggerLabPercent(side: TriggerLabSide, key: 'startPercent' | 'wallPercent' | 'forcePercent', value: number) {
-    const nextDraft = updateEditableTriggerLabSide(side, (current) => ({
-      ...current,
-      [key]: snapTriggerLabPercent(value),
-    }));
-    if (triggerLabActiveForSide(side)) {
-      const nextActive = nextDraft.forcePercent > 0;
-      saveTriggerLabDraftToProfile(nextDraft, nextActive);
-      persistTriggerLab(side, nextDraft, nextActive, `trigger-lab-update-${side}`);
-      setTriggerLabActiveForTarget(side, nextActive);
-    }
-  }
-
-  function toggleTriggerLabLinked(sourceSide: TriggerLabSide) {
-    if (triggerLabLinked) {
-      if (triggerLabSplitState) {
-        setTriggerLabDrafts({
-          l2: { ...triggerLabSplitState.drafts.l2 },
-          r2: { ...triggerLabSplitState.drafts.r2 }
-        });
-        setTriggerLabActive({ ...triggerLabSplitState.active });
-        persistTriggerLabSplitState(triggerLabSplitState, `trigger-lab-unlink-${sourceSide}`);
-      }
-      setTriggerLabLinked(false);
-      return;
-    }
-
-    const sourceDraft = { ...triggerLabDrafts[sourceSide] };
-    const sourceActive = triggerLabActive[sourceSide];
-    setTriggerLabSplitState({
-      drafts: {
-        l2: { ...triggerLabDrafts.l2 },
-        r2: { ...triggerLabDrafts.r2 }
-      },
-      active: { ...triggerLabActive }
-    });
-    setTriggerLabDrafts({ l2: sourceDraft, r2: { ...sourceDraft } });
-    setTriggerLabActive({ l2: sourceActive, r2: sourceActive });
-    setTriggerLabLinked(true);
-    if (sourceActive || triggerLabActive.l2 || triggerLabActive.r2) {
-      persistTriggerLab(sourceSide, sourceDraft, sourceActive, `trigger-lab-link-${sourceSide}`, 'both');
-    }
-  }
-
-  function previewTriggerLab(side: TriggerLabSide) {
-    const draft = triggerLabDrafts[side];
-    setTriggerTestLocked(true);
-    void runAction(`trigger-lab-${side}`, () => (
-      window.bridge.previewAdaptiveTriggerEffect({
-        mode: draft.mode,
-        target: triggerLabLinked ? 'both' : side,
-        startPercent: draft.startPercent,
-        wallPercent: draft.wallPercent,
-        forcePercent: draft.forcePercent
-      })
-    )).finally(() => {
-      window.setTimeout(() => setTriggerTestLocked(false), TEST_TRIGGER_LOCK_MS);
-    });
-  }
-
-  function toggleTriggerLabActive(side: TriggerLabSide, active: boolean) {
-    const draft = active
-      ? editableTriggerLabDraft(triggerLabDrafts[side], active)
-      : editableTriggerLabDraft(triggerLabDrafts[side], false);
-    updateTriggerLabSide(side, () => draft);
-    setTriggerLabActiveForTarget(side, active);
-    persistTriggerLab(side, draft, active, `trigger-lab-active-${side}`);
-  }
-
   function setTriggerTestMode(mode: TriggerTestMode) {
     void runAction('trigger-mode', () => window.bridge.setTriggerTestMode(mode));
   }
 
   function resetAdaptiveTriggers() {
-    saveTriggerLabDraftToProfile(triggerLabDrafts.l2, false);
-    saveTriggerLabDraftToProfile(triggerLabDrafts.r2, false);
-    setTriggerLabActive({ l2: false, r2: false });
     void runAction('triggers-reset', () => window.bridge.resetAdaptiveTriggers());
-  }
-
-  function resetTriggerLab() {
-    resetAdaptiveTriggers();
   }
 
   function selectControllerProfile(profileId: string) {
@@ -5767,6 +5265,132 @@ export function App() {
     ));
   }
 
+  function clearTriggerProfileDraftPreview() {
+    if (!triggerProfilePreviewArmedRef.current) return;
+    triggerProfilePreviewArmedRef.current = false;
+    void window.bridge.previewTriggerProfileDraft(null);
+  }
+
+  function loadTriggerProfileDraft(profile: TriggerProfile) {
+    clearTriggerProfileDraftPreview();
+    setSelectedTriggerProfileId(profile.id);
+    setTriggerProfileDraft(profile);
+    setTriggerProfileProcessNamesInput(profile.match.processNames.join(', '));
+  }
+
+  async function refreshTriggerProfiles(preferredId?: string, excludeId?: string) {
+    const backendProfiles = await window.bridge.listTriggerProfiles();
+    const profiles = mergeTriggerProfiles(triggerProfiles, backendProfiles, excludeId ? [excludeId] : []);
+    setTriggerProfiles(profiles);
+    const preferred = preferredId ? profiles.find((profile) => profile.id === preferredId) : undefined;
+    const next = preferred ?? profiles.find((profile) => profile.id === selectedTriggerProfileId) ?? profiles[0];
+    if (next) {
+      loadTriggerProfileDraft(next);
+    } else {
+      clearTriggerProfileDraftPreview();
+      setSelectedTriggerProfileId(null);
+      setTriggerProfileDraft(null);
+      setTriggerProfileProcessNamesInput('');
+    }
+    return profiles;
+  }
+
+  function selectTriggerProfile(id: string) {
+    const profile = triggerProfiles.find((entry) => entry.id === id);
+    if (profile) {
+      loadTriggerProfileDraft(profile);
+    }
+  }
+
+  function createTriggerProfile() {
+    const base = createDefaultProfile();
+    const name = 'New Profile';
+    const id = makeProvisionalTriggerProfileId();
+    const profile: TriggerProfile = {
+      ...base,
+      id,
+      name,
+      updatedAtMs: Date.now()
+    };
+    setTriggerProfiles((profiles) => [...profiles, profile]);
+    loadTriggerProfileDraft(profile);
+  }
+
+  function duplicateTriggerProfile() {
+    if (!triggerProfileDraft) return;
+    const id = makeProvisionalTriggerProfileId();
+    const profile: TriggerProfile = {
+      ...triggerProfileDraft,
+      id,
+      name: `${triggerProfileDraft.name} Copy`,
+      updatedAtMs: Date.now()
+    };
+    setTriggerProfiles((profiles) => [...profiles, profile]);
+    loadTriggerProfileDraft(profile);
+  }
+
+  function openTriggerProfileDeleteConfirm(profile: TriggerProfile) {
+    setTriggerProfileDeleteConfirm({ id: profile.id, name: profile.name });
+  }
+
+  async function confirmDeleteTriggerProfile() {
+    if (!triggerProfileDeleteConfirm) return;
+    const deletedId = triggerProfileDeleteConfirm.id;
+    await window.bridge.deleteTriggerProfile(deletedId);
+    setTriggerProfileDeleteConfirm(null);
+    await refreshTriggerProfiles(undefined, deletedId);
+  }
+
+  async function saveTriggerProfileDraft() {
+    if (!triggerProfileDraft) return;
+    const processNames = parseProcessNamesInput(triggerProfileProcessNamesInput);
+    const previousId = triggerProfileDraft.id;
+    const isProvisional = isProvisionalTriggerProfileId(previousId);
+    const id = isProvisional
+      ? uniqueTriggerProfileId(
+          triggerProfileDraft.name,
+          triggerProfiles.filter((profile) => profile.id !== previousId).map((profile) => profile.id)
+        )
+      : previousId;
+    const profile: TriggerProfile = {
+      ...triggerProfileDraft,
+      id,
+      match: { ...triggerProfileDraft.match, processNames },
+      updatedAtMs: Date.now()
+    };
+    const saved = await window.bridge.saveTriggerProfile(profile);
+    await refreshTriggerProfiles(saved.id, isProvisional ? previousId : undefined);
+  }
+
+  async function toggleTriggerProfilesEnabled() {
+    const status = await window.bridge.setTriggerProfilesEnabled(!triggerProfilesEnabled);
+    setTriggerProfilesEnabled(status.enabled);
+    setTriggerProfileEngineStatus(status);
+  }
+
+  async function pinSelectedTriggerProfile(id: string) {
+    const status = await window.bridge.pinTriggerProfile(id === '' ? null : id);
+    setTriggerProfileEngineStatus(status);
+  }
+
+  function updateTriggerProfileSlot(
+    slot: TriggerProfileSlotKey,
+    updater: (config: TriggerProfile['triggers']['l2']) => TriggerProfile['triggers']['l2']
+  ) {
+    triggerProfilePreviewArmedRef.current = true;
+    setTriggerProfileDraft((draft) => {
+      if (!draft) return draft;
+      return {
+        ...draft,
+        triggers: { ...draft.triggers, [slot]: updater(draft.triggers[slot]) }
+      };
+    });
+  }
+
+  function triggerProfileNameById(id: string): string {
+    return triggerProfiles.find((profile) => profile.id === id)?.name ?? id;
+  }
+
   function toggleLightbarEnabled() {
     if (!snapshot) return;
     void runAction('lightbar-enabled', () => window.bridge.setLightbarEnabled(!snapshot.settings.lightbarEnabled));
@@ -5903,176 +5527,6 @@ export function App() {
     setShowBridgeSettings(false);
     setShowNotificationsMenu(false);
     setActiveControlTab(tab);
-  }
-
-  function renderTriggerLabCard(side: TriggerLabSide) {
-    const draft = triggerLabDrafts[side];
-    const label = side === 'l2' ? 'Left Trigger' : 'Right Trigger';
-    const glyphUrl = side === 'l2' ? l2GlyphUrl : r2GlyphUrl;
-    const targetLabel = side.toUpperCase();
-    const active = triggerLabActiveForSide(side);
-    const labActionDisabled = !connected
-      || !adaptiveTriggersSupported
-      || !adaptiveTriggersEnabled
-      || pendingAction !== null;
-    const activeDisabled = labActionDisabled || (!active && draft.forcePercent <= 0);
-    const previewDisabled = labActionDisabled
-      || triggerTestLocked
-      || adaptiveTriggerOutputActive
-      || Boolean(snapshot.status?.testAdaptiveTriggersBusy);
-
-    return (
-      <section className="feature-card trigger-lab-card trigger-lab-trigger-card" key={side}>
-        <div className="feature-card-title">
-          <button
-            type="button"
-            className={`feature-icon triggers-enable-button trigger-lab-trigger-badge ${active ? 'active' : ''}`}
-            aria-pressed={active}
-            aria-label={`${label} persistent lab effect`}
-            disabled={activeDisabled}
-            onClick={() => toggleTriggerLabActive(side, !active)}
-          >
-            <span
-              className="trigger-lab-trigger-glyph"
-              style={{
-                WebkitMaskImage: `url("${glyphUrl}")`,
-                maskImage: `url("${glyphUrl}")`
-              } as CSSProperties}
-            />
-          </button>
-          <div className="title-copy">
-            <h3>{label}</h3>
-            <p>Shape the {targetLabel} trigger feel</p>
-          </div>
-          <div className="inline-switch trigger-lab-card-active">
-            <span>Active</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={active}
-              aria-label={`${label} persistent lab effect`}
-              className={`switch trigger-lab-active-switch ${active ? 'on' : ''}`}
-              disabled={activeDisabled}
-              onClick={() => toggleTriggerLabActive(side, !active)}
-            >
-              <span />
-            </button>
-          </div>
-        </div>
-        <div className="trigger-lab-editor">
-          <div className="trigger-lab-profile-row">
-            <CustomSelect
-              value={draft.profileId}
-              options={triggerLabProfileOptions}
-              ariaLabel={`${label} lab profile`}
-              className="trigger-lab-profile-select"
-              closeOnSelect={false}
-              floatingMenu
-              suspendOutsideClose={triggerLabProfileDialog?.side === side}
-              onChange={(profileId) => setTriggerLabProfile(side, profileId)}
-              renderMenuFooter={() => {
-                const customProfile = triggerLabProfileIsCustom(draft.profileId);
-                return (
-                  <div className="trigger-lab-profile-actions">
-                    <button
-                      type="button"
-                      aria-label="Save new trigger profile"
-                      title="Save New"
-                      onClick={() => {
-                        openTriggerLabProfileDialog('save', side);
-                      }}
-                    >
-                      <Save size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Rename trigger profile"
-                      title="Rename"
-                      disabled={!customProfile}
-                      onClick={() => {
-                        openTriggerLabProfileDialog('rename', side);
-                      }}
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Delete trigger profile"
-                      title="Delete"
-                      disabled={!customProfile}
-                      onClick={() => {
-                        openTriggerLabProfileDialog('delete', side);
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                );
-              }}
-            />
-            <button
-              type="button"
-              className={`trigger-lab-chip compact ${triggerLabLinked ? 'active' : ''}`}
-              aria-pressed={triggerLabLinked}
-              onClick={() => toggleTriggerLabLinked(side)}
-            >
-              {triggerLabLinked ? <LinkIcon size={13} /> : <LinkOffIcon size={13} />}
-              <span className="trigger-lab-chip-label">{triggerLabLinked ? 'Linked' : 'Split'}</span>
-            </button>
-          </div>
-          <div className="trigger-lab-mode-grid">
-            {TRIGGER_TEST_MODE_OPTIONS.map(([modeLabel, mode]) => (
-              <button
-                key={mode}
-                type="button"
-                className={`trigger-lab-mode-button ${draft.mode === mode ? 'active' : ''}`}
-                onClick={() => setTriggerLabMode(side, mode)}
-              >
-                {modeLabel}
-              </button>
-            ))}
-          </div>
-          <div className="trigger-lab-meter-row">
-            <span>Start</span>
-            <TriggerLabMeter
-              label={`${label} start`}
-              value={draft.startPercent}
-              onChange={(value) => setTriggerLabPercent(side, 'startPercent', value)}
-              onCommit={(value) => commitTriggerLabPercent(side, 'startPercent', value)}
-            />
-            <strong>{draft.startPercent}%</strong>
-          </div>
-          <div className="trigger-lab-meter-row">
-            <span>Wall</span>
-            <TriggerLabMeter
-              label={`${label} wall`}
-              value={draft.wallPercent}
-              onChange={(value) => setTriggerLabPercent(side, 'wallPercent', value)}
-              onCommit={(value) => commitTriggerLabPercent(side, 'wallPercent', value)}
-            />
-            <strong>{draft.wallPercent}%</strong>
-          </div>
-          <div className="trigger-lab-meter-row">
-            <span>Force</span>
-            <TriggerLabMeter
-              label={`${label} force`}
-              value={draft.forcePercent}
-              onChange={(value) => setTriggerLabPercent(side, 'forcePercent', value)}
-              onCommit={(value) => commitTriggerLabPercent(side, 'forcePercent', value)}
-            />
-            <strong>{draft.forcePercent}%</strong>
-          </div>
-          <div className="trigger-lab-button-row two-up">
-            <button type="button" disabled={previewDisabled} onClick={() => previewTriggerLab(side)}>
-              <Play size={14} /> Preview
-            </button>
-            <button type="button" disabled={labActionDisabled} onClick={resetTriggerLab}>
-              <RefreshCcw size={14} /> Reset
-            </button>
-          </div>
-        </div>
-      </section>
-    );
   }
 
   const activeTheme = snapshot?.settings.uiThemePreset ?? startupTheme;
@@ -7566,33 +7020,10 @@ export function App() {
           >
               <div className="feature-heading">
                 <div>
-                  <h2>{triggerLabOpen ? 'Trigger Lab' : 'Adaptive Triggers'}</h2>
-                  <p>{triggerLabOpen ? 'Experimental adaptive trigger profile editor' : 'Set trigger effect intensity and test mode'}</p>
+                  <h2>Adaptive Triggers</h2>
+                  <p>Set trigger effect intensity and test mode</p>
                 </div>
                 <div className="triggers-heading-controls">
-                  <div className="inline-switch trigger-lab-switch-control">
-                    {triggerLabAnyActive ? (
-                      <span className="inline-state-badge warn trigger-lab-state">
-                        Lab Override
-                      </span>
-                    ) : null}
-                    <span>Lab</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={triggerLabOpen}
-                      aria-label={triggerLabOpen ? 'Exit Trigger Lab' : 'Enter Trigger Lab'}
-                      className={`switch trigger-lab-switch ${triggerLabOpen ? 'on' : ''}`}
-                      onClick={() => setTriggerLabOpen((open) => !open)}
-                    >
-                      <span />
-                    </button>
-                    {triggerLabAnyActive ? (
-                      <span className="settings-shortcut-tooltip shortcut-glyph-tooltip trigger-lab-override-tooltip">
-                        Trigger Lab is overriding game adaptive trigger output.
-                      </span>
-                    ) : null}
-                  </div>
                   <div className="inline-switch">
                     <span>Enabled</span>
                     <button
@@ -7608,12 +7039,6 @@ export function App() {
                   </div>
                 </div>
               </div>
-              {triggerLabOpen ? (
-                <div className="feature-card-grid trigger-lab-grid">
-                  {renderTriggerLabCard('l2')}
-                  {renderTriggerLabCard('r2')}
-                </div>
-              ) : (
               <div className="feature-card-grid">
                 <section className="feature-card preset-card">
                   <div className="feature-card-title">
@@ -7754,12 +7179,511 @@ export function App() {
                   </div>
                 </section>
               </div>
-              )}
               <FeatureTipsPanel
                 tab="triggers"
-                triggerLabOpen={triggerLabOpen}
                 onSettingsFocusRequest={focusBridgeSettings}
               />
+          </div>
+
+          <div
+            className={`control-page trigger-profiles-page ${activeControlTab === 'trigger-profiles' ? 'active' : ''}`}
+            role="tabpanel"
+            id="control-panel-trigger-profiles"
+            aria-labelledby="control-tab-trigger-profiles"
+            aria-hidden={activeControlTab !== 'trigger-profiles'}
+          >
+            <div className="feature-heading">
+              <div>
+                <h2>Game Trigger Profiles</h2>
+                <p>Automatically switch adaptive trigger effects per game.</p>
+              </div>
+              <div className="inline-switch">
+                <span>Game Trigger Profiles</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={triggerProfilesEnabled}
+                  aria-label="Enable game trigger profiles"
+                  className={`switch ${triggerProfilesEnabled ? 'on' : ''}`}
+                  onClick={() => void toggleTriggerProfilesEnabled()}
+                >
+                  <span />
+                </button>
+              </div>
+            </div>
+
+            <div
+              className="trigger-profiles-status"
+              title={
+                triggerProfileEngineStatus
+                  ? formatEngineStatusLine(
+                      triggerProfileEngineStatus,
+                      triggerProfileNameById(triggerProfileEngineStatus.activeProfileId)
+                    )
+                  : 'Waiting for engine status'
+              }
+            >
+              <div className="trigger-profiles-status-group">
+                <span className="overview-status-heading">
+                  <Activity size={14} />
+                  Engine
+                </span>
+                <span className="status-badge">
+                  <span
+                    className={`dot ${
+                      triggerProfileEngineStatus && triggerProfileEngineStatus.enabled && !triggerProfileEngineStatus.suspended
+                        ? 'good'
+                        : 'warn'
+                    }`}
+                  />
+                  <strong>
+                    {!triggerProfileEngineStatus
+                      ? 'Waiting for status'
+                      : triggerProfileEngineStatus.suspended
+                        ? 'Suspended'
+                        : triggerProfileEngineStatus.enabled
+                          ? 'Running'
+                          : 'Disabled'}
+                  </strong>
+                </span>
+              </div>
+              <div className="trigger-profiles-status-group">
+                <span className="overview-status-heading">
+                  <IconTargetArrow size={14} />
+                  Active Profile
+                </span>
+                <span className="status-badge">
+                  <strong>
+                    {triggerProfileEngineStatus
+                      ? triggerProfileNameById(triggerProfileEngineStatus.activeProfileId)
+                      : '—'}
+                  </strong>
+                </span>
+              </div>
+              <div className="trigger-profiles-status-group">
+                <span className="overview-status-heading">
+                  <IconDeviceGamepad2 size={14} />
+                  Match Source
+                </span>
+                <span className="status-badge">
+                  <strong>
+                    {!triggerProfileEngineStatus
+                      ? '—'
+                      : triggerProfileEngineStatus.matchedBy === 'pin'
+                        ? 'Pinned'
+                        : triggerProfileEngineStatus.matchedBy === 'process'
+                          ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
+                          : 'Default fallback'}
+                  </strong>
+                </span>
+              </div>
+            </div>
+
+            <div className="feature-card-grid trigger-profiles-grid">
+              <section className="feature-card trigger-profiles-list-card">
+                <div className="feature-card-title">
+                  <span className="feature-icon"><IconTargetArrow size={20} /></span>
+                  <div className="title-copy">
+                    <h3>Profiles</h3>
+                    <p>Create profiles matched by process name.</p>
+                  </div>
+                </div>
+                <ul className="trigger-profiles-list">
+                  {triggerProfiles.map((profile) => (
+                    <li
+                      key={profile.id}
+                      className={`trigger-profiles-list-item ${selectedTriggerProfileId === profile.id ? 'active' : ''}`}
+                    >
+                      <button
+                        type="button"
+                        className="trigger-profiles-list-item-select"
+                        onClick={() => selectTriggerProfile(profile.id)}
+                      >
+                        <span className="trigger-profiles-list-item-name">
+                          {profile.name}
+                          {triggerProfileEngineStatus?.activeProfileId === profile.id && (
+                            <span className="dot good" aria-label="Currently active" />
+                          )}
+                        </span>
+                        <span className="trigger-profiles-list-item-meta">
+                          {profile.id === 'default'
+                            ? 'Fallback when no game matches'
+                            : profile.match.processNames.length > 0
+                              ? profile.match.processNames.join(', ')
+                              : 'No process match set'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-compact trigger-profiles-list-item-delete"
+                        aria-label={`Delete ${profile.name}`}
+                        disabled={profile.id === 'default'}
+                        onClick={() => openTriggerProfileDeleteConfirm(profile)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="segmented-row">
+                  <button type="button" onClick={createTriggerProfile}>
+                    <Plus size={14} />
+                    New Profile
+                  </button>
+                  <button type="button" disabled={!triggerProfileDraft} onClick={duplicateTriggerProfile}>
+                    Duplicate
+                  </button>
+                </div>
+                <label className="trigger-profiles-pin-field">
+                  <span>Pin Active Profile</span>
+                  <CustomSelect
+                    value={triggerProfileEngineStatus?.matchedBy === 'pin' ? (triggerProfileEngineStatus.activeProfileId) : ''}
+                    options={[
+                      ['Auto', ''],
+                      ...triggerProfiles.map((profile): [string, string] => [profile.name, profile.id])
+                    ]}
+                    ariaLabel="Pin active trigger profile"
+                    onChange={(value) => void pinSelectedTriggerProfile(value)}
+                  />
+                </label>
+              </section>
+
+              {triggerProfileDraft ? (
+                <section className="feature-card trigger-profiles-editor-card">
+                  <div className="feature-card-title">
+                    <span className="feature-icon"><Pencil size={20} /></span>
+                    <div className="title-copy">
+                      <h3>Editor</h3>
+                      <p>Edit the selected profile's match rules and trigger effects.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="primary-action trigger-profiles-save-button"
+                      onClick={() => void saveTriggerProfileDraft()}
+                    >
+                      <Save size={14} />
+                      Save
+                    </button>
+                  </div>
+
+                  <div className="trigger-profiles-editor-body">
+                  <div className="trigger-profiles-group">
+                    <h4 className="trigger-profiles-group-title">Identity &amp; Matching</h4>
+                    <label className="trigger-profiles-name-field">
+                      <span>Name</span>
+                      <input
+                        value={triggerProfileDraft.name}
+                        maxLength={48}
+                        onChange={(event) => {
+                          const name = event.target.value;
+                          setTriggerProfileDraft((draft) => (draft ? { ...draft, name } : draft));
+                        }}
+                      />
+                    </label>
+
+                    <label className="trigger-profiles-process-field">
+                      <span>Process Names (comma-separated)</span>
+                      <input
+                        value={triggerProfileProcessNamesInput}
+                        placeholder="game.exe, other.exe"
+                        onChange={(event) => setTriggerProfileProcessNamesInput(event.target.value)}
+                      />
+                    </label>
+
+                    <div className="game-detect-anchor" ref={gameDetectPopoverRef}>
+                      <button
+                        type="button"
+                        className="secondary-action game-detect-button"
+                        disabled={gameDetectLoading}
+                        onClick={() => void detectRunningGame()}
+                      >
+                        <SearchIcon size={14} />
+                        Detect running game
+                      </button>
+
+                      {gameDetectPopoverOpen && (
+                        <div className="game-detect-popover" role="dialog" aria-label="Detected running games">
+                          {gameDetectCandidates.length === 0 ? (
+                            <p className="game-detect-empty">No game detected — is it running?</p>
+                          ) : (
+                            <ul className="game-detect-list">
+                              {gameDetectCandidates.map((candidate) => (
+                                <li key={candidate.name}>
+                                  <button
+                                    type="button"
+                                    className="game-detect-candidate"
+                                    onClick={() => pickDetectedGameProcess(candidate.name)}
+                                  >
+                                    <span className="game-detect-candidate-name">{candidate.name}</span>
+                                    {candidate.kind !== 'other' && (
+                                      <span className="game-detect-candidate-kind">
+                                        {candidate.kind === 'proton' ? 'Proton' : 'game path'}
+                                      </span>
+                                    )}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="trigger-profiles-slots">
+                  {TRIGGER_PROFILE_SLOTS.map(([slot, label]) => {
+                    const slotConfig = triggerProfileDraft.triggers[slot];
+                    return (
+                      <div key={slot} className="trigger-profiles-slot">
+                        <div className="trigger-profiles-slot-heading">
+                          <h4>{label}</h4>
+                          <label className="trigger-profiles-no-effect">
+                            <input
+                              type="checkbox"
+                              checked={slotConfig.base === null}
+                              onChange={(event) => {
+                                const noEffect = event.target.checked;
+                                updateTriggerProfileSlot(slot, (config) => ({
+                                  ...config,
+                                  base: noEffect ? null : defaultTriggerEffectSpec()
+                                }));
+                              }}
+                            />
+                            No Effect
+                          </label>
+                          <button
+                            type="button"
+                            className="icon-compact trigger-profiles-modifier-add"
+                            title="Add Modifier"
+                            aria-label={`Add ${label} modifier`}
+                            onClick={() => updateTriggerProfileSlot(slot, (config) => ({
+                              ...config,
+                              modifiers: [...config.modifiers, defaultTriggerModifier()]
+                            }))}
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+
+                        {slotConfig.base && (
+                          <div className="trigger-profiles-effect">
+                            <CustomSelect
+                              value={slotConfig.base.mode}
+                              options={TRIGGER_TEST_MODE_OPTIONS}
+                              ariaLabel={`${label} base effect mode`}
+                              onChange={(mode) => updateTriggerProfileSlot(slot, (config) => ({
+                                ...config,
+                                base: config.base ? { ...config.base, mode } : config.base
+                              }))}
+                            />
+                            <div className="trigger-profiles-effect-sliders">
+                              {(['startPercent', 'wallPercent', 'forcePercent'] as const).map((key) => (
+                                <label key={key} className="trigger-profiles-effect-slider">
+                                  <span>{key === 'startPercent' ? 'Start' : key === 'wallPercent' ? 'Wall' : 'Force'}</span>
+                                  <TriggerLabMeter
+                                    label={`${label} ${key}`}
+                                    value={slotConfig.base ? slotConfig.base[key] : 0}
+                                    onChange={(value) => updateTriggerProfileSlot(slot, (config) => ({
+                                      ...config,
+                                      base: config.base ? { ...config.base, [key]: value } : config.base
+                                    }))}
+                                    onCommit={(value) => updateTriggerProfileSlot(slot, (config) => ({
+                                      ...config,
+                                      base: config.base ? { ...config.base, [key]: value } : config.base
+                                    }))}
+                                  />
+                                  <strong>{slotConfig.base ? slotConfig.base[key] : 0}%</strong>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="trigger-profiles-modifiers">
+                          {slotConfig.modifiers.map((modifier, modifierIndex) => (
+                            <div key={modifierIndex} className="trigger-profiles-modifier">
+                              <div className="trigger-profiles-modifier-condition">
+                                <CustomSelect
+                                  value={modifier.when.condition as InputConditionType}
+                                  options={TRIGGER_PROFILE_CONDITION_OPTIONS}
+                                  ariaLabel={`${label} modifier ${modifierIndex + 1} condition`}
+                                  onChange={(condition) => updateTriggerProfileSlot(slot, (config) => ({
+                                    ...config,
+                                    modifiers: config.modifiers.map((entry, index) => (
+                                      index === modifierIndex
+                                        ? { ...entry, when: { ...entry.when, condition } }
+                                        : entry
+                                    ))
+                                  }))}
+                                />
+                                {(modifier.when.condition === 'trigger-held-over') && (
+                                  <>
+                                    <label className="trigger-profiles-modifier-param">
+                                      <span>Threshold %</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={255}
+                                        value={modifier.when.threshold ?? 0}
+                                        onChange={(event) => {
+                                          const raw = Number(event.target.value);
+                                          if (Number.isNaN(raw)) return;
+                                          const threshold = clampByte(raw);
+                                          updateTriggerProfileSlot(slot, (config) => ({
+                                            ...config,
+                                            modifiers: config.modifiers.map((entry, index) => (
+                                              index === modifierIndex
+                                                ? { ...entry, when: { ...entry.when, threshold } }
+                                                : entry
+                                            ))
+                                          }));
+                                        }}
+                                      />
+                                    </label>
+                                    <label className="trigger-profiles-modifier-param">
+                                      <span>Hold ms</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        value={modifier.when.ms ?? 0}
+                                        onChange={(event) => {
+                                          const raw = Number(event.target.value);
+                                          if (Number.isNaN(raw)) return;
+                                          const ms = Math.max(0, Math.round(raw));
+                                          updateTriggerProfileSlot(slot, (config) => ({
+                                            ...config,
+                                            modifiers: config.modifiers.map((entry, index) => (
+                                              index === modifierIndex
+                                                ? { ...entry, when: { ...entry.when, ms } }
+                                                : entry
+                                            ))
+                                          }));
+                                        }}
+                                      />
+                                    </label>
+                                  </>
+                                )}
+                                {modifier.when.condition === 'button-held' && (
+                                  <label className="trigger-profiles-modifier-param">
+                                    <span>Button</span>
+                                    <input
+                                      value={modifier.when.button ?? ''}
+                                      onChange={(event) => {
+                                        const button = event.target.value;
+                                        updateTriggerProfileSlot(slot, (config) => ({
+                                          ...config,
+                                          modifiers: config.modifiers.map((entry, index) => (
+                                            index === modifierIndex
+                                              ? { ...entry, when: { ...entry.when, button } }
+                                              : entry
+                                          ))
+                                        }));
+                                      }}
+                                    />
+                                  </label>
+                                )}
+                                {modifier.when.condition === 'rapid-fire' && (
+                                  <label className="trigger-profiles-modifier-param">
+                                    <span>Presses/sec</span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={modifier.when.pressesPerSecond ?? 0}
+                                      onChange={(event) => {
+                                        const raw = Number(event.target.value);
+                                        if (Number.isNaN(raw)) return;
+                                        const pressesPerSecond = Math.max(1, Math.round(raw));
+                                        updateTriggerProfileSlot(slot, (config) => ({
+                                          ...config,
+                                          modifiers: config.modifiers.map((entry, index) => (
+                                            index === modifierIndex
+                                              ? { ...entry, when: { ...entry.when, pressesPerSecond } }
+                                              : entry
+                                          ))
+                                        }));
+                                      }}
+                                    />
+                                  </label>
+                                )}
+                                <button
+                                  type="button"
+                                  className="icon-compact trigger-profiles-modifier-remove"
+                                  aria-label={`Remove ${label} modifier ${modifierIndex + 1}`}
+                                  onClick={() => updateTriggerProfileSlot(slot, (config) => ({
+                                    ...config,
+                                    modifiers: config.modifiers.filter((_, index) => index !== modifierIndex)
+                                  }))}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                              <div className="trigger-profiles-effect-sliders">
+                                <CustomSelect
+                                  value={modifier.effect.mode}
+                                  options={TRIGGER_TEST_MODE_OPTIONS}
+                                  ariaLabel={`${label} modifier ${modifierIndex + 1} effect mode`}
+                                  onChange={(mode) => updateTriggerProfileSlot(slot, (config) => ({
+                                    ...config,
+                                    modifiers: config.modifiers.map((entry, index) => (
+                                      index === modifierIndex
+                                        ? { ...entry, effect: { ...entry.effect, mode } }
+                                        : entry
+                                    ))
+                                  }))}
+                                />
+                                {(['startPercent', 'wallPercent', 'forcePercent'] as const).map((key) => (
+                                  <label key={key} className="trigger-profiles-effect-slider">
+                                    <span>{key === 'startPercent' ? 'Start' : key === 'wallPercent' ? 'Wall' : 'Force'}</span>
+                                    <TriggerLabMeter
+                                      label={`${label} modifier ${modifierIndex + 1} ${key}`}
+                                      value={modifier.effect[key]}
+                                      onChange={(value) => updateTriggerProfileSlot(slot, (config) => ({
+                                        ...config,
+                                        modifiers: config.modifiers.map((entry, index) => (
+                                          index === modifierIndex
+                                            ? { ...entry, effect: { ...entry.effect, [key]: value } }
+                                            : entry
+                                        ))
+                                      }))}
+                                      onCommit={(value) => updateTriggerProfileSlot(slot, (config) => ({
+                                        ...config,
+                                        modifiers: config.modifiers.map((entry, index) => (
+                                          index === modifierIndex
+                                            ? { ...entry, effect: { ...entry.effect, [key]: value } }
+                                            : entry
+                                        ))
+                                      }))}
+                                    />
+                                    <strong>{modifier.effect[key]}%</strong>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  </div>
+
+                  </div>
+                </section>
+              ) : (
+                <section className="feature-card trigger-profiles-editor-card trigger-profiles-editor-empty">
+                  <div className="feature-card-title">
+                    <span className="feature-icon"><Pencil size={20} /></span>
+                    <div className="title-copy">
+                      <h3>Editor</h3>
+                      <p>Edit the selected profile's match rules and trigger effects.</p>
+                    </div>
+                  </div>
+                  <div className="trigger-profiles-empty-state">
+                    <IconTargetArrow size={22} />
+                    <p>Select a profile on the left, or create a new one to start editing.</p>
+                  </div>
+                </section>
+              )}
+            </div>
           </div>
 
           <div
@@ -9124,68 +9048,46 @@ export function App() {
         </div>
       )}
 
-      {triggerLabProfileDialog && (
+      {triggerProfileDeleteConfirm && (
         <div
           className="modal-backdrop"
           role="presentation"
-          onMouseDown={closeTriggerLabProfileDialog}
+          onMouseDown={() => setTriggerProfileDeleteConfirm(null)}
         >
           <form
             className="settings-menu bridge-settings-modal remap-profile-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Trigger Lab profile"
+            aria-label="Delete trigger profile"
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              submitTriggerLabProfileDialog();
+              void confirmDeleteTriggerProfile();
             }}
           >
             <div className="settings-menu-heading bridge-settings-modal-heading">
               <div className="modal-heading-copy">
-                {triggerLabProfileDialog.mode === 'delete' ? <Trash2 size={16} /> : <Save size={16} />}
-                <span>
-                  {triggerLabProfileDialog.mode === 'save'
-                    ? 'Save Trigger Profile'
-                    : triggerLabProfileDialog.mode === 'rename'
-                      ? 'Rename Trigger Profile'
-                      : 'Delete Trigger Profile'}
-                </span>
+                <Trash2 size={16} />
+                <span>Delete Trigger Profile</span>
               </div>
               <button
                 className="modal-close-button"
                 type="button"
-                aria-label="Close Trigger Lab profile dialog"
-                onClick={closeTriggerLabProfileDialog}
+                aria-label="Close delete trigger profile dialog"
+                onClick={() => setTriggerProfileDeleteConfirm(null)}
               >
                 <X size={16} />
               </button>
             </div>
-            {triggerLabProfileDialog.mode === 'delete' ? (
-              <p className="remap-profile-dialog-copy">
-                Delete {triggerLabProfileName(triggerLabDrafts[triggerLabProfileDialog.side].profileId)}?
-              </p>
-            ) : (
-              <label className="remap-profile-name-field">
-                <span>Profile Name</span>
-                <input
-                  autoFocus
-                  value={triggerLabProfileNameDraft}
-                  maxLength={48}
-                  onChange={(event) => setTriggerLabProfileNameDraft(event.target.value)}
-                />
-              </label>
-            )}
+            <p className="remap-profile-dialog-copy">
+              Delete {triggerProfileDeleteConfirm.name}?
+            </p>
             <div className="remap-profile-dialog-actions">
-              <button type="button" className="secondary-action" onClick={closeTriggerLabProfileDialog}>
+              <button type="button" className="secondary-action" onClick={() => setTriggerProfileDeleteConfirm(null)}>
                 Cancel
               </button>
-              <button
-                type="submit"
-                className={`primary-action ${triggerLabProfileDialog.mode === 'delete' ? 'danger' : ''}`}
-                disabled={pendingAction !== null || (triggerLabProfileDialog.mode !== 'delete' && triggerLabProfileNameDraft.trim().length === 0)}
-              >
-                {triggerLabProfileDialog.mode === 'delete' ? 'Delete' : 'Save'}
+              <button type="submit" className="primary-action danger">
+                Delete
               </button>
             </div>
           </form>

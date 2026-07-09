@@ -2,6 +2,16 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import {
+  parseProcessNamesInput,
+  mergeDetectedProcessName,
+  formatEngineStatusLine,
+  slugifyTriggerProfileName,
+  uniqueTriggerProfileId,
+  mergeTriggerProfiles,
+  isProvisionalTriggerProfileId
+} from './App';
+import type { TriggerProfile } from '../shared/trigger-profiles';
 
 const appSource = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'App.tsx'), 'utf8');
 const stylesSource = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'styles.css'), 'utf8');
@@ -268,5 +278,105 @@ describe('renderer behavior guards', () => {
     expect(normalizeSource).toContain("case 'prtsc':");
     expect(normalizeSource).toContain("case 'prtscn':");
     expect(normalizeSource).toContain("return 'Print Screen';");
+  });
+});
+
+describe('trigger profiles panel helpers', () => {
+  it('parses comma-separated process names, trimming and dropping empties', () => {
+    expect(parseProcessNamesInput(' Game.exe, other , ,')).toEqual(['game.exe', 'other']);
+  });
+
+  it('merges a detected process candidate into the process names input, deduping and lowercasing', () => {
+    expect(mergeDetectedProcessName('', 'Game.exe')).toBe('game.exe');
+    expect(mergeDetectedProcessName('game.exe', 'other.exe')).toBe('game.exe, other.exe');
+    expect(mergeDetectedProcessName('game.exe, other.exe', 'GAME.EXE')).toBe('game.exe, other.exe');
+    expect(mergeDetectedProcessName(' Game.exe , ', 'other.exe')).toBe('game.exe, other.exe');
+  });
+
+  it('formats the engine status line', () => {
+    expect(formatEngineStatusLine(
+      { enabled: true, suspended: false, activeProfileId: 'shooter', matchedBy: 'process', matchedName: 'game.exe' },
+      'Generic Shooter'
+    )).toBe('Active: Generic Shooter (matched: game.exe)');
+    expect(formatEngineStatusLine(
+      { enabled: true, suspended: false, activeProfileId: 'shooter', matchedBy: 'pin', matchedName: null },
+      'Generic Shooter'
+    )).toBe('Active: Generic Shooter (pinned)');
+    expect(formatEngineStatusLine(
+      { enabled: true, suspended: true, activeProfileId: 'default', matchedBy: 'default', matchedName: null },
+      'Default'
+    )).toBe('Active: Default (suspended)');
+  });
+});
+
+function makeTriggerProfile(id: string, name = id): TriggerProfile {
+  return {
+    version: 1,
+    id,
+    name,
+    match: { processNames: [] },
+    triggers: {
+      l2: { base: null, modifiers: [] },
+      r2: { base: null, modifiers: [] }
+    },
+    updatedAtMs: 0
+  } as unknown as TriggerProfile;
+}
+
+describe('slugifyTriggerProfileName', () => {
+  it('lowercases, replaces non-alphanumeric runs with dashes, and trims edge dashes', () => {
+    expect(slugifyTriggerProfileName('My Cool Profile!')).toBe('my-cool-profile');
+    expect(slugifyTriggerProfileName('  Leading/Trailing  ')).toBe('leading-trailing');
+    expect(slugifyTriggerProfileName('___')).toBe('');
+  });
+});
+
+describe('uniqueTriggerProfileId', () => {
+  it('returns the plain slug when it is not taken', () => {
+    expect(uniqueTriggerProfileId('Racing Setup', ['default', 'shooter'])).toBe('racing-setup');
+  });
+
+  it('appends -2, -3, ... on collision with existing ids', () => {
+    expect(uniqueTriggerProfileId('Shooter', ['shooter'])).toBe('shooter-2');
+    expect(uniqueTriggerProfileId('Shooter', ['shooter', 'shooter-2'])).toBe('shooter-3');
+  });
+
+  it('treats "default" as always taken', () => {
+    expect(uniqueTriggerProfileId('Default', [])).toBe('default-2');
+  });
+
+  it('treats an empty slug as taken and still produces a suffixed id', () => {
+    expect(uniqueTriggerProfileId('!!!', [])).toBe('-2');
+  });
+});
+
+describe('isProvisionalTriggerProfileId', () => {
+  it('recognizes draft-prefixed local ids and rejects saved ids', () => {
+    expect(isProvisionalTriggerProfileId('draft-abc123-xyz')).toBe(true);
+    expect(isProvisionalTriggerProfileId('shooter')).toBe(false);
+    expect(isProvisionalTriggerProfileId('default')).toBe(false);
+  });
+});
+
+describe('mergeTriggerProfiles', () => {
+  it('prefers backend profiles and keeps unsaved local drafts whose ids are absent from the backend', () => {
+    const local = [makeTriggerProfile('default'), makeTriggerProfile('draft-1', 'Unsaved Draft')];
+    const backend = [makeTriggerProfile('default'), makeTriggerProfile('shooter')];
+    const merged = mergeTriggerProfiles(local, backend);
+    expect(merged.map((p) => p.id)).toEqual(['default', 'shooter', 'draft-1']);
+  });
+
+  it('excludes a given id from the merge even if it is still present locally (e.g. just deleted)', () => {
+    const local = [makeTriggerProfile('default'), makeTriggerProfile('shooter')];
+    const backend = [makeTriggerProfile('default')];
+    const merged = mergeTriggerProfiles(local, backend, ['shooter']);
+    expect(merged.map((p) => p.id)).toEqual(['default']);
+  });
+
+  it('drops a stale provisional id once it has been saved under its new slug id', () => {
+    const local = [makeTriggerProfile('default'), makeTriggerProfile('draft-1', 'Racing')];
+    const backend = [makeTriggerProfile('default'), makeTriggerProfile('racing', 'Racing')];
+    const merged = mergeTriggerProfiles(local, backend, ['draft-1']);
+    expect(merged.map((p) => p.id)).toEqual(['default', 'racing']);
   });
 });

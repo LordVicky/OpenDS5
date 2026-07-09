@@ -31,6 +31,26 @@ The Pico 2 W firmware, board files, and Windows installer tooling from
 DS5_Bridge were intentionally **not** imported — the vds transport replaces
 that hardware path.
 
+## Trigger Profiles
+
+Adaptive trigger profiles let the companion app automatically apply
+per-game DualSense trigger effects (weapon/vibration modes, start/wall/force
+percentages) for games that have no native DualSense support — the app
+detects the running process, matches it to a saved profile, and pushes the
+effect to the controller through the same bridge transport used for the rest
+of DS5 Bridge's features.
+
+- **Where profiles live:** `<userData>/trigger-profiles/*.json` (one file
+  per profile; see `TriggerProfileStore` in
+  `ds5-bridge/companion/src/main/trigger-profile-store.ts`).
+- **evdev permission note:** reactive modifiers (e.g. "full pull" vibration)
+  read live trigger input from the virtual DualSense's `/dev/input/event*`
+  node, which requires read access to that device — typically membership in
+  the `input` group. Without that access, static base effects (the profile's
+  default weapon/vibration curve) still apply; reactive modifiers do not.
+- **Planned:** audio-reactive trigger modifiers are a planned M2 addition —
+  not implemented yet.
+
 ## License
 
 The combined work is **AGPL-3.0-only** (required by the DS5_Bridge-derived
