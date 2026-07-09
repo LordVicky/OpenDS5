@@ -22,6 +22,7 @@ import type {
   WindowsDeviceCleanupResult
 } from './shared/types';
 import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/trigger-profiles';
+import type { GameProcessCandidate } from './main/game-watcher';
 
 const api = {
   getStatus: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:getStatus'),
@@ -237,6 +238,9 @@ const api = {
     triggers: { l2: TriggerSlotConfig | null; r2: TriggerSlotConfig | null } | null
   ): Promise<EngineStatus> => (
     ipcRenderer.invoke('bridge:previewTriggerProfileDraft', triggers)
+  ),
+  listCandidateGameProcesses: (): Promise<GameProcessCandidate[]> => (
+    ipcRenderer.invoke('bridge:listCandidateGameProcesses')
   ),
   onTriggerProfileEngineStatus: (listener: (status: EngineStatus) => void): (() => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, status: EngineStatus) => listener(status);

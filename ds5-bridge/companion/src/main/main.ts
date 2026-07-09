@@ -13,7 +13,7 @@ import {
 } from './pico-firmware-updater';
 import { SettingsStore } from './settings-store';
 import { TriggerProfileStore } from './trigger-profile-store';
-import { GameWatcher } from './game-watcher';
+import { GameWatcher, listCandidateGameProcesses } from './game-watcher';
 import { EvdevInputReader } from './evdev-input-reader';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
 import type {
@@ -1024,6 +1024,13 @@ function registerIpc(
   ipcMain.handle('bridge:previewTriggerProfileDraft', async (_event, triggers: DraftPreviewTriggers | null) => {
     await triggerProfileEngine.setDraftPreview(triggers);
     return triggerProfileEngine.getStatus();
+  });
+  ipcMain.handle('bridge:listCandidateGameProcesses', () => {
+    try {
+      return listCandidateGameProcesses();
+    } catch {
+      return [];
+    }
   });
 
   ipcMain.handle('bridge:getStatus', () => service.getSnapshot());

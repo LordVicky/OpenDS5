@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { GameWatcher } from './game-watcher';
+import { GameWatcher, listCandidateGameProcesses, type RawProcessInfo } from './game-watcher';
 import type { TriggerProfile } from '../shared/trigger-profiles';
 
 function profile(id: string, processNames: string[], updatedAtMs = 0): TriggerProfile {
@@ -105,5 +105,129 @@ describe('GameWatcher', () => {
     vi.advanceTimersByTime(1000);
     expect(watcher.getActive().profileId).toBe('newer');
     watcher.stop();
+  });
+});
+
+function rawProc(
+  comm: string,
+  argv0Basename: string | null,
+  exePath: string | null = null
+): RawProcessInfo {
+  return { comm, argv0Basename, exePath };
+}
+
+describe('listCandidateGameProcesses', () => {
+  it('classifies .exe processes as proton tier, excluding the wine-plumbing blocklist', () => {
+    const candidates = listCandidateGameProcesses(() => [
+      rawProc('game.exe', 'game.exe', 'C:/games/game.exe'),
+      rawProc('wineserver', 'wineserver'),
+      rawProc('services.exe', 'services.exe'),
+      rawProc('steam.exe', 'steam.exe')
+    ]);
+    expect(candidates).toEqual([{ name: 'game.exe', kind: 'proton' }]);
+  });
+
+  it('excludes anti-cheat processes by prefix match', () => {
+    const candidates = listCandidateGameProcesses(() => [
+      rawProc('game.exe', 'game.exe'),
+      rawProc('easyanticheat_launcher.exe', 'easyanticheat_launcher.exe'),
+      rawProc('battleye_launcher.exe', 'battleye_launcher.exe')
+    ]);
+    expect(candidates).toEqual([{ name: 'game.exe', kind: 'proton' }]);
+  });
+
+  it('detects game-path tier from exe path substrings, case-insensitively', () => {
+    const candidates = listCandidateGameProcesses(() => [
+      rawProc('mygame', 'mygame', '/home/user/.steam/steamapps/common/MyGame/mygame'),
+      rawProc('othergame', 'othergame', '/home/user/Games/OtherGame/othergame'),
+      rawProc('heroicgame', 'heroicgame', '/home/user/Heroic/Games/heroicgame'),
+      rawProc('lutrisgame', 'lutrisgame', '/home/user/Lutris/lutrisgame'),
+      rawProc('bottlesgame', 'bottlesgame', '/home/user/Bottles/bottlesgame'),
+      rawProc('notagame', 'notagame', '/usr/bin/notagame')
+    ]);
+    expect(candidates).toEqual([
+      { name: 'bottlesgame', kind: 'game-path' },
+      { name: 'heroicgame', kind: 'game-path' },
+      { name: 'lutrisgame', kind: 'game-path' },
+      { name: 'mygame', kind: 'game-path' },
+      { name: 'othergame', kind: 'game-path' }
+    ]);
+  });
+
+  it('orders proton tier first, then game-path tier, each alphabetical', () => {
+    const candidates = listCandidateGameProcesses(() => [
+      rawProc('zeta.exe', 'zeta.exe'),
+      rawProc('alpha.exe', 'alpha.exe'),
+      rawProc('zetagame', 'zetagame', '/games/zetagame'),
+      rawProc('alphagame', 'alphagame', '/games/alphagame')
+    ]);
+    expect(candidates).toEqual([
+      { name: 'alpha.exe', kind: 'proton' },
+      { name: 'zeta.exe', kind: 'proton' },
+      { name: 'alphagame', kind: 'game-path' },
+      { name: 'zetagame', kind: 'game-path' }
+    ]);
+  });
+
+  it('falls back to the other tier only when proton and game-path tiers are both empty', () => {
+    const candidates = listCandidateGameProcesses(() => [
+      rawProc('mygame', 'mygame', '/home/user/mygame/mygame'),
+      rawProc('bash', 'bash'),
+      rawProc('systemd', 'systemd'),
+      rawProc('', null)
+    ]);
+    expect(candidates).toEqual([{ name: 'mygame', kind: 'other' }]);
+  });
+
+  it('excludes the system blocklist and kernel threads from the other tier', () => {
+    const candidates = listCandidateGameProcesses(() => [
+      rawProc('bash', 'bash'),
+      rawProc('zsh', 'zsh'),
+      rawProc('sh', 'sh'),
+      rawProc('systemd-journald', 'systemd-journald'),
+      rawProc('dbus-daemon', 'dbus-daemon'),
+      rawProc('pipewire-pulse', 'pipewire-pulse'),
+      rawProc('wireplumber', 'wireplumber'),
+      rawProc('Xwayland', 'Xwayland'),
+      rawProc('firefox', 'firefox'),
+      rawProc('chrome', 'chrome'),
+      rawProc('chromium', 'chromium'),
+      rawProc('electron', 'electron'),
+      rawProc('ds5-bridge', 'ds5-bridge'),
+      rawProc('', null),
+      rawProc('mytool', 'mytool')
+    ]);
+    expect(candidates).toEqual([{ name: 'mytool', kind: 'other' }]);
+  });
+
+  it('caps the other tier at 30 and sorts alphabetically', () => {
+    const procs = Array.from({ length: 40 }, (_, index) => rawProc(`proc${String(index).padStart(2, '0')}`, `proc${String(index).padStart(2, '0')}`));
+    const candidates = listCandidateGameProcesses(() => procs);
+    expect(candidates).toHaveLength(30);
+    expect(candidates.every((candidate) => candidate.kind === 'other')).toBe(true);
+    const names = candidates.map((candidate) => candidate.name);
+    expect(names).toEqual([...names].sort());
+  });
+
+  it('dedupes candidates by name', () => {
+    const candidates = listCandidateGameProcesses(() => [
+      rawProc('game.exe', 'game.exe'),
+      rawProc('game.exe', 'game.exe')
+    ]);
+    expect(candidates).toEqual([{ name: 'game.exe', kind: 'proton' }]);
+  });
+
+  it('normalizes names using backslash-normalized lowercase basenames, matching the watcher', () => {
+    const candidates = listCandidateGameProcesses(() => [
+      rawProc('GAME.EXE', 'C:\\Games\\GAME.EXE')
+    ]);
+    expect(candidates).toEqual([{ name: 'game.exe', kind: 'proton' }]);
+  });
+
+  it('returns an empty list when the process read fails entirely', () => {
+    const candidates = listCandidateGameProcesses(() => {
+      throw new Error('boom');
+    });
+    expect(candidates).toEqual([]);
   });
 });

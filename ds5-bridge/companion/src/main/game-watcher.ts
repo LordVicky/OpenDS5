@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_PROFILE_ID, type TriggerProfile } from '../shared/trigger-profiles';
 
@@ -38,6 +38,123 @@ export function listProcProcesses(): string[] {
     }
   }
   return [...names];
+}
+
+export interface RawProcessInfo {
+  comm: string;
+  argv0Basename: string | null;
+  exePath: string | null;
+}
+
+export interface GameProcessCandidate {
+  name: string;
+  kind: 'proton' | 'game-path' | 'other';
+}
+
+const PROTON_BLOCKLIST_EXACT = new Set([
+  'wineserver', 'services.exe', 'svchost.exe', 'explorer.exe', 'winedevice.exe',
+  'plugplay.exe', 'rpcss.exe', 'tabtip.exe', 'steam.exe', 'steamwebhelper.exe',
+  'wine', 'wine64', 'wine-preloader', 'wine64-preloader', 'start.exe',
+  'conhost.exe', 'crashhandler.exe', 'iscriptevaluator.exe', 'upplayservice.exe'
+]);
+const PROTON_BLOCKLIST_PREFIXES = ['easyanticheat', 'battleye'];
+
+const GAME_PATH_MARKERS = ['steamapps/common', '/games/', 'heroic', 'lutris', 'bottles'];
+
+const OTHER_TIER_EXACT = new Set([
+  'bash', 'zsh', 'sh', 'wireplumber', 'xwayland', 'firefox', 'chrome', 'chromium',
+  'electron', 'ds5-bridge', 'ds5-bridge-companion'
+]);
+const OTHER_TIER_PREFIXES = ['systemd', 'dbus', 'pipewire'];
+const OTHER_TIER_CAP = 30;
+
+function defaultReadProc(): RawProcessInfo[] {
+  const infos: RawProcessInfo[] = [];
+  let entries: string[];
+  try {
+    entries = readdirSync('/proc');
+  } catch {
+    return [];
+  }
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    try {
+      const comm = readFileSync(`/proc/${entry}/comm`, 'utf8').trim();
+      const cmdline = readFileSync(`/proc/${entry}/cmdline`, 'utf8');
+      const argv0 = cmdline.split('\0')[0];
+      const argv0Basename = argv0
+        ? path.basename(argv0.replace(/\\/g, '/')).toLowerCase()
+        : null;
+      let exePath: string | null = null;
+      try {
+        exePath = readlinkSync(`/proc/${entry}/exe`);
+      } catch {
+        exePath = null;
+      }
+      infos.push({ comm, argv0Basename, exePath });
+    } catch {
+      // process exited mid-scan; ignore
+    }
+  }
+  return infos;
+}
+
+function normalizedCandidateName(info: RawProcessInfo): string {
+  const raw = info.argv0Basename || info.comm;
+  return path.basename(raw.replace(/\\/g, '/')).toLowerCase();
+}
+
+function matchesPrefix(name: string, prefixes: string[]): boolean {
+  return prefixes.some((prefix) => name.startsWith(prefix));
+}
+
+export function listCandidateGameProcesses(
+  readProc: () => RawProcessInfo[] = defaultReadProc
+): GameProcessCandidate[] {
+  let infos: RawProcessInfo[];
+  try {
+    infos = readProc();
+  } catch {
+    return [];
+  }
+
+  const protonNames = new Set<string>();
+  const gamePathNames = new Set<string>();
+  const otherNames = new Set<string>();
+
+  for (const info of infos) {
+    const name = normalizedCandidateName(info);
+    if (!name) continue;
+
+    if (name.endsWith('.exe')) {
+      if (PROTON_BLOCKLIST_EXACT.has(name) || matchesPrefix(name, PROTON_BLOCKLIST_PREFIXES)) {
+        continue;
+      }
+      protonNames.add(name);
+      continue;
+    }
+
+    const exePathLower = info.exePath?.toLowerCase() ?? '';
+    if (exePathLower && GAME_PATH_MARKERS.some((marker) => exePathLower.includes(marker))) {
+      gamePathNames.add(name);
+      continue;
+    }
+
+    if (!info.argv0Basename) continue; // kernel thread (empty cmdline)
+    if (OTHER_TIER_EXACT.has(name) || matchesPrefix(name, OTHER_TIER_PREFIXES)) continue;
+    otherNames.add(name);
+  }
+
+  if (protonNames.size > 0 || gamePathNames.size > 0) {
+    const proton = [...protonNames].sort().map((name) => ({ name, kind: 'proton' as const }));
+    const gamePath = [...gamePathNames].sort().map((name) => ({ name, kind: 'game-path' as const }));
+    return [...proton, ...gamePath];
+  }
+
+  return [...otherNames]
+    .sort()
+    .slice(0, OTHER_TIER_CAP)
+    .map((name) => ({ name, kind: 'other' as const }));
 }
 
 export class GameWatcher extends EventEmitter {

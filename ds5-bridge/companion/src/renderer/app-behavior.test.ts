@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   parseProcessNamesInput,
+  mergeDetectedProcessName,
   formatEngineStatusLine,
   slugifyTriggerProfileName,
   uniqueTriggerProfileId,
@@ -283,6 +284,13 @@ describe('renderer behavior guards', () => {
 describe('trigger profiles panel helpers', () => {
   it('parses comma-separated process names, trimming and dropping empties', () => {
     expect(parseProcessNamesInput(' Game.exe, other , ,')).toEqual(['game.exe', 'other']);
+  });
+
+  it('merges a detected process candidate into the process names input, deduping and lowercasing', () => {
+    expect(mergeDetectedProcessName('', 'Game.exe')).toBe('game.exe');
+    expect(mergeDetectedProcessName('game.exe', 'other.exe')).toBe('game.exe, other.exe');
+    expect(mergeDetectedProcessName('game.exe, other.exe', 'GAME.EXE')).toBe('game.exe, other.exe');
+    expect(mergeDetectedProcessName(' Game.exe , ', 'other.exe')).toBe('game.exe, other.exe');
   });
 
   it('formats the engine status line', () => {

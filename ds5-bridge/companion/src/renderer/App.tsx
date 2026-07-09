@@ -47,6 +47,7 @@ import {
   IconRadioactive,
   IconRefresh as RefreshCcw,
   IconReplace,
+  IconSearch as SearchIcon,
   IconSettings as SettingsIcon,
   IconBluetooth,
   IconSparkleHighlight,
@@ -140,6 +141,7 @@ import type {
   TriggerModifier,
   TriggerProfile
 } from '../shared/trigger-profiles';
+import type { GameProcessCandidate } from '../main/game-watcher';
 
 type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
 type StartupTutorialStep = 'feature-toggle' | 'support' | 'done';
@@ -938,6 +940,15 @@ export function parseProcessNamesInput(input: string): string[] {
     .split(',')
     .map((entry) => entry.trim().toLowerCase())
     .filter((entry) => entry.length > 0);
+}
+
+export function mergeDetectedProcessName(processNamesInput: string, candidateName: string): string {
+  const existing = parseProcessNamesInput(processNamesInput);
+  const name = candidateName.trim().toLowerCase();
+  if (!name || existing.includes(name)) {
+    return existing.join(', ');
+  }
+  return [...existing, name].join(', ');
 }
 
 export function formatEngineStatusLine(status: EngineStatus, activeProfileName: string): string {
@@ -2896,6 +2907,10 @@ export function App() {
   const [triggerProfileDraft, setTriggerProfileDraft] = useState<TriggerProfile | null>(null);
   const [triggerProfileProcessNamesInput, setTriggerProfileProcessNamesInput] = useState('');
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
+  const [gameDetectPopoverOpen, setGameDetectPopoverOpen] = useState(false);
+  const [gameDetectCandidates, setGameDetectCandidates] = useState<GameProcessCandidate[]>([]);
+  const [gameDetectLoading, setGameDetectLoading] = useState(false);
+  const gameDetectPopoverRef = useRef<HTMLDivElement>(null);
   const triggerProfilePreviewArmedRef = useRef(false);
   const [remapDraft, setRemapDraft] = useState<Record<RemapButtonId, RemapButtonId>>(DEFAULT_REMAP_DRAFT);
   const [remapProfileDialogMode, setRemapProfileDialogMode] = useState<RemapProfileDialogMode | null>(null);
@@ -3609,6 +3624,45 @@ export function App() {
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [showCustomColorPicker]);
+
+  useEffect(() => {
+    if (!gameDetectPopoverOpen) {
+      return;
+    }
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!gameDetectPopoverRef.current?.contains(event.target as Node)) {
+        setGameDetectPopoverOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setGameDetectPopoverOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [gameDetectPopoverOpen]);
+
+  async function detectRunningGame(): Promise<void> {
+    setGameDetectLoading(true);
+    try {
+      const candidates = await window.bridge.listCandidateGameProcesses();
+      setGameDetectCandidates(candidates);
+      setGameDetectPopoverOpen(true);
+    } finally {
+      setGameDetectLoading(false);
+    }
+  }
+
+  function pickDetectedGameProcess(candidateName: string): void {
+    setTriggerProfileProcessNamesInput((current) => mergeDetectedProcessName(current, candidateName));
+  }
 
   const batteryPercent = Math.max(0, Math.min(100, snapshot?.status?.batteryPercent ?? 0));
   const batteryPercentLabel = batteryLabel(snapshot);
@@ -8244,6 +8298,45 @@ export function App() {
                         onChange={(event) => setTriggerProfileProcessNamesInput(event.target.value)}
                       />
                     </label>
+
+                    <div className="game-detect-anchor" ref={gameDetectPopoverRef}>
+                      <button
+                        type="button"
+                        className="secondary-action game-detect-button"
+                        disabled={gameDetectLoading}
+                        onClick={() => void detectRunningGame()}
+                      >
+                        <SearchIcon size={14} />
+                        Detect running game
+                      </button>
+
+                      {gameDetectPopoverOpen && (
+                        <div className="game-detect-popover" role="dialog" aria-label="Detected running games">
+                          {gameDetectCandidates.length === 0 ? (
+                            <p className="game-detect-empty">No game detected — is it running?</p>
+                          ) : (
+                            <ul className="game-detect-list">
+                              {gameDetectCandidates.map((candidate) => (
+                                <li key={candidate.name}>
+                                  <button
+                                    type="button"
+                                    className="game-detect-candidate"
+                                    onClick={() => pickDetectedGameProcess(candidate.name)}
+                                  >
+                                    <span className="game-detect-candidate-name">{candidate.name}</span>
+                                    {candidate.kind !== 'other' && (
+                                      <span className="game-detect-candidate-kind">
+                                        {candidate.kind === 'proton' ? 'Proton' : 'game path'}
+                                      </span>
+                                    )}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="trigger-profiles-slots">

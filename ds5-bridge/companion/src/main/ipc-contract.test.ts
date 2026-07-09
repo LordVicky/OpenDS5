@@ -133,4 +133,10 @@ describe('IPC contract', () => {
     expect(mainSource).toContain('await triggerProfileEngine.suspend();');
     expect(mainSource).toContain('await triggerProfileEngine.resume();');
   });
+
+  it('exposes a read-only game-process detection channel', () => {
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:listCandidateGameProcesses')");
+    expect(mainSource).toContain("ipcMain.handle('bridge:listCandidateGameProcesses'");
+    expect(mainSource).toContain('listCandidateGameProcesses()');
+  });
 });
