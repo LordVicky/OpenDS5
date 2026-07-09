@@ -8174,6 +8174,14 @@ export function App() {
                       <h3>Editor</h3>
                       <p>Edit the selected profile's match rules and trigger effects.</p>
                     </div>
+                    <button
+                      type="button"
+                      className="primary-action trigger-profiles-save-button"
+                      onClick={() => void saveTriggerProfileDraft()}
+                    >
+                      <Save size={14} />
+                      Save
+                    </button>
                   </div>
 
                   <div className="trigger-profiles-editor-body">
@@ -8201,6 +8209,7 @@ export function App() {
                     </label>
                   </div>
 
+                  <div className="trigger-profiles-slots">
                   {TRIGGER_PROFILE_SLOTS.map(([slot, label]) => {
                     const slotConfig = triggerProfileDraft.triggers[slot];
                     return (
@@ -8221,6 +8230,18 @@ export function App() {
                             />
                             No Effect
                           </label>
+                          <button
+                            type="button"
+                            className="icon-compact trigger-profiles-modifier-add"
+                            title="Add Modifier"
+                            aria-label={`Add ${label} modifier`}
+                            onClick={() => updateTriggerProfileSlot(slot, (config) => ({
+                              ...config,
+                              modifiers: [...config.modifiers, defaultTriggerModifier()]
+                            }))}
+                          >
+                            <Plus size={14} />
+                          </button>
                         </div>
 
                         {slotConfig.base && (
@@ -8418,29 +8439,12 @@ export function App() {
                               </div>
                             </div>
                           ))}
-                          <button
-                            type="button"
-                            className="trigger-profiles-modifier-add"
-                            onClick={() => updateTriggerProfileSlot(slot, (config) => ({
-                              ...config,
-                              modifiers: [...config.modifiers, defaultTriggerModifier()]
-                            }))}
-                          >
-                            <Plus size={14} />
-                            Add Modifier
-                          </button>
                         </div>
                       </div>
                     );
                   })}
-
                   </div>
 
-                  <div className="trigger-profiles-save-row">
-                    <button type="button" className="primary-action" onClick={() => void saveTriggerProfileDraft()}>
-                      <Save size={14} />
-                      Save
-                    </button>
                   </div>
                 </section>
               ) : (
