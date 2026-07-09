@@ -9,7 +9,11 @@ import {
   slugifyTriggerProfileName,
   uniqueTriggerProfileId,
   mergeTriggerProfiles,
-  isProvisionalTriggerProfileId
+  isProvisionalTriggerProfileId,
+  mirrorTriggerSlotBase,
+  filterTriggerProfiles,
+  filterSelectOptionsByLabel,
+  pickTriggerStripChips
 } from './App';
 import type { TriggerProfile } from '../shared/trigger-profiles';
 
@@ -378,5 +382,132 @@ describe('mergeTriggerProfiles', () => {
     const backend = [makeTriggerProfile('default'), makeTriggerProfile('racing', 'Racing')];
     const merged = mergeTriggerProfiles(local, backend, ['draft-1']);
     expect(merged.map((p) => p.id)).toEqual(['default', 'racing']);
+  });
+});
+
+describe('mirrorTriggerSlotBase', () => {
+  it('copies the source slot base onto the other slot and leaves the source untouched', () => {
+    const triggers = {
+      l2: { base: { mode: 'weapon', startPercent: 20, wallPercent: 60, forcePercent: 80 }, modifiers: [] },
+      r2: { base: null, modifiers: [{ id: 'm1' }] }
+    } as unknown as TriggerProfile['triggers'];
+    const next = mirrorTriggerSlotBase(triggers, 'l2');
+    expect(next.r2.base).toEqual(triggers.l2.base);
+    // deep clone, not a shared reference
+    expect(next.r2.base).not.toBe(triggers.l2.base);
+    // r2 modifiers are preserved; l2 (source) is unchanged
+    expect(next.r2.modifiers).toBe(triggers.r2.modifiers);
+    expect(next.l2).toBe(triggers.l2);
+  });
+
+  it('mirrors a null base (no effect) from source to the other slot', () => {
+    const triggers = {
+      l2: { base: { mode: 'weapon', startPercent: 10, wallPercent: 40, forcePercent: 70 }, modifiers: [] },
+      r2: { base: null, modifiers: [] }
+    } as unknown as TriggerProfile['triggers'];
+    const next = mirrorTriggerSlotBase(triggers, 'r2');
+    expect(next.l2.base).toBeNull();
+  });
+});
+
+describe('filterTriggerProfiles', () => {
+  it('returns a copy of all profiles when the query is blank', () => {
+    const profiles = [makeTriggerProfile('default'), makeTriggerProfile('shooter')];
+    const result = filterTriggerProfiles(profiles, '   ');
+    expect(result.map((p) => p.id)).toEqual(['default', 'shooter']);
+    expect(result).not.toBe(profiles);
+  });
+
+  it('matches on profile name case-insensitively', () => {
+    const profiles = [makeTriggerProfile('shooter', 'Shooter'), makeTriggerProfile('racing', 'Racing Setup')];
+    expect(filterTriggerProfiles(profiles, 'race').map((p) => p.id)).toEqual([]);
+    expect(filterTriggerProfiles(profiles, 'raci').map((p) => p.id)).toEqual(['racing']);
+    expect(filterTriggerProfiles(profiles, 'SHOOT').map((p) => p.id)).toEqual(['shooter']);
+  });
+
+  it('matches on a process name substring', () => {
+    const profiles = [makeTriggerProfile('shooter', 'Shooter')];
+    profiles[0].match.processNames = ['CoolGame.exe'];
+    expect(filterTriggerProfiles(profiles, 'coolgame').map((p) => p.id)).toEqual(['shooter']);
+    expect(filterTriggerProfiles(profiles, 'nomatch')).toEqual([]);
+  });
+});
+
+function makeStripProfile(id: string, updatedAtMs: number, name = id): TriggerProfile {
+  const profile = makeTriggerProfile(id, name);
+  (profile as { updatedAtMs: number }).updatedAtMs = updatedAtMs;
+  return profile;
+}
+
+describe('filterSelectOptionsByLabel', () => {
+  const options: Array<[string, string]> = [
+    ['More profiles', ''],
+    ['Racing Setup', 'racing'],
+    ['Shooter', 'shooter']
+  ];
+
+  it('returns a copy of all options when the query is blank', () => {
+    const result = filterSelectOptionsByLabel(options, '   ');
+    expect(result).toEqual(options);
+    expect(result).not.toBe(options);
+  });
+
+  it('matches labels by case-insensitive substring', () => {
+    expect(filterSelectOptionsByLabel(options, 'SHOOT')).toEqual([['Shooter', 'shooter']]);
+    expect(filterSelectOptionsByLabel(options, 'cing set')).toEqual([['Racing Setup', 'racing']]);
+    expect(filterSelectOptionsByLabel(options, 'nomatch')).toEqual([]);
+  });
+});
+
+describe('pickTriggerStripChips', () => {
+  it('shows Default plus the most-recently-updated non-default when nothing is selected', () => {
+    const profiles = [
+      makeStripProfile('default', 0),
+      makeStripProfile('a', 10),
+      makeStripProfile('b', 30),
+      makeStripProfile('c', 20)
+    ];
+    const { chips, overflow } = pickTriggerStripChips(profiles, null);
+    expect(chips.map((p) => p.id)).toEqual(['default', 'b']);
+    expect(overflow.map((p) => p.id)).toEqual(['a', 'c']);
+  });
+
+  it('always keeps Default first and uses the selected non-default as the second chip', () => {
+    const profiles = [
+      makeStripProfile('default', 0),
+      makeStripProfile('a', 10),
+      makeStripProfile('b', 30),
+      makeStripProfile('c', 20)
+    ];
+    const { chips, overflow } = pickTriggerStripChips(profiles, 'a');
+    expect(chips.map((p) => p.id)).toEqual(['default', 'a']);
+    expect(overflow.map((p) => p.id)).toEqual(['b', 'c']);
+  });
+
+  it('falls back to most-recent non-default when Default itself is selected', () => {
+    const profiles = [
+      makeStripProfile('default', 0),
+      makeStripProfile('a', 40),
+      makeStripProfile('b', 5)
+    ];
+    const { chips } = pickTriggerStripChips(profiles, 'default');
+    expect(chips.map((p) => p.id)).toEqual(['default', 'a']);
+  });
+
+  it('returns just Default (no overflow) when it is the only profile', () => {
+    const profiles = [makeStripProfile('default', 0)];
+    const { chips, overflow } = pickTriggerStripChips(profiles, null);
+    expect(chips.map((p) => p.id)).toEqual(['default']);
+    expect(overflow).toEqual([]);
+  });
+
+  it('never returns more than two chips regardless of library size', () => {
+    const profiles = [makeStripProfile('default', 0)];
+    for (let i = 0; i < 20; i += 1) profiles.push(makeStripProfile(`p${i}`, i));
+    const { chips, overflow } = pickTriggerStripChips(profiles, 'p3');
+    expect(chips.map((p) => p.id)).toEqual(['default', 'p3']);
+    expect(chips).toHaveLength(2);
+    expect(overflow).toHaveLength(19);
+    expect(overflow.some((p) => p.id === 'p3')).toBe(false);
   });
 });
