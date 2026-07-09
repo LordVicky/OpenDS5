@@ -2896,6 +2896,7 @@ export function App() {
   const [triggerProfileDraft, setTriggerProfileDraft] = useState<TriggerProfile | null>(null);
   const [triggerProfileProcessNamesInput, setTriggerProfileProcessNamesInput] = useState('');
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
+  const triggerProfilePreviewArmedRef = useRef(false);
   const [remapDraft, setRemapDraft] = useState<Record<RemapButtonId, RemapButtonId>>(DEFAULT_REMAP_DRAFT);
   const [remapProfileDialogMode, setRemapProfileDialogMode] = useState<RemapProfileDialogMode | null>(null);
   const [remapProfileNameDraft, setRemapProfileNameDraft] = useState('');
@@ -3354,6 +3355,33 @@ export function App() {
       cancelled = true;
       unsubscribe();
     };
+  }, []);
+
+  // Live-preview edited trigger draft effects on the controller (debounced);
+  // armed only after an actual trigger edit so selecting a profile never writes.
+  useEffect(() => {
+    if (!triggerProfilePreviewArmedRef.current) return;
+    if (activeControlTab !== 'trigger-profiles' || !triggerProfileDraft) return;
+    const triggers = triggerProfileDraft.triggers;
+    const handle = setTimeout(() => {
+      void window.bridge.previewTriggerProfileDraft({ l2: triggers.l2, r2: triggers.r2 });
+    }, 150);
+    return () => clearTimeout(handle);
+  }, [triggerProfileDraft, activeControlTab]);
+
+  // Clear any live draft preview when leaving the Trigger Profiles tab.
+  useEffect(() => {
+    if (activeControlTab === 'trigger-profiles') return;
+    if (!triggerProfilePreviewArmedRef.current) return;
+    triggerProfilePreviewArmedRef.current = false;
+    void window.bridge.previewTriggerProfileDraft(null);
+  }, [activeControlTab]);
+
+  // Clear any live draft preview on unmount.
+  useEffect(() => () => {
+    if (triggerProfilePreviewArmedRef.current) {
+      void window.bridge.previewTriggerProfileDraft(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -5891,7 +5919,14 @@ export function App() {
     ));
   }
 
+  function clearTriggerProfileDraftPreview() {
+    if (!triggerProfilePreviewArmedRef.current) return;
+    triggerProfilePreviewArmedRef.current = false;
+    void window.bridge.previewTriggerProfileDraft(null);
+  }
+
   function loadTriggerProfileDraft(profile: TriggerProfile) {
+    clearTriggerProfileDraftPreview();
     setSelectedTriggerProfileId(profile.id);
     setTriggerProfileDraft(profile);
     setTriggerProfileProcessNamesInput(profile.match.processNames.join(', '));
@@ -5906,6 +5941,7 @@ export function App() {
     if (next) {
       loadTriggerProfileDraft(next);
     } else {
+      clearTriggerProfileDraftPreview();
       setSelectedTriggerProfileId(null);
       setTriggerProfileDraft(null);
       setTriggerProfileProcessNamesInput('');
@@ -5995,6 +6031,7 @@ export function App() {
     slot: TriggerProfileSlotKey,
     updater: (config: TriggerProfile['triggers']['l2']) => TriggerProfile['triggers']['l2']
   ) {
+    triggerProfilePreviewArmedRef.current = true;
     setTriggerProfileDraft((draft) => {
       if (!draft) return draft;
       return {

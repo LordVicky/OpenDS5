@@ -21,7 +21,7 @@ import type {
   UiThemePreset,
   WindowsDeviceCleanupResult
 } from './shared/types';
-import type { EngineStatus, TriggerProfile } from './shared/trigger-profiles';
+import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/trigger-profiles';
 
 const api = {
   getStatus: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:getStatus'),
@@ -232,6 +232,11 @@ const api = {
   ),
   getTriggerProfileEngineStatus: (): Promise<EngineStatus> => (
     ipcRenderer.invoke('bridge:getTriggerProfileEngineStatus')
+  ),
+  previewTriggerProfileDraft: (
+    triggers: { l2: TriggerSlotConfig | null; r2: TriggerSlotConfig | null } | null
+  ): Promise<EngineStatus> => (
+    ipcRenderer.invoke('bridge:previewTriggerProfileDraft', triggers)
   ),
   onTriggerProfileEngineStatus: (listener: (status: EngineStatus) => void): (() => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, status: EngineStatus) => listener(status);

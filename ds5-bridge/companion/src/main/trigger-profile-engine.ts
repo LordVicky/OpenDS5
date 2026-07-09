@@ -1,12 +1,22 @@
 import { EventEmitter } from 'node:events';
 import type { AdaptiveTriggerPreviewEffect } from '../shared/protocol';
 import { ModifierEvaluator, type ControllerInputState } from '../shared/trigger-modifier-eval';
-import { type EngineStatus, type TriggerEffectSpec, type TriggerProfile } from '../shared/trigger-profiles';
+import {
+  type EngineStatus,
+  type TriggerEffectSpec,
+  type TriggerProfile,
+  type TriggerSlotConfig
+} from '../shared/trigger-profiles';
 import type { ActiveProfileChange, GameWatcher } from './game-watcher';
 import type { EvdevInputReader } from './evdev-input-reader';
 import type { TriggerProfileStore } from './trigger-profile-store';
 
 export type { EngineStatus };
+
+export interface DraftPreviewTriggers {
+  l2: TriggerSlotConfig | null;
+  r2: TriggerSlotConfig | null;
+}
 
 export interface TriggerEffectSink {
   applyAdaptiveTriggerEffect(effect: AdaptiveTriggerPreviewEffect): Promise<unknown>;
@@ -38,6 +48,8 @@ export class TriggerProfileEngine extends EventEmitter {
   private readonly watcher: GameWatcher;
   private readonly reader: EvdevInputReader;
   private readonly evaluator = new ModifierEvaluator();
+  private readonly draftEvaluator = new ModifierEvaluator();
+  private draftPreview: TriggerProfile | null = null;
   private enabled = false;
   private suspended = false;
   private activeProfile: TriggerProfile | null = null;
@@ -77,6 +89,8 @@ export class TriggerProfileEngine extends EventEmitter {
       this.reader.stop();
       this.activeProfile = null;
       this.evaluator.setProfile(null);
+      this.draftPreview = null;
+      this.draftEvaluator.setProfile(null);
       await this.enqueue(() => this.resetIfNeeded(true));
     }
     this.emitStatus();
@@ -101,6 +115,8 @@ export class TriggerProfileEngine extends EventEmitter {
   async suspend(): Promise<void> {
     if (this.suspended) return;
     this.suspended = true;
+    this.draftPreview = null;
+    this.draftEvaluator.setProfile(null);
     await this.enqueue(() => this.resetIfNeeded(true));
     this.emitStatus();
   }
@@ -112,6 +128,38 @@ export class TriggerProfileEngine extends EventEmitter {
       await this.enqueue(() => this.applyBasesJob());
     }
     this.emitStatus();
+  }
+
+  /**
+   * Live-previews an in-editor draft: non-null draft slots replace the active
+   * profile's triggers (bases and modifiers) until cleared with null. No-op
+   * while the engine is disabled or suspended; clearing always drops the
+   * stored draft, and re-applies the active profile's effects when running.
+   */
+  async setDraftPreview(triggers: DraftPreviewTriggers | null): Promise<void> {
+    if (triggers === null) {
+      const hadPreview = this.draftPreview !== null;
+      this.draftPreview = null;
+      this.draftEvaluator.setProfile(null);
+      if (!hadPreview || !this.enabled || this.suspended) return;
+      await this.enqueue(() => this.applyBasesJob());
+      return;
+    }
+    if (!this.enabled || this.suspended) return;
+    const draftProfile: TriggerProfile = {
+      version: 1,
+      id: '__draft-preview__',
+      name: 'Draft Preview',
+      match: { processNames: [], windowTitles: [] },
+      triggers: {
+        l2: triggers.l2 ?? { base: null, modifiers: [] },
+        r2: triggers.r2 ?? { base: null, modifiers: [] }
+      },
+      updatedAtMs: 0
+    };
+    this.draftPreview = draftProfile;
+    this.draftEvaluator.setProfile(draftProfile);
+    await this.enqueue(() => this.applyBasesJob());
   }
 
   pinProfile(profileId: string | null): void {
@@ -165,19 +213,22 @@ export class TriggerProfileEngine extends EventEmitter {
 
   private async applyBasesJob(): Promise<void> {
     if (!this.enabled || this.suspended) return;
-    const profile = this.activeProfile;
+    const profile = this.draftPreview ?? this.activeProfile;
     const l2 = profile?.triggers.l2.base ?? null;
     const r2 = profile?.triggers.r2.base ?? null;
     await this.writeDesired({ l2, r2 });
   }
 
   private onInput(state: ControllerInputState): void {
-    if (!this.enabled || this.suspended || !this.activeProfile) return;
+    if (!this.enabled || this.suspended) return;
+    const profile = this.draftPreview ?? this.activeProfile;
+    if (!profile) return;
     const hasModifiers =
-      this.activeProfile.triggers.l2.modifiers.length > 0 ||
-      this.activeProfile.triggers.r2.modifiers.length > 0;
+      profile.triggers.l2.modifiers.length > 0 ||
+      profile.triggers.r2.modifiers.length > 0;
     if (!hasModifiers) return;
-    const resolved = this.evaluator.update(state);
+    const evaluator = this.draftPreview ? this.draftEvaluator : this.evaluator;
+    const resolved = evaluator.update(state);
     this.latestDesired = resolved;
     if (this.writeScheduled) return;
     this.writeScheduled = true;

@@ -112,12 +112,15 @@ describe('IPC contract', () => {
     expect(preloadSource).toContain("ipcRenderer.invoke('bridge:setTriggerProfilesEnabled', enabled)");
     expect(preloadSource).toContain("ipcRenderer.invoke('bridge:pinTriggerProfile', id)");
     expect(preloadSource).toContain("ipcRenderer.invoke('bridge:getTriggerProfileEngineStatus')");
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:previewTriggerProfileDraft', triggers)");
     expect(mainSource).toContain("ipcMain.handle('bridge:listTriggerProfiles'");
     expect(mainSource).toContain("ipcMain.handle('bridge:saveTriggerProfile'");
     expect(mainSource).toContain("ipcMain.handle('bridge:deleteTriggerProfile'");
     expect(mainSource).toContain("ipcMain.handle('bridge:setTriggerProfilesEnabled'");
     expect(mainSource).toContain("ipcMain.handle('bridge:pinTriggerProfile'");
     expect(mainSource).toContain("ipcMain.handle('bridge:getTriggerProfileEngineStatus'");
+    expect(mainSource).toContain("ipcMain.handle('bridge:previewTriggerProfileDraft'");
+    expect(mainSource).toContain('await triggerProfileEngine.setDraftPreview(triggers);');
   });
 
   it('subscribes to trigger profile engine status broadcasts and returns an unsubscribe function', () => {

@@ -214,4 +214,108 @@ describe('TriggerProfileEngine', () => {
       vi.useRealTimers();
     }
   });
+
+  describe('setDraftPreview', () => {
+    const draftTriggers = {
+      l2: {
+        base: { mode: 'feedback' as const, startPercent: 5, wallPercent: 20, forcePercent: 30 },
+        modifiers: [{
+          when: { source: 'input' as const, condition: 'trigger-full-pull' },
+          effect: { mode: 'vibration' as const, startPercent: 0, wallPercent: 0, forcePercent: 75 }
+        }]
+      },
+      r2: null
+    };
+
+    it('applies draft base effects immediately, overriding the active profile', async () => {
+      watcher.pinProfile('shooter');
+      await flush();
+      await engine.setDraftPreview(draftTriggers);
+      expect(sink.applied.filter((effect) => effect.target === 'l2')).toEqual([
+        { mode: 'feedback', target: 'l2', startPercent: 5, wallPercent: 20, forcePercent: 30 }
+      ]);
+      // The active profile's r2 base is relaxed because the draft has no r2 effect.
+      expect(sink.applied.at(-1)).toMatchObject({ target: 'r2', forcePercent: 0 });
+    });
+
+    it('evaluates draft modifiers live from controller input', async () => {
+      watcher.pinProfile('shooter');
+      await flush();
+      await engine.setDraftPreview(draftTriggers);
+      reader.feed({ l2: 255 });
+      await flush();
+      expect(sink.applied.at(-1)).toMatchObject({ mode: 'vibration', target: 'l2', forcePercent: 75 });
+      // The active profile's own modifiers must not fire while previewing.
+      reader.feed({ l2: 255, r2: 255 });
+      await flush();
+      expect(sink.applied.filter((effect) => effect.forcePercent === 60)).toHaveLength(0);
+    });
+
+    it('reverts to the active profile bases when cleared with null', async () => {
+      watcher.pinProfile('shooter');
+      await flush();
+      await engine.setDraftPreview(draftTriggers);
+      await engine.setDraftPreview(null);
+      expect(sink.applied.at(-1)).toMatchObject({ mode: 'weapon', target: 'r2', forcePercent: 90 });
+    });
+
+    it('dedupes a draft identical to the last applied effects', async () => {
+      watcher.pinProfile('shooter');
+      await flush();
+      const appliedBefore = sink.applied.length;
+      await engine.setDraftPreview({
+        l2: { base: null, modifiers: [] },
+        r2: { base: { mode: 'weapon', startPercent: 10, wallPercent: 40, forcePercent: 90 }, modifiers: [] }
+      });
+      expect(sink.applied.length).toBe(appliedBefore);
+    });
+
+    it('is a no-op while the engine is disabled', async () => {
+      await engine.setEnabled(false);
+      const resetsBefore = sink.resets;
+      const appliedBefore = sink.applied.length;
+      await engine.setDraftPreview(draftTriggers);
+      expect(sink.applied.length).toBe(appliedBefore);
+      expect(sink.resets).toBe(resetsBefore);
+    });
+
+    it('is a no-op while the engine is suspended, and suspend drops an active preview', async () => {
+      watcher.pinProfile('shooter');
+      await flush();
+      await engine.setDraftPreview(draftTriggers);
+      await engine.suspend();
+      const appliedBefore = sink.applied.length;
+      await engine.setDraftPreview(draftTriggers);
+      expect(sink.applied.length).toBe(appliedBefore);
+      await engine.resume();
+      // Resume applies the active profile's bases, not the stale draft.
+      expect(sink.applied.at(-1)).toMatchObject({ mode: 'weapon', target: 'r2', forcePercent: 90 });
+    });
+
+    it('serializes preview writes against an in-flight input write', async () => {
+      watcher.pinProfile('shooter');
+      await flush();
+      sink.callOrder = [];
+
+      let releaseApply: () => void = () => {};
+      sink.applyGate = new Promise((resolve) => {
+        releaseApply = resolve;
+      });
+
+      reader.feed({ r2: 255 });
+      await flush();
+      expect(sink.callOrder).toEqual(['apply']);
+
+      const previewPromise = engine.setDraftPreview(draftTriggers);
+      await flush();
+      // The preview write must wait for the in-flight apply to finish.
+      expect(sink.callOrder).toEqual(['apply']);
+
+      sink.applyGate = null;
+      releaseApply();
+      await previewPromise;
+      expect(sink.callOrder.slice(0, 3)).toEqual(['apply', 'apply-done', 'apply']);
+      expect(sink.applied.some((effect) => effect.target === 'l2' && effect.forcePercent === 30)).toBe(true);
+    });
+  });
 });

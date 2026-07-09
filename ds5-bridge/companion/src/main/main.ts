@@ -15,7 +15,7 @@ import { SettingsStore } from './settings-store';
 import { TriggerProfileStore } from './trigger-profile-store';
 import { GameWatcher } from './game-watcher';
 import { EvdevInputReader } from './evdev-input-reader';
-import { TriggerProfileEngine, type EngineStatus } from './trigger-profile-engine';
+import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
 import type {
   AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
@@ -1021,6 +1021,10 @@ function registerIpc(
     return triggerProfileEngine.getStatus();
   });
   ipcMain.handle('bridge:getTriggerProfileEngineStatus', () => triggerProfileEngine.getStatus());
+  ipcMain.handle('bridge:previewTriggerProfileDraft', async (_event, triggers: DraftPreviewTriggers | null) => {
+    await triggerProfileEngine.setDraftPreview(triggers);
+    return triggerProfileEngine.getStatus();
+  });
 
   ipcMain.handle('bridge:getStatus', () => service.getSnapshot());
   ipcMain.handle('bridge:listDevices', () => service.listDevices());
