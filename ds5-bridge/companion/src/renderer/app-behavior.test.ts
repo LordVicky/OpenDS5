@@ -11,7 +11,8 @@ import {
   mergeTriggerProfiles,
   isProvisionalTriggerProfileId,
   mirrorTriggerSlotBase,
-  filterTriggerProfiles
+  filterTriggerProfiles,
+  pickTriggerStripChips
 } from './App';
 import type { TriggerProfile } from '../shared/trigger-profiles';
 
@@ -428,5 +429,64 @@ describe('filterTriggerProfiles', () => {
     profiles[0].match.processNames = ['CoolGame.exe'];
     expect(filterTriggerProfiles(profiles, 'coolgame').map((p) => p.id)).toEqual(['shooter']);
     expect(filterTriggerProfiles(profiles, 'nomatch')).toEqual([]);
+  });
+});
+
+function makeStripProfile(id: string, updatedAtMs: number, name = id): TriggerProfile {
+  const profile = makeTriggerProfile(id, name);
+  (profile as { updatedAtMs: number }).updatedAtMs = updatedAtMs;
+  return profile;
+}
+
+describe('pickTriggerStripChips', () => {
+  it('shows Default plus the most-recently-updated non-default when nothing is selected', () => {
+    const profiles = [
+      makeStripProfile('default', 0),
+      makeStripProfile('a', 10),
+      makeStripProfile('b', 30),
+      makeStripProfile('c', 20)
+    ];
+    const { chips, overflow } = pickTriggerStripChips(profiles, null);
+    expect(chips.map((p) => p.id)).toEqual(['default', 'b']);
+    expect(overflow.map((p) => p.id)).toEqual(['a', 'c']);
+  });
+
+  it('always keeps Default first and uses the selected non-default as the second chip', () => {
+    const profiles = [
+      makeStripProfile('default', 0),
+      makeStripProfile('a', 10),
+      makeStripProfile('b', 30),
+      makeStripProfile('c', 20)
+    ];
+    const { chips, overflow } = pickTriggerStripChips(profiles, 'a');
+    expect(chips.map((p) => p.id)).toEqual(['default', 'a']);
+    expect(overflow.map((p) => p.id)).toEqual(['b', 'c']);
+  });
+
+  it('falls back to most-recent non-default when Default itself is selected', () => {
+    const profiles = [
+      makeStripProfile('default', 0),
+      makeStripProfile('a', 40),
+      makeStripProfile('b', 5)
+    ];
+    const { chips } = pickTriggerStripChips(profiles, 'default');
+    expect(chips.map((p) => p.id)).toEqual(['default', 'a']);
+  });
+
+  it('returns just Default (no overflow) when it is the only profile', () => {
+    const profiles = [makeStripProfile('default', 0)];
+    const { chips, overflow } = pickTriggerStripChips(profiles, null);
+    expect(chips.map((p) => p.id)).toEqual(['default']);
+    expect(overflow).toEqual([]);
+  });
+
+  it('never returns more than two chips regardless of library size', () => {
+    const profiles = [makeStripProfile('default', 0)];
+    for (let i = 0; i < 20; i += 1) profiles.push(makeStripProfile(`p${i}`, i));
+    const { chips, overflow } = pickTriggerStripChips(profiles, 'p3');
+    expect(chips.map((p) => p.id)).toEqual(['default', 'p3']);
+    expect(chips).toHaveLength(2);
+    expect(overflow).toHaveLength(19);
+    expect(overflow.some((p) => p.id === 'p3')).toBe(false);
   });
 });

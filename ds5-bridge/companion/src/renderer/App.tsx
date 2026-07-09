@@ -982,6 +982,52 @@ export function filterTriggerProfiles(
   ));
 }
 
+export type TriggerStripChipSelection = {
+  chips: TriggerProfile[];
+  overflow: TriggerProfile[];
+};
+
+/**
+ * Decide which trigger profiles are shown as inline chips versus moved into the
+ * overflow dropdown. The Default profile is always the first chip. The second
+ * chip is the currently selected non-default profile if there is one, otherwise
+ * the most-recently-updated non-default profile (by updatedAtMs). Everything
+ * else becomes overflow, preserving the incoming order. This bounds the chip row
+ * to at most two chips so the strip can never overflow its action buttons.
+ */
+export function pickTriggerStripChips(
+  profiles: readonly TriggerProfile[],
+  selectedId: string | null
+): TriggerStripChipSelection {
+  const defaultProfile = profiles.find((profile) => profile.id === 'default') ?? null;
+  const nonDefault = profiles.filter((profile) => profile.id !== 'default');
+
+  let second: TriggerProfile | null = null;
+  if (selectedId && selectedId !== 'default') {
+    second = nonDefault.find((profile) => profile.id === selectedId) ?? null;
+  }
+  if (!second && nonDefault.length > 0) {
+    second = nonDefault.reduce(
+      (best, profile) => (profile.updatedAtMs > best.updatedAtMs ? profile : best),
+      nonDefault[0]
+    );
+  }
+
+  const chipIds = new Set<string>();
+  const chips: TriggerProfile[] = [];
+  if (defaultProfile) {
+    chips.push(defaultProfile);
+    chipIds.add(defaultProfile.id);
+  }
+  if (second && !chipIds.has(second.id)) {
+    chips.push(second);
+    chipIds.add(second.id);
+  }
+
+  const overflow = profiles.filter((profile) => !chipIds.has(profile.id));
+  return { chips, overflow };
+}
+
 function controllerPowerSavingActiveFromSnapshot(snapshot: BridgeSnapshot | null | undefined): boolean {
   return Boolean(snapshot?.settings.controllerPowerSavingEnabled && snapshot.diagnostics.audioStatus?.headsetPlugged);
 }
@@ -7720,46 +7766,104 @@ export function App() {
             </div>
 
             <div className="trigger-profiles-strip">
-              {triggerProfiles.length > 8 && (
-                <input
-                  className="trigger-profiles-strip-search"
-                  aria-label="Filter trigger profiles"
-                  placeholder="Filter profiles"
-                  value={triggerProfileFilter}
-                  onChange={(event) => setTriggerProfileFilter(event.target.value)}
-                />
-              )}
-              <ul className="trigger-profiles-strip-list">
-                {filterTriggerProfiles(triggerProfiles, triggerProfileFilter).map((profile) => (
-                  <li key={profile.id}>
-                    <button
-                      type="button"
-                      className={`trigger-profiles-chip ${selectedTriggerProfileId === profile.id ? 'active' : ''}`}
-                      title={
-                        profile.id === 'default'
-                          ? 'Fallback when no game matches'
-                          : profile.match.processNames.length > 0
-                            ? profile.match.processNames.join(', ')
-                            : 'No process match set'
-                      }
-                      onClick={() => selectTriggerProfile(profile.id)}
-                    >
-                      {triggerProfileEngineStatus?.activeProfileId === profile.id && (
-                        <span className="dot good" aria-label="Currently active" />
-                      )}
-                      <span className="trigger-profiles-chip-name">{profile.name}</span>
-                      {triggerProfileEngineStatus?.activeProfileId === profile.id
-                        && triggerProfileEngineStatus.matchedBy === 'process' && (
-                        <span className="trigger-profiles-chip-matched">matched</span>
-                      )}
-                      {triggerProfileEngineStatus?.activeProfileId === profile.id
-                        && triggerProfileEngineStatus.matchedBy === 'pin' && (
-                        <span className="trigger-profiles-chip-matched">pinned</span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {(() => {
+                const { chips, overflow } = pickTriggerStripChips(triggerProfiles, selectedTriggerProfileId);
+                const overflowActive = overflow.find(
+                  (profile) => triggerProfileEngineStatus?.activeProfileId === profile.id
+                ) ?? null;
+                const overflowSelected = overflow.find(
+                  (profile) => profile.id === selectedTriggerProfileId
+                ) ?? null;
+                const filteredOverflow = filterTriggerProfiles(overflow, triggerProfileFilter);
+                const dropdownValue = overflowSelected
+                  && filteredOverflow.some((profile) => profile.id === overflowSelected.id)
+                  ? overflowSelected.id
+                  : '';
+                const dropdownOptions: Array<[string, string]> = [
+                  ['More profiles', ''],
+                  ...filteredOverflow.map((profile): [string, string] => [profile.name, profile.id])
+                ];
+                return (
+                  <>
+                    <ul className="trigger-profiles-strip-list">
+                      {chips.map((profile) => (
+                        <li key={profile.id}>
+                          <button
+                            type="button"
+                            className={`trigger-profiles-chip ${selectedTriggerProfileId === profile.id ? 'active' : ''}`}
+                            title={
+                              profile.id === 'default'
+                                ? 'Fallback when no game matches'
+                                : profile.match.processNames.length > 0
+                                  ? profile.match.processNames.join(', ')
+                                  : 'No process match set'
+                            }
+                            onClick={() => selectTriggerProfile(profile.id)}
+                          >
+                            {triggerProfileEngineStatus?.activeProfileId === profile.id && (
+                              <span className="dot good" aria-label="Currently active" />
+                            )}
+                            <span className="trigger-profiles-chip-name">{profile.name}</span>
+                            {triggerProfileEngineStatus?.activeProfileId === profile.id
+                              && triggerProfileEngineStatus.matchedBy === 'process' && (
+                              <span className="trigger-profiles-chip-matched">matched</span>
+                            )}
+                            {triggerProfileEngineStatus?.activeProfileId === profile.id
+                              && triggerProfileEngineStatus.matchedBy === 'pin' && (
+                              <span className="trigger-profiles-chip-matched">pinned</span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {overflow.length > 0 && (
+                      <div className="trigger-profiles-strip-more">
+                        {triggerProfiles.length > 8 && (
+                          <input
+                            className="trigger-profiles-strip-search"
+                            aria-label="Filter trigger profiles"
+                            placeholder="Filter"
+                            value={triggerProfileFilter}
+                            onChange={(event) => setTriggerProfileFilter(event.target.value)}
+                          />
+                        )}
+                        <CustomSelect
+                          className="trigger-profiles-more-select"
+                          value={dropdownValue}
+                          options={dropdownOptions}
+                          ariaLabel="Switch to another trigger profile"
+                          floatingMenu
+                          floatingMenuMinWidth={240}
+                          showSelectedCheck={false}
+                          renderValue={() => (
+                            <span className="trigger-profiles-more-trigger">
+                              {overflowActive && (
+                                <span className="dot good" aria-label="An overflow profile is active" />
+                              )}
+                              <span>More profiles</span>
+                              <span className="trigger-profiles-more-count">{overflow.length}</span>
+                            </span>
+                          )}
+                          renderOption={(label, optionValue) => (
+                            <span className="trigger-profiles-more-option">
+                              {triggerProfileEngineStatus?.activeProfileId === optionValue && optionValue !== '' && (
+                                <span className="dot good" aria-label="Currently active" />
+                              )}
+                              <span className="trigger-profiles-more-option-name">{label}</span>
+                              {optionValue === selectedTriggerProfileId && optionValue !== '' && (
+                                <span className="trigger-profiles-chip-matched">editing</span>
+                              )}
+                            </span>
+                          )}
+                          onChange={(value) => {
+                            if (value) selectTriggerProfile(value);
+                          }}
+                        />
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
               <div className="trigger-profiles-strip-actions">
                 <button type="button" onClick={createTriggerProfile}>
                   <Plus size={14} />

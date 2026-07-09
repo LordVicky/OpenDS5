@@ -7941,12 +7941,13 @@ button.trigger-lab-chip {
 }
 
 .trigger-profiles-strip-search {
-  flex: 0 0 176px;
+  flex: 0 0 120px;
+  min-width: 0;
   min-height: 32px;
 }
 
 .trigger-profiles-strip-list {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -7954,9 +7955,57 @@ button.trigger-lab-chip {
   list-style: none;
   margin: 0;
   padding: 4px 2px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   scrollbar-width: thin;
+}
+
+.trigger-profiles-strip-more {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trigger-profiles-more-select {
+  flex: 0 0 auto;
+}
+
+.trigger-profiles-more-select .custom-select-button {
+  min-height: 34px;
+}
+
+.trigger-profiles-more-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.trigger-profiles-more-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface-control-hover);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.trigger-profiles-more-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.trigger-profiles-more-option-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .trigger-profiles-strip-list > li {
@@ -8014,6 +8063,7 @@ button.trigger-lab-chip {
 
 .trigger-profiles-strip-actions {
   flex: 0 0 auto;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
