@@ -598,4 +598,31 @@ describe('shared trigger effect editor', () => {
     expect(appSource).toContain('previewAdaptiveTriggerEffect');
     expect(appSource).toContain('TRIGGER_LAB_TESTABLE_MODES');
   });
+
+  it('offers an Import button in the strip actions wired to importTriggerProfiles', () => {
+    const stripStart = appSource.indexOf('trigger-profiles-strip-actions');
+    expect(stripStart).toBeGreaterThanOrEqual(0);
+    const stripEnd = appSource.indexOf('trigger-profiles-auto-toggle', stripStart);
+    const stripRegion = appSource.slice(stripStart, stripEnd);
+    expect(stripRegion).toContain('Import');
+    expect(stripRegion).toContain('importTriggerProfilesFromDisk');
+    // Import lands before New within the strip.
+    expect(stripRegion.indexOf('Import')).toBeLessThan(stripRegion.indexOf('New'));
+    // Handler is wired to the Task 5 IPC.
+    expect(appSource).toContain('window.bridge.importTriggerProfiles(');
+  });
+
+  it('offers an Export button in the editor header wired to exportTriggerProfile', () => {
+    const headerStart = appSource.indexOf('trigger-profiles-editor-card');
+    expect(headerStart).toBeGreaterThanOrEqual(0);
+    const headerEnd = appSource.indexOf('trigger-profiles-save-button', headerStart);
+    const headerRegion = appSource.slice(headerStart, headerEnd);
+    expect(headerRegion).toContain('Export');
+    expect(headerRegion).toContain('exportTriggerProfileDraft');
+    expect(appSource).toContain('window.bridge.exportTriggerProfile(');
+    // Export is disabled without a draft.
+    const exportStart = headerRegion.indexOf('Export');
+    const exportButton = headerRegion.slice(headerRegion.lastIndexOf('<button', exportStart), exportStart);
+    expect(exportButton).toContain('!triggerProfileDraft');
+  });
 });

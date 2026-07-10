@@ -22,6 +22,7 @@ import {
   IconDeviceFloppy as Save,
   IconDeviceGamepad2,
   IconDeviceGamepad3,
+  IconDownload,
   IconFlame,
   IconBrandDeezer,
   IconDeviceAudioTape,
@@ -2725,6 +2726,8 @@ export function App() {
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
   const [triggerProfilesLinked, setTriggerProfilesLinked] = useState(false);
   const [triggerProfileModifiersOpen, setTriggerProfileModifiersOpen] = useState<Record<TriggerProfileSlotKey, boolean>>({ l2: false, r2: false });
+  const [triggerProfileTransferStatus, setTriggerProfileTransferStatus] = useState<{ tone: string; message: string } | null>(null);
+  const triggerProfileTransferStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerStripRef = useRef<HTMLDivElement | null>(null);
   const triggerStripActionsRef = useRef<HTMLDivElement | null>(null);
   const [triggerStripWidth, setTriggerStripWidth] = useState(0);
@@ -5526,6 +5529,47 @@ export function App() {
     await refreshTriggerProfiles(saved.id, isProvisional ? previousId : undefined);
   }
 
+  function showTriggerProfileTransferStatus(tone: string, message: string) {
+    if (triggerProfileTransferStatusTimeout.current) {
+      clearTimeout(triggerProfileTransferStatusTimeout.current);
+    }
+    setTriggerProfileTransferStatus({ tone, message });
+    triggerProfileTransferStatusTimeout.current = setTimeout(() => {
+      setTriggerProfileTransferStatus(null);
+      triggerProfileTransferStatusTimeout.current = null;
+    }, 5000);
+  }
+
+  async function exportTriggerProfileDraft() {
+    if (!triggerProfileDraft) return;
+    const result = await window.bridge.exportTriggerProfile(triggerProfileDraft.id);
+    if (result.saved) {
+      showTriggerProfileTransferStatus('good', `Exported "${triggerProfileDraft.name}"`);
+    }
+  }
+
+  async function importTriggerProfilesFromDisk() {
+    const results = await window.bridge.importTriggerProfiles();
+    if (results.length === 0) return;
+    const imported = results.filter((entry) => entry.ok);
+    const failed = results.length - imported.length;
+    const profiles = await refreshTriggerProfiles();
+    const firstImportedName = imported[0]?.name;
+    if (firstImportedName) {
+      const match = profiles.find((profile) => profile.name === firstImportedName);
+      if (match) loadTriggerProfileDraft(match);
+    }
+    if (imported.length === 0) {
+      showTriggerProfileTransferStatus('bad', `Import failed for ${failed} file${failed === 1 ? '' : 's'}`);
+    } else {
+      const base = `Imported ${imported.length} profile${imported.length === 1 ? '' : 's'}`;
+      showTriggerProfileTransferStatus(
+        failed > 0 ? 'warn' : 'good',
+        failed > 0 ? `${base} (${failed} failed)` : base
+      );
+    }
+  }
+
   async function toggleTriggerProfilesEnabled() {
     const status = await window.bridge.setTriggerProfilesEnabled(!triggerProfilesEnabled);
     setTriggerProfilesEnabled(status.enabled);
@@ -7454,6 +7498,15 @@ export function App() {
                     </div>
                     <button
                       type="button"
+                      className="secondary-action trigger-profiles-export-button"
+                      disabled={!triggerProfileDraft}
+                      onClick={() => void exportTriggerProfileDraft()}
+                    >
+                      <IconDownload size={14} />
+                      Export
+                    </button>
+                    <button
+                      type="button"
                       className="primary-action trigger-profiles-save-button"
                       onClick={() => void saveTriggerProfileDraft()}
                     >
@@ -7893,6 +7946,15 @@ export function App() {
                 );
               })()}
               <div className="trigger-profiles-strip-actions" ref={triggerStripActionsRef}>
+                {triggerProfileTransferStatus ? (
+                  <span className={`status-badge ${triggerProfileTransferStatus.tone} trigger-profiles-transfer-status`}>
+                    {triggerProfileTransferStatus.message}
+                  </span>
+                ) : null}
+                <button type="button" onClick={() => void importTriggerProfilesFromDisk()}>
+                  <IconUpload size={14} />
+                  Import
+                </button>
                 <button type="button" onClick={createTriggerProfile}>
                   <Plus size={14} />
                   New

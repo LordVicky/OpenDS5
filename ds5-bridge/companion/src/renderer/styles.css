@@ -8094,6 +8094,11 @@ button.trigger-lab-chip {
   gap: 8px;
 }
 
+.trigger-profiles-strip-actions > .trigger-profiles-transfer-status {
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
 .trigger-profiles-strip-actions > button {
   min-height: 32px;
   display: inline-flex;
