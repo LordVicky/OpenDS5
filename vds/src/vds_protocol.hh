@@ -105,6 +105,13 @@ void encode_companion_trigger_effect_v2(
     std::span<std::uint8_t, kTriggerEffectSize> trigger,
     const CompanionTriggerEffect &effect);
 
+// Scales a game-supplied trigger FFB buffer by the global trigger-effect
+// intensity percent (SET_TRIGGER_EFFECT_INTENSITY). percent 100 is a no-op;
+// percent 0 turns the effect off. Covers the feedback (0x21), weapon (0x25),
+// vibration (0x26), and slope (0x22) opcodes.
+void scale_trigger_effect(std::span<std::uint8_t, kTriggerEffectSize> trigger,
+                          std::uint16_t percent);
+
 class DsOutputState {
 public:
   DsOutputState();

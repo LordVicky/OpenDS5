@@ -445,7 +445,10 @@ std::uint8_t scale_strength_code(std::uint8_t code, std::uint16_t percent) {
   return scaled == 0 ? 0 : static_cast<std::uint8_t>(scaled - 1);
 }
 
-void scale_trigger_effect(std::uint8_t *trigger, std::uint16_t percent) {
+} // namespace
+
+void scale_trigger_effect(std::span<std::uint8_t, kTriggerEffectSize> trigger,
+                          std::uint16_t percent) {
   if (percent == 100) {
     return;
   }
@@ -453,8 +456,7 @@ void scale_trigger_effect(std::uint8_t *trigger, std::uint16_t percent) {
   case kTriggerEffectFeedback:
   case kTriggerEffectVibration: {
     if (percent == 0) {
-      trigger[0] = kTriggerEffectOff;
-      std::fill(trigger + 1, trigger + kTriggerEffectSize, 0);
+      set_trigger_off(trigger);
       return;
     }
     const std::uint16_t active_zones =
@@ -480,16 +482,32 @@ void scale_trigger_effect(std::uint8_t *trigger, std::uint16_t percent) {
   }
   case kTriggerEffectWeapon:
     if (percent == 0) {
-      trigger[0] = kTriggerEffectOff;
-      std::fill(trigger + 1, trigger + kTriggerEffectSize, 0);
+      set_trigger_off(trigger);
       return;
     }
     trigger[3] = scale_strength_code(trigger[3] & 0x07, percent);
     return;
+  case kTriggerEffectSlope: {
+    if (percent == 0) {
+      set_trigger_off(trigger);
+      return;
+    }
+    // trigger[3] packs two 3-bit strength codes (stored as strength-1):
+    // bits 0-2 start strength, bits 3-5 end strength.
+    const std::uint8_t start_code =
+        scale_strength_code(trigger[3] & 0x07, percent);
+    const std::uint8_t end_code =
+        scale_strength_code((trigger[3] >> 3) & 0x07, percent);
+    trigger[3] = static_cast<std::uint8_t>((start_code & 0x07) |
+                                           ((end_code & 0x07) << 3));
+    return;
+  }
   default:
     return;
   }
 }
+
+namespace {
 
 std::uint8_t scale_byte(std::uint8_t value, std::uint16_t percent) {
   const unsigned scaled = (static_cast<unsigned>(value) * percent) / 100;
@@ -699,7 +717,9 @@ void DsOutputState::recompute_effective_state() {
     std::copy(companion_.right_trigger.begin(), companion_.right_trigger.end(),
               effective_state_.begin() + right_ffb);
   } else {
-    scale_trigger_effect(effective_state_.data() + right_ffb,
+    scale_trigger_effect(std::span<std::uint8_t, kTriggerEffectSize>(
+                             effective_state_.data() + right_ffb,
+                             kTriggerEffectSize),
                          companion_.trigger_intensity_percent);
   }
   if (companion_.left_trigger_active) {
@@ -707,7 +727,9 @@ void DsOutputState::recompute_effective_state() {
     std::copy(companion_.left_trigger.begin(), companion_.left_trigger.end(),
               effective_state_.begin() + left_ffb);
   } else {
-    scale_trigger_effect(effective_state_.data() + left_ffb,
+    scale_trigger_effect(std::span<std::uint8_t, kTriggerEffectSize>(
+                             effective_state_.data() + left_ffb,
+                             kTriggerEffectSize),
                          companion_.trigger_intensity_percent);
   }
 
