@@ -87,6 +87,9 @@ export const COMMAND_ID = {
   SET_CHORD_BINDINGS: 0x23,
   SET_PLAYER_LED_ENABLED: 0x24,
   SET_CLASSIC_RUMBLE_V1: 0x25,
+  // V2 trigger command lives in the extension namespace next to 0x40 in the
+  // daemon (0x21 is already SET_HOST_PERSONA).
+  APPLY_ADAPTIVE_TRIGGER_EFFECT_V2: 0x41,
   SET_SPEAKER_GAIN: 0x32,
   ENTER_BOOTLOADER: 0x33
 } as const;

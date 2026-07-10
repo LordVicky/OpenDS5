@@ -2675,6 +2675,74 @@ describe('BridgeService', () => {
     expect(device.sentReports.at(-1)?.[13]).toBe(75);
   });
 
+  it('packs a multi-feedback effect through the V2 command', async () => {
+    const service = serviceFixture();
+    const device = new MockHidDevice();
+    hidMock.state.devicesList = [companionDeviceInfo()];
+    hidMock.state.openDevices.set('companion-path', device);
+
+    const zones = [0, 0, 0, 0, 60, 60, 60, 60, 0, 0];
+    await service.applyAdaptiveTriggerEffectV2({ mode: 'multi-feedback', target: 'l2', zones: [...zones] });
+
+    const report = device.sentReports.at(-1);
+    expect(report?.[7]).toBe(COMMAND_ID.APPLY_ADAPTIVE_TRIGGER_EFFECT_V2);
+    expect(COMMAND_ID.APPLY_ADAPTIVE_TRIGGER_EFFECT_V2).toBe(0x41);
+    expect(report?.[9]).toBe(0x04); // mode multi-feedback
+    expect(report?.[10]).toBe(0x01); // target l2
+    for (let i = 0; i < zones.length; i += 1) {
+      expect(report?.[11 + i]).toBe(zones[i]);
+    }
+  });
+
+  it('packs a vibration-with-frequency effect through the V2 command', async () => {
+    const service = serviceFixture();
+    const device = new MockHidDevice();
+    hidMock.state.devicesList = [companionDeviceInfo()];
+    hidMock.state.openDevices.set('companion-path', device);
+
+    await service.applyAdaptiveTriggerEffectV2({
+      mode: 'vibration',
+      target: 'r2',
+      startPercent: 25,
+      forcePercent: 75,
+      frequencyHz: 40
+    });
+
+    const report = device.sentReports.at(-1);
+    expect(report?.[7]).toBe(COMMAND_ID.APPLY_ADAPTIVE_TRIGGER_EFFECT_V2);
+    expect(report?.[9]).toBe(0x02); // mode vibration
+    expect(report?.[10]).toBe(0x02); // target r2
+    expect(report?.[11]).toBe(25); // start
+    expect(report?.[12]).toBe(0); // wall (vibration has none)
+    expect(report?.[13]).toBe(75); // force
+    expect(report?.[14]).toBe(40); // frequencyHz
+  });
+
+  it('packs a slope effect through the V2 command', async () => {
+    const service = serviceFixture();
+    const device = new MockHidDevice();
+    hidMock.state.devicesList = [companionDeviceInfo()];
+    hidMock.state.openDevices.set('companion-path', device);
+
+    await service.applyAdaptiveTriggerEffectV2({
+      mode: 'slope',
+      target: 'both',
+      startPercent: 20,
+      endPercent: 90,
+      startForcePercent: 10,
+      endForcePercent: 100
+    });
+
+    const report = device.sentReports.at(-1);
+    expect(report?.[7]).toBe(COMMAND_ID.APPLY_ADAPTIVE_TRIGGER_EFFECT_V2);
+    expect(report?.[9]).toBe(0x05); // mode slope
+    expect(report?.[10]).toBe(0x00); // target both
+    expect(report?.[11]).toBe(20);
+    expect(report?.[12]).toBe(90);
+    expect(report?.[13]).toBe(10);
+    expect(report?.[14]).toBe(100);
+  });
+
   it('publishes local audio status reads into the snapshot immediately', async () => {
     const service = serviceFixture();
     const device = new MockHidDevice();
