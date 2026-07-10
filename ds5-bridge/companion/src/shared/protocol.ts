@@ -108,6 +108,23 @@ export type MuteButtonMode = 'normal' | 'keyboard' | 'quiet' | 'chord';
 export type MuteKeyboardBehavior = 'tap' | 'hold';
 export type TriggerTestMode = 'feedback' | 'weapon' | 'vibration';
 export type TriggerTestTarget = 'both' | 'l2' | 'r2';
+export type TriggerEffectMode =
+  | 'off'
+  | 'feedback'
+  | 'weapon'
+  | 'vibration'
+  | 'multi-feedback'
+  | 'slope'
+  | 'multi-vibration';
+export type AdaptiveTriggerEffectV2 =
+  | { mode: 'off' }
+  | { mode: 'feedback'; startPercent: number; forcePercent: number }
+  | { mode: 'weapon'; startPercent: number; wallPercent: number; forcePercent: number }
+  | { mode: 'vibration'; startPercent: number; forcePercent: number; frequencyHz?: number }
+  | { mode: 'multi-feedback'; zones: number[] }
+  | { mode: 'slope'; startPercent: number; endPercent: number; startForcePercent: number; endForcePercent: number }
+  | { mode: 'multi-vibration'; frequencyHz: number; zones: number[] };
+export type AdaptiveTriggerEffectV2Targeted = AdaptiveTriggerEffectV2 & { target: TriggerTestTarget };
 export interface AdaptiveTriggerPreviewEffect {
   mode: TriggerTestMode;
   target: TriggerTestTarget;

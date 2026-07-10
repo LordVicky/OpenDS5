@@ -218,10 +218,10 @@ describe('TriggerProfileEngine', () => {
   describe('setDraftPreview', () => {
     const draftTriggers = {
       l2: {
-        base: { mode: 'feedback' as const, startPercent: 5, wallPercent: 20, forcePercent: 30 },
+        base: { mode: 'feedback' as const, startPercent: 5, forcePercent: 30 },
         modifiers: [{
           when: { source: 'input' as const, condition: 'trigger-full-pull' },
-          effect: { mode: 'vibration' as const, startPercent: 0, wallPercent: 0, forcePercent: 75 }
+          effect: { mode: 'vibration' as const, startPercent: 0, forcePercent: 75 }
         }]
       },
       r2: null
@@ -232,7 +232,7 @@ describe('TriggerProfileEngine', () => {
       await flush();
       await engine.setDraftPreview(draftTriggers);
       expect(sink.applied.filter((effect) => effect.target === 'l2')).toEqual([
-        { mode: 'feedback', target: 'l2', startPercent: 5, wallPercent: 20, forcePercent: 30 }
+        { mode: 'feedback', target: 'l2', startPercent: 5, wallPercent: 0, forcePercent: 30 }
       ]);
       // The active profile's r2 base is relaxed because the draft has no r2 effect.
       expect(sink.applied.at(-1)).toMatchObject({ target: 'r2', forcePercent: 0 });

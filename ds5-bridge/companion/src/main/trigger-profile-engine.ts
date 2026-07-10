@@ -2,11 +2,13 @@ import { EventEmitter } from 'node:events';
 import type { AdaptiveTriggerPreviewEffect } from '../shared/protocol';
 import { ModifierEvaluator, type ControllerInputState } from '../shared/trigger-modifier-eval';
 import {
+  effectSpecEquals,
   type EngineStatus,
   type TriggerEffectSpec,
   type TriggerProfile,
   type TriggerSlotConfig
 } from '../shared/trigger-profiles';
+import type { TriggerTestTarget } from '../shared/protocol';
 import type { ActiveProfileChange, GameWatcher } from './game-watcher';
 import type { EvdevInputReader } from './evdev-input-reader';
 import type { TriggerProfileStore } from './trigger-profile-store';
@@ -32,14 +34,24 @@ type EngineOptions = {
 
 type TriggerName = 'l2' | 'r2';
 
-function effectEquals(a: TriggerEffectSpec | null, b: TriggerEffectSpec | null): boolean {
-  if (a === null || b === null) return a === b;
-  return (
-    a.mode === b.mode &&
-    a.startPercent === b.startPercent &&
-    a.wallPercent === b.wallPercent &&
-    a.forcePercent === b.forcePercent
-  );
+/**
+ * Adapts a V2 effect union to the V1 sink payload (AdaptiveTriggerPreviewEffect).
+ * The three classic arms map faithfully; feedback/vibration have no wall, so it
+ * is zeroed. New M2 arms (off, multi-feedback, slope, multi-vibration) have no V1 hardware encoding yet —
+ * that lands in a later M2 task — so they are relaxed to a zero-force feedback
+ * placeholder here to avoid emitting an invalid V1 mode.
+ */
+function toPreviewEffect(effect: TriggerEffectSpec, target: TriggerTestTarget): AdaptiveTriggerPreviewEffect {
+  switch (effect.mode) {
+    case 'feedback':
+      return { mode: 'feedback', target, startPercent: effect.startPercent, wallPercent: 0, forcePercent: effect.forcePercent };
+    case 'weapon':
+      return { mode: 'weapon', target, startPercent: effect.startPercent, wallPercent: effect.wallPercent, forcePercent: effect.forcePercent };
+    case 'vibration':
+      return { mode: 'vibration', target, startPercent: effect.startPercent, wallPercent: 0, forcePercent: effect.forcePercent };
+    default:
+      return { mode: 'feedback', target, startPercent: 0, wallPercent: 0, forcePercent: 0 };
+  }
 }
 
 export class TriggerProfileEngine extends EventEmitter {
@@ -249,7 +261,7 @@ export class TriggerProfileEngine extends EventEmitter {
     }
     for (const trigger of ['l2', 'r2'] as const) {
       const effect = desired[trigger];
-      if (effectEquals(effect, this.lastApplied[trigger])) continue;
+      if (effectSpecEquals(effect, this.lastApplied[trigger])) continue;
       if (effect === null) {
         // One trigger dropped to no-effect while the other still has one:
         // re-send a zero-force feedback effect to relax it.
@@ -261,7 +273,7 @@ export class TriggerProfileEngine extends EventEmitter {
           forcePercent: 0
         });
       } else {
-        await this.sink.applyAdaptiveTriggerEffect({ ...effect, target: trigger });
+        await this.sink.applyAdaptiveTriggerEffect(toPreviewEffect(effect, trigger));
       }
       this.lastApplied[trigger] = effect;
     }

@@ -132,7 +132,7 @@ import type {
   TriggerTestTarget
 } from '../shared/protocol';
 import type { AudioHapticsSession, BridgeSnapshot, UiScalePercent, UiThemePreset } from '../shared/types';
-import { createDefaultProfile } from '../shared/trigger-profiles';
+import { createDefaultProfile, defaultEffectForMode } from '../shared/trigger-profiles';
 import type {
   EngineStatus,
   InputConditionType,
@@ -904,7 +904,28 @@ export function formatEngineStatusLine(status: EngineStatus, activeProfileName: 
 }
 
 function defaultTriggerEffectSpec(): TriggerEffectSpec {
-  return { mode: 'feedback', startPercent: 0, wallPercent: 0, forcePercent: 0 };
+  return defaultEffectForMode('feedback');
+}
+
+// The M2 editor UI still edits the three classic arms (start/wall/force). Until
+// the per-mode editor lands in a later task, treat the effect union as this
+// legacy editable shape at the read/write boundary; the shared validator
+// normalizes whatever we produce back into the correct union arm on save.
+type ClassicEditableEffect = {
+  mode: TriggerTestMode;
+  startPercent: number;
+  wallPercent: number;
+  forcePercent: number;
+};
+
+function asClassicEffect(effect: TriggerEffectSpec): ClassicEditableEffect {
+  const raw = effect as Partial<ClassicEditableEffect> & { mode: TriggerEffectSpec['mode'] };
+  return {
+    mode: (raw.mode === 'feedback' || raw.mode === 'weapon' || raw.mode === 'vibration' ? raw.mode : 'feedback'),
+    startPercent: raw.startPercent ?? 0,
+    wallPercent: raw.wallPercent ?? 0,
+    forcePercent: raw.forcePercent ?? 0
+  };
 }
 
 function defaultTriggerModifier(): TriggerModifier {
@@ -7554,7 +7575,7 @@ export function App() {
                                     className={`trigger-lab-mode-button ${slotConfig.base?.mode === mode ? 'active' : ''}`}
                                     onClick={() => updateTriggerProfileSlot(slot, (config) => ({
                                       ...config,
-                                      base: config.base ? { ...config.base, mode } : config.base
+                                      base: config.base ? ({ ...asClassicEffect(config.base), mode } as TriggerEffectSpec) : config.base
                                     }), { mirrorBase: triggerProfilesLinked })}
                                   >
                                     {modeLabel}
@@ -7566,17 +7587,17 @@ export function App() {
                                   <span>{key === 'startPercent' ? 'Start' : key === 'wallPercent' ? 'Wall' : 'Force'}</span>
                                   <TriggerLabMeter
                                     label={`${sideLabel} ${key}`}
-                                    value={slotConfig.base ? slotConfig.base[key] : 0}
+                                    value={slotConfig.base ? asClassicEffect(slotConfig.base)[key] : 0}
                                     onChange={(value) => updateTriggerProfileSlot(slot, (config) => ({
                                       ...config,
-                                      base: config.base ? { ...config.base, [key]: value } : config.base
+                                      base: config.base ? ({ ...asClassicEffect(config.base), [key]: value } as TriggerEffectSpec) : config.base
                                     }), { mirrorBase: triggerProfilesLinked })}
                                     onCommit={(value) => updateTriggerProfileSlot(slot, (config) => ({
                                       ...config,
-                                      base: config.base ? { ...config.base, [key]: value } : config.base
+                                      base: config.base ? ({ ...asClassicEffect(config.base), [key]: value } as TriggerEffectSpec) : config.base
                                     }), { mirrorBase: triggerProfilesLinked })}
                                   />
-                                  <strong>{slotConfig.base ? slotConfig.base[key] : 0}%</strong>
+                                  <strong>{slotConfig.base ? asClassicEffect(slotConfig.base)[key] : 0}%</strong>
                                 </div>
                               ))}
                             </>
@@ -7724,7 +7745,7 @@ export function App() {
                                     ...config,
                                     modifiers: config.modifiers.map((entry, index) => (
                                       index === modifierIndex
-                                        ? { ...entry, effect: { ...entry.effect, mode } }
+                                        ? { ...entry, effect: { ...asClassicEffect(entry.effect), mode } as TriggerEffectSpec }
                                         : entry
                                     ))
                                   }))}
@@ -7734,12 +7755,12 @@ export function App() {
                                     <span>{key === 'startPercent' ? 'Start' : key === 'wallPercent' ? 'Wall' : 'Force'}</span>
                                     <TriggerLabMeter
                                       label={`${label} modifier ${modifierIndex + 1} ${key}`}
-                                      value={modifier.effect[key]}
+                                      value={asClassicEffect(modifier.effect)[key]}
                                       onChange={(value) => updateTriggerProfileSlot(slot, (config) => ({
                                         ...config,
                                         modifiers: config.modifiers.map((entry, index) => (
                                           index === modifierIndex
-                                            ? { ...entry, effect: { ...entry.effect, [key]: value } }
+                                            ? { ...entry, effect: { ...asClassicEffect(entry.effect), [key]: value } as TriggerEffectSpec }
                                             : entry
                                         ))
                                       }))}
@@ -7747,12 +7768,12 @@ export function App() {
                                         ...config,
                                         modifiers: config.modifiers.map((entry, index) => (
                                           index === modifierIndex
-                                            ? { ...entry, effect: { ...entry.effect, [key]: value } }
+                                            ? { ...entry, effect: { ...asClassicEffect(entry.effect), [key]: value } as TriggerEffectSpec }
                                             : entry
                                         ))
                                       }))}
                                     />
-                                    <strong>{modifier.effect[key]}%</strong>
+                                    <strong>{asClassicEffect(modifier.effect)[key]}%</strong>
                                   </label>
                                 ))}
                               </div>

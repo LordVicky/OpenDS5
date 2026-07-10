@@ -1,11 +1,8 @@
-import type { TriggerTestMode } from './protocol';
+import type { AdaptiveTriggerEffectV2, TriggerEffectMode } from './protocol';
 
-export interface TriggerEffectSpec {
-  mode: TriggerTestMode;
-  startPercent: number;
-  wallPercent: number;
-  forcePercent: number;
-}
+export type { TriggerEffectMode } from './protocol';
+
+export type TriggerEffectSpec = AdaptiveTriggerEffectV2;
 
 export type InputConditionType = 'trigger-held-over' | 'trigger-full-pull' | 'button-held' | 'rapid-fire';
 
@@ -53,7 +50,7 @@ export interface EngineStatus {
 export const DEFAULT_PROFILE_ID = 'default';
 
 const PROFILE_KEYS = ['version', 'id', 'name', 'match', 'triggers', 'updatedAtMs'];
-const TRIGGER_MODES: TriggerTestMode[] = ['feedback', 'weapon', 'vibration'];
+const ZONE_COUNT = 10;
 const INPUT_CONDITIONS: InputConditionType[] = [
   'trigger-held-over',
   'trigger-full-pull',
@@ -71,45 +68,170 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isPercent(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
+function isPercentInt(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100;
 }
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
-function validateEffect(raw: unknown, path: string): string | null {
-  if (!isRecord(raw)) return `${path} must be an object`;
-  if (!TRIGGER_MODES.includes(raw.mode as TriggerTestMode)) return `${path}.mode is invalid`;
-  for (const key of ['startPercent', 'wallPercent', 'forcePercent'] as const) {
-    if (!isPercent(raw[key])) return `${path}.${key} must be 0-100`;
+type EffectResult = { ok: true; effect: TriggerEffectSpec } | { ok: false; error: string };
+
+// Per-arm allowed keys. Legacy 4-field objects carry `wallPercent` on feedback
+// and vibration too; those are tolerated on input and dropped on normalization.
+const ALLOWED_EFFECT_KEYS: Record<TriggerEffectMode, string[]> = {
+  off: ['mode'],
+  feedback: ['mode', 'startPercent', 'forcePercent', 'wallPercent'],
+  weapon: ['mode', 'startPercent', 'wallPercent', 'forcePercent'],
+  vibration: ['mode', 'startPercent', 'forcePercent', 'frequencyHz', 'wallPercent'],
+  'multi-feedback': ['mode', 'zones'],
+  slope: ['mode', 'startPercent', 'endPercent', 'startForcePercent', 'endForcePercent'],
+  'multi-vibration': ['mode', 'frequencyHz', 'zones']
+};
+
+function checkExtraKeys(raw: Record<string, unknown>, mode: TriggerEffectMode, path: string): string | null {
+  const allowed = ALLOWED_EFFECT_KEYS[mode];
+  for (const key of Object.keys(raw)) {
+    if (!allowed.includes(key)) return `${path}.${key} is not allowed for mode ${mode}`;
   }
   return null;
 }
 
-function validateModifier(raw: unknown, path: string): string | null {
-  if (!isRecord(raw) || !isRecord(raw.when)) return `${path}.when must be an object`;
+function validateZones(value: unknown, path: string): string | null {
+  if (!Array.isArray(value) || value.length !== ZONE_COUNT || !value.every((entry) => isPercentInt(entry))) {
+    return `${path}.zones must be ${ZONE_COUNT} integers 0-100`;
+  }
+  return null;
+}
+
+function validateFrequency(value: unknown, path: string): string | null {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 255) {
+    return `${path}.frequencyHz must be an integer 1-255`;
+  }
+  return null;
+}
+
+function validateEffectSpec(raw: unknown, path: string): EffectResult {
+  if (!isRecord(raw)) return { ok: false, error: `${path} must be an object` };
+  const mode = raw.mode;
+  switch (mode) {
+    case 'off': {
+      const extra = checkExtraKeys(raw, 'off', path);
+      if (extra) return { ok: false, error: extra };
+      return { ok: true, effect: { mode: 'off' } };
+    }
+    case 'feedback': {
+      const extra = checkExtraKeys(raw, 'feedback', path);
+      if (extra) return { ok: false, error: extra };
+      for (const key of ['startPercent', 'forcePercent'] as const) {
+        if (!isPercentInt(raw[key])) return { ok: false, error: `${path}.${key} must be an integer 0-100` };
+      }
+      return { ok: true, effect: { mode: 'feedback', startPercent: raw.startPercent as number, forcePercent: raw.forcePercent as number } };
+    }
+    case 'weapon': {
+      const extra = checkExtraKeys(raw, 'weapon', path);
+      if (extra) return { ok: false, error: extra };
+      for (const key of ['startPercent', 'wallPercent', 'forcePercent'] as const) {
+        if (!isPercentInt(raw[key])) return { ok: false, error: `${path}.${key} must be an integer 0-100` };
+      }
+      return {
+        ok: true,
+        effect: {
+          mode: 'weapon',
+          startPercent: raw.startPercent as number,
+          wallPercent: raw.wallPercent as number,
+          forcePercent: raw.forcePercent as number
+        }
+      };
+    }
+    case 'vibration': {
+      const extra = checkExtraKeys(raw, 'vibration', path);
+      if (extra) return { ok: false, error: extra };
+      for (const key of ['startPercent', 'forcePercent'] as const) {
+        if (!isPercentInt(raw[key])) return { ok: false, error: `${path}.${key} must be an integer 0-100` };
+      }
+      const effect: TriggerEffectSpec = { mode: 'vibration', startPercent: raw.startPercent as number, forcePercent: raw.forcePercent as number };
+      if (raw.frequencyHz !== undefined) {
+        const freqError = validateFrequency(raw.frequencyHz, path);
+        if (freqError) return { ok: false, error: freqError };
+        effect.frequencyHz = raw.frequencyHz as number;
+      }
+      return { ok: true, effect };
+    }
+    case 'multi-feedback': {
+      const extra = checkExtraKeys(raw, 'multi-feedback', path);
+      if (extra) return { ok: false, error: extra };
+      const zonesError = validateZones(raw.zones, path);
+      if (zonesError) return { ok: false, error: zonesError };
+      return { ok: true, effect: { mode: 'multi-feedback', zones: [...(raw.zones as number[])] } };
+    }
+    case 'slope': {
+      const extra = checkExtraKeys(raw, 'slope', path);
+      if (extra) return { ok: false, error: extra };
+      for (const key of ['startPercent', 'endPercent', 'startForcePercent', 'endForcePercent'] as const) {
+        if (!isPercentInt(raw[key])) return { ok: false, error: `${path}.${key} must be an integer 0-100` };
+      }
+      if ((raw.endPercent as number) <= (raw.startPercent as number)) {
+        return { ok: false, error: `${path}.endPercent must be greater than startPercent` };
+      }
+      return {
+        ok: true,
+        effect: {
+          mode: 'slope',
+          startPercent: raw.startPercent as number,
+          endPercent: raw.endPercent as number,
+          startForcePercent: raw.startForcePercent as number,
+          endForcePercent: raw.endForcePercent as number
+        }
+      };
+    }
+    case 'multi-vibration': {
+      const extra = checkExtraKeys(raw, 'multi-vibration', path);
+      if (extra) return { ok: false, error: extra };
+      const freqError = validateFrequency(raw.frequencyHz, path);
+      if (freqError) return { ok: false, error: freqError };
+      const zonesError = validateZones(raw.zones, path);
+      if (zonesError) return { ok: false, error: zonesError };
+      return { ok: true, effect: { mode: 'multi-vibration', frequencyHz: raw.frequencyHz as number, zones: [...(raw.zones as number[])] } };
+    }
+    default:
+      return { ok: false, error: `${path}.mode is not a valid effect mode: ${String(mode)}` };
+  }
+}
+
+type ModifierResult = { ok: true; modifier: TriggerModifier } | { ok: false; error: string };
+
+function validateModifier(raw: unknown, path: string): ModifierResult {
+  if (!isRecord(raw) || !isRecord(raw.when)) return { ok: false, error: `${path}.when must be an object` };
   const when = raw.when;
-  if (when.source !== 'input' && when.source !== 'audio') return `${path}.when.source is invalid`;
+  if (when.source !== 'input' && when.source !== 'audio') return { ok: false, error: `${path}.when.source is invalid` };
   if (when.source === 'input' && !INPUT_CONDITIONS.includes(when.condition as InputConditionType)) {
-    return `${path}.when.condition is not a known input condition`;
+    return { ok: false, error: `${path}.when.condition is not a known input condition` };
   }
-  return validateEffect(raw.effect, `${path}.effect`);
+  const effect = validateEffectSpec(raw.effect, `${path}.effect`);
+  if (!effect.ok) return effect;
+  return { ok: true, modifier: { when: when as unknown as ModifierCondition, effect: effect.effect } };
 }
 
-function validateSlot(raw: unknown, path: string): string | null {
-  if (!isRecord(raw)) return `${path} must be an object`;
+type SlotResult = { ok: true; slot: TriggerSlotConfig } | { ok: false; error: string };
+
+function validateSlot(raw: unknown, path: string): SlotResult {
+  if (!isRecord(raw)) return { ok: false, error: `${path} must be an object` };
+  let base: TriggerEffectSpec | null = null;
   if (raw.base !== null) {
-    const error = validateEffect(raw.base, `${path}.base`);
-    if (error) return error;
+    const result = validateEffectSpec(raw.base, `${path}.base`);
+    if (!result.ok) return result;
+    base = result.effect;
   }
-  if (!Array.isArray(raw.modifiers)) return `${path}.modifiers must be an array`;
+  if (!Array.isArray(raw.modifiers)) return { ok: false, error: `${path}.modifiers must be an array` };
+  const modifiers: TriggerModifier[] = [];
   for (let index = 0; index < raw.modifiers.length; index += 1) {
-    const error = validateModifier(raw.modifiers[index], `${path}.modifiers[${index}]`);
-    if (error) return error;
+    const result = validateModifier(raw.modifiers[index], `${path}.modifiers[${index}]`);
+    if (!result.ok) return result;
+    modifiers.push(result.modifier);
   }
-  return null;
+  return { ok: true, slot: { base, modifiers } };
 }
 
 export function validateTriggerProfile(raw: unknown): ValidationResult {
@@ -124,12 +246,96 @@ export function validateTriggerProfile(raw: unknown): ValidationResult {
     return fail('match must contain processNames and windowTitles string arrays');
   }
   if (!isRecord(raw.triggers)) return fail('triggers must be an object');
+  const slots: { l2: TriggerSlotConfig; r2: TriggerSlotConfig } = {
+    l2: { base: null, modifiers: [] },
+    r2: { base: null, modifiers: [] }
+  };
   for (const slot of ['l2', 'r2'] as const) {
-    const error = validateSlot(raw.triggers[slot], `triggers.${slot}`);
-    if (error) return fail(error);
+    const result = validateSlot(raw.triggers[slot], `triggers.${slot}`);
+    if (!result.ok) return fail(result.error);
+    slots[slot] = result.slot;
   }
   if (typeof raw.updatedAtMs !== 'number') return fail('updatedAtMs must be a number');
-  return { ok: true, profile: raw as unknown as TriggerProfile };
+  return {
+    ok: true,
+    profile: {
+      version: 1,
+      id: raw.id,
+      name: raw.name,
+      match: {
+        processNames: [...raw.match.processNames],
+        windowTitles: [...raw.match.windowTitles]
+      },
+      triggers: slots,
+      updatedAtMs: raw.updatedAtMs
+    }
+  };
+}
+
+export function effectSpecEquals(a: TriggerEffectSpec | null, b: TriggerEffectSpec | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.mode !== b.mode) return false;
+  switch (a.mode) {
+    case 'off':
+      return true;
+    case 'feedback': {
+      const y = b as Extract<TriggerEffectSpec, { mode: 'feedback' }>;
+      return a.startPercent === y.startPercent && a.forcePercent === y.forcePercent;
+    }
+    case 'weapon': {
+      const y = b as Extract<TriggerEffectSpec, { mode: 'weapon' }>;
+      return a.startPercent === y.startPercent && a.wallPercent === y.wallPercent && a.forcePercent === y.forcePercent;
+    }
+    case 'vibration': {
+      const y = b as Extract<TriggerEffectSpec, { mode: 'vibration' }>;
+      return a.startPercent === y.startPercent && a.forcePercent === y.forcePercent && a.frequencyHz === y.frequencyHz;
+    }
+    case 'multi-feedback': {
+      const y = b as Extract<TriggerEffectSpec, { mode: 'multi-feedback' }>;
+      return zonesEqual(a.zones, y.zones);
+    }
+    case 'slope': {
+      const y = b as Extract<TriggerEffectSpec, { mode: 'slope' }>;
+      return (
+        a.startPercent === y.startPercent &&
+        a.endPercent === y.endPercent &&
+        a.startForcePercent === y.startForcePercent &&
+        a.endForcePercent === y.endForcePercent
+      );
+    }
+    case 'multi-vibration': {
+      const y = b as Extract<TriggerEffectSpec, { mode: 'multi-vibration' }>;
+      return a.frequencyHz === y.frequencyHz && zonesEqual(a.zones, y.zones);
+    }
+    default:
+      return false;
+  }
+}
+
+function zonesEqual(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+}
+
+export function defaultEffectForMode(mode: TriggerEffectMode): TriggerEffectSpec {
+  switch (mode) {
+    case 'off':
+      return { mode: 'off' };
+    case 'feedback':
+      return { mode: 'feedback', startPercent: 0, forcePercent: 0 };
+    case 'weapon':
+      return { mode: 'weapon', startPercent: 0, wallPercent: 0, forcePercent: 0 };
+    case 'vibration':
+      return { mode: 'vibration', startPercent: 0, forcePercent: 0, frequencyHz: 25 };
+    case 'multi-feedback':
+      return { mode: 'multi-feedback', zones: [0, 0, 0, 0, 60, 60, 60, 60, 0, 0] };
+    case 'slope':
+      return { mode: 'slope', startPercent: 20, endPercent: 90, startForcePercent: 10, endForcePercent: 100 };
+    case 'multi-vibration':
+      return { mode: 'multi-vibration', frequencyHz: 25, zones: [0, 0, 0, 0, 60, 60, 60, 60, 0, 0] };
+    default:
+      return { mode: 'off' };
+  }
 }
 
 export function createDefaultProfile(): TriggerProfile {
