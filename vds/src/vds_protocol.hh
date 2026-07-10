@@ -96,6 +96,15 @@ void encode_companion_trigger_effect(
     std::uint8_t start_percent, std::uint8_t wall_percent,
     std::uint8_t force_percent);
 
+struct CompanionTriggerEffect;
+
+// Encodes the full V2 companion trigger effect surface. V1 modes (0 feedback,
+// 1 weapon, 2 vibration) delegate to encode_companion_trigger_effect;
+// V2-only modes are 3 off, 4 multi-feedback, 5 slope, 6 multi-vibration.
+void encode_companion_trigger_effect_v2(
+    std::span<std::uint8_t, kTriggerEffectSize> trigger,
+    const CompanionTriggerEffect &effect);
+
 class DsOutputState {
 public:
   DsOutputState();
