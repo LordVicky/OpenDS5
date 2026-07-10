@@ -64,6 +64,15 @@ describe('renderer behavior guards', () => {
     expect(appSource).toContain('From library');
     expect(appSource).not.toContain('dangerouslySetInnerHTML');
     expect(stylesSource).toContain('.trigger-profiles-library');
+
+    const escapeStart = appSource.indexOf('const closeOnEscape =');
+    expect(escapeStart).toBeGreaterThanOrEqual(0);
+    const escapeEnd = appSource.indexOf('};', escapeStart);
+    const escapeHandler = appSource.slice(escapeStart, escapeEnd);
+    expect(escapeHandler).toContain('setTriggerProfileLibraryOpen(false)');
+    expect(appSource).toContain(
+      '}, [showBridgeSettings, showNotificationsMenu, triggerProfileLibraryOpen]);'
+    );
   });
 
   it('does not block haptic testing just because audio is active', () => {

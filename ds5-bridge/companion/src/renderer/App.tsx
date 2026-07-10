@@ -3303,7 +3303,7 @@ export function App() {
   }, [audioHapticsOpen, audioReactiveHapticsSourceKey, connected, controllerConnected]);
 
   useEffect(() => {
-    if (!showBridgeSettings && !showNotificationsMenu) {
+    if (!showBridgeSettings && !showNotificationsMenu && !triggerProfileLibraryOpen) {
       return;
     }
 
@@ -3316,6 +3316,7 @@ export function App() {
       if (event.key === 'Escape') {
         setShowBridgeSettings(false);
         setShowNotificationsMenu(false);
+        setTriggerProfileLibraryOpen(false);
       }
     };
 
@@ -3325,7 +3326,7 @@ export function App() {
       document.removeEventListener('mousedown', closeOnOutsideClick);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [showBridgeSettings, showNotificationsMenu]);
+  }, [showBridgeSettings, showNotificationsMenu, triggerProfileLibraryOpen]);
 
   useEffect(() => {
     setSpeakerOutputAvailable(true);
