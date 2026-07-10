@@ -141,6 +141,7 @@ import type {
   TriggerProfile
 } from '../shared/trigger-profiles';
 import type { GameProcessCandidate } from '../main/game-watcher';
+import { TriggerEffectEditor } from './TriggerEffectEditor';
 
 type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
 type StartupTutorialStep = 'feature-toggle' | 'support' | 'done';
@@ -301,8 +302,6 @@ const TRIGGER_EFFECT_PRESETS: Array<[string, number]> = [
   ['High', 100]
 ];
 const PERCENT_SLIDER_TICKS = Array.from({ length: 11 }, (_, index) => index * 10);
-const TRIGGER_LAB_SLIDER_STEP = 5;
-const TRIGGER_LAB_SLIDER_TICKS = Array.from({ length: 21 }, (_, index) => index * TRIGGER_LAB_SLIDER_STEP);
 const STANDARD_HAPTICS_SLIDER_TICKS = Array.from({ length: 11 }, (_, index) => index * 20);
 const BRIDGE_AUDIO_OUTPUT_RE = /ds5|dualsense|dual sense|wireless controller|bridge/i;
 const BRIDGE_AUDIO_INPUT_RE = /ds5|dualsense|dual sense|wireless controller|bridge/i;
@@ -328,11 +327,9 @@ const MUTE_MODIFIER_OPTIONS: Array<[string, number]> = [
   ['Alt', 0x04],
   ['Win', 0x08]
 ];
-const TRIGGER_TEST_MODE_OPTIONS: Array<[string, TriggerTestMode]> = [
-  ['Feedback', 'feedback'],
-  ['Weapon', 'weapon'],
-  ['Vibration', 'vibration']
-];
+// The daemon's short-test/preview commands (0x0D / 0x1F) only understand the
+// three classic V1 arms; the richer modes preview through profile drafts.
+const TRIGGER_LAB_TESTABLE_MODES: TriggerTestMode[] = ['feedback', 'weapon', 'vibration'];
 const TRIGGER_PROFILE_SLOTS: Array<[TriggerProfileSlotKey, string]> = [
   ['l2', 'L2'],
   ['r2', 'R2']
@@ -876,10 +873,6 @@ function snapTriggerEffectIntensity(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value / TRIGGER_EFFECT_STEP) * TRIGGER_EFFECT_STEP));
 }
 
-function snapTriggerLabPercent(value: number): number {
-  return Math.max(0, Math.min(100, Math.round(value / TRIGGER_LAB_SLIDER_STEP) * TRIGGER_LAB_SLIDER_STEP));
-}
-
 export function parseProcessNamesInput(input: string): string[] {
   return input
     .split(',')
@@ -905,27 +898,6 @@ export function formatEngineStatusLine(status: EngineStatus, activeProfileName: 
 
 function defaultTriggerEffectSpec(): TriggerEffectSpec {
   return defaultEffectForMode('feedback');
-}
-
-// The M2 editor UI still edits the three classic arms (start/wall/force). Until
-// the per-mode editor lands in a later task, treat the effect union as this
-// legacy editable shape at the read/write boundary; the shared validator
-// normalizes whatever we produce back into the correct union arm on save.
-type ClassicEditableEffect = {
-  mode: TriggerTestMode;
-  startPercent: number;
-  wallPercent: number;
-  forcePercent: number;
-};
-
-function asClassicEffect(effect: TriggerEffectSpec): ClassicEditableEffect {
-  const raw = effect as Partial<ClassicEditableEffect> & { mode: TriggerEffectSpec['mode'] };
-  return {
-    mode: (raw.mode === 'feedback' || raw.mode === 'weapon' || raw.mode === 'vibration' ? raw.mode : 'feedback'),
-    startPercent: raw.startPercent ?? 0,
-    wallPercent: raw.wallPercent ?? 0,
-    forcePercent: raw.forcePercent ?? 0
-  };
 }
 
 function defaultTriggerModifier(): TriggerModifier {
@@ -1124,45 +1096,6 @@ function sliderTickClass(value: number, max: number): string | undefined {
     return 'milestone';
   }
   return undefined;
-}
-
-type TriggerLabMeterProps = {
-  label: string;
-  value: number;
-  disabled?: boolean;
-  onChange: (value: number) => void;
-  onCommit: (value: number) => void;
-};
-
-function TriggerLabMeter({ label, value, disabled = false, onChange, onCommit }: TriggerLabMeterProps) {
-  function commitValue(element: HTMLInputElement) {
-    onCommit(snapTriggerLabPercent(Number(element.value)));
-  }
-
-  return (
-    <div className="range-control trigger-lab-meter">
-      <input
-        type="range"
-        min="0"
-        max="100"
-        step={TRIGGER_LAB_SLIDER_STEP}
-        value={value}
-        disabled={disabled}
-        aria-label={label}
-        style={{ '--range-fill': `${value}%` } as CSSProperties}
-        onChange={(event) => onChange(snapTriggerLabPercent(Number(event.currentTarget.value)))}
-        onBlur={(event) => commitValue(event.currentTarget)}
-        onKeyUp={(event) => commitValue(event.currentTarget)}
-        onPointerCancel={(event) => commitValue(event.currentTarget)}
-        onPointerUp={(event) => commitValue(event.currentTarget)}
-      />
-      <div className="range-ticks" aria-hidden="true">
-        {TRIGGER_LAB_SLIDER_TICKS.map((tick) => (
-          <span key={tick} className={sliderTickClass(tick, 100)} />
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function BridgeMark() {
@@ -2783,6 +2716,16 @@ export function App() {
   const [lightbarBrightnessValue, setLightbarBrightnessValue] = useState(100);
   const [triggerEffectIntensityValue, setTriggerEffectIntensityValue] = useState(100);
   const [triggerTarget, setTriggerTarget] = useState<TriggerTestTarget>('both');
+  const [triggerLabEffect, setTriggerLabEffect] = useState<TriggerEffectSpec>(() => defaultEffectForMode('feedback'));
+  const triggerLabSeededRef = useRef(false);
+
+  useEffect(() => {
+    if (triggerLabSeededRef.current) return;
+    const mode = snapshot?.settings.triggerTestMode;
+    if (!mode) return;
+    triggerLabSeededRef.current = true;
+    setTriggerLabEffect(defaultEffectForMode(mode));
+  }, [snapshot]);
   const [audioHapticsOpen, setAudioHapticsOpen] = useState(false);
   const [audioHapticsSessions, setAudioHapticsSessions] = useState<AudioHapticsSession[]>([]);
   const [audioHapticsSessionsLoading, setAudioHapticsSessionsLoading] = useState(false);
@@ -3946,7 +3889,9 @@ export function App() {
       ? 'Active'
       : 'Enabled'
     : 'Off';
-  const testTriggersUnavailable = !connected
+  const triggerLabModeTestable = TRIGGER_LAB_TESTABLE_MODES.includes(triggerLabEffect.mode as TriggerTestMode);
+  const testTriggersUnavailable = !triggerLabModeTestable
+    || !connected
     || !adaptiveTriggersSupported
     || !adaptiveTriggersEnabled
     || pendingAction !== null
@@ -4651,6 +4596,16 @@ export function App() {
       ) {
         await window.bridge.setTriggerEffectIntensity(triggerEffectIntensityValue);
       }
+      const effect = triggerLabEffect;
+      if (effect.mode === 'feedback' || effect.mode === 'weapon' || effect.mode === 'vibration') {
+        return window.bridge.previewAdaptiveTriggerEffect({
+          mode: effect.mode,
+          target: triggerTarget,
+          startPercent: effect.startPercent,
+          wallPercent: effect.mode === 'weapon' ? effect.wallPercent : 0,
+          forcePercent: effect.forcePercent
+        });
+      }
       return window.bridge.testAdaptiveTriggers(snapshot?.settings.triggerTestMode ?? 'feedback', triggerTarget);
     }).finally(() => {
       window.setTimeout(() => setTriggerTestLocked(false), TEST_TRIGGER_LOCK_MS);
@@ -4659,6 +4614,19 @@ export function App() {
 
   function setTriggerTestMode(mode: TriggerTestMode) {
     void runAction('trigger-mode', () => window.bridge.setTriggerTestMode(mode));
+  }
+
+  function updateTriggerLabEffect(effect: TriggerEffectSpec) {
+    const previousMode = triggerLabEffect.mode;
+    setTriggerLabEffect(effect);
+    if (
+      effect.mode !== previousMode
+      && TRIGGER_LAB_TESTABLE_MODES.includes(effect.mode as TriggerTestMode)
+      && snapshot
+      && snapshot.settings.triggerTestMode !== effect.mode
+    ) {
+      setTriggerTestMode(effect.mode as TriggerTestMode);
+    }
   }
 
   function resetAdaptiveTriggers() {
@@ -7341,21 +7309,24 @@ export function App() {
                     </div>
                   </div>
                   <div className="test-options">
-                    <div className="select-row wide-select trigger-test-mode-control">
-                      <CustomSelect
-                        value={snapshot.settings.triggerTestMode}
-                        disabled={
-                          !connected
-                          || !adaptiveTriggersSupported
-                          || !snapshot.settings.adaptiveTriggersEnabled
-                          || adaptiveTriggerOutputActive
-                          || pendingAction !== null
-                        }
-                        options={TRIGGER_TEST_MODE_OPTIONS}
-                        ariaLabel="Trigger test type"
-                        onChange={setTriggerTestMode}
-                      />
-                    </div>
+                    <TriggerEffectEditor
+                      label="Trigger test"
+                      value={triggerLabEffect}
+                      disabled={
+                        !connected
+                        || !adaptiveTriggersSupported
+                        || !snapshot.settings.adaptiveTriggersEnabled
+                        || adaptiveTriggerOutputActive
+                        || pendingAction !== null
+                      }
+                      onChange={updateTriggerLabEffect}
+                    />
+                    {!triggerLabModeTestable && (
+                      <p className="trigger-lab-test-note">
+                        Test playback covers Feedback, Weapon, and Vibration. Preview this effect by
+                        assigning it in a game trigger profile.
+                      </p>
+                    )}
                     <div className="target-row">
                       <div className="segmented-row compact">
                         {TRIGGER_TARGET_OPTIONS.map(([label, value]) => (
@@ -7566,41 +7537,14 @@ export function App() {
                             </button>
                           </div>
                           {slotConfig.base ? (
-                            <>
-                              <div className="trigger-lab-mode-grid">
-                                {TRIGGER_TEST_MODE_OPTIONS.map(([modeLabel, mode]) => (
-                                  <button
-                                    key={mode}
-                                    type="button"
-                                    className={`trigger-lab-mode-button ${slotConfig.base?.mode === mode ? 'active' : ''}`}
-                                    onClick={() => updateTriggerProfileSlot(slot, (config) => ({
-                                      ...config,
-                                      base: config.base ? ({ ...asClassicEffect(config.base), mode } as TriggerEffectSpec) : config.base
-                                    }), { mirrorBase: triggerProfilesLinked })}
-                                  >
-                                    {modeLabel}
-                                  </button>
-                                ))}
-                              </div>
-                              {(['startPercent', 'wallPercent', 'forcePercent'] as const).map((key) => (
-                                <div key={key} className="trigger-lab-meter-row">
-                                  <span>{key === 'startPercent' ? 'Start' : key === 'wallPercent' ? 'Wall' : 'Force'}</span>
-                                  <TriggerLabMeter
-                                    label={`${sideLabel} ${key}`}
-                                    value={slotConfig.base ? asClassicEffect(slotConfig.base)[key] : 0}
-                                    onChange={(value) => updateTriggerProfileSlot(slot, (config) => ({
-                                      ...config,
-                                      base: config.base ? ({ ...asClassicEffect(config.base), [key]: value } as TriggerEffectSpec) : config.base
-                                    }), { mirrorBase: triggerProfilesLinked })}
-                                    onCommit={(value) => updateTriggerProfileSlot(slot, (config) => ({
-                                      ...config,
-                                      base: config.base ? ({ ...asClassicEffect(config.base), [key]: value } as TriggerEffectSpec) : config.base
-                                    }), { mirrorBase: triggerProfilesLinked })}
-                                  />
-                                  <strong>{slotConfig.base ? asClassicEffect(slotConfig.base)[key] : 0}%</strong>
-                                </div>
-                              ))}
-                            </>
+                            <TriggerEffectEditor
+                              label={sideLabel}
+                              value={slotConfig.base}
+                              onChange={(effect) => updateTriggerProfileSlot(slot, (config) => ({
+                                ...config,
+                                base: config.base ? effect : config.base
+                              }), { mirrorBase: triggerProfilesLinked })}
+                            />
                           ) : (
                             <p className="trigger-profiles-slot-off-note">
                               No base effect — game trigger output passes through.
@@ -7737,45 +7681,17 @@ export function App() {
                                 </button>
                               </div>
                               <div className="trigger-profiles-effect-sliders">
-                                <CustomSelect
-                                  value={modifier.effect.mode}
-                                  options={TRIGGER_TEST_MODE_OPTIONS}
-                                  ariaLabel={`${label} modifier ${modifierIndex + 1} effect mode`}
-                                  onChange={(mode) => updateTriggerProfileSlot(slot, (config) => ({
+                                <TriggerEffectEditor
+                                  compact
+                                  label={`${label} modifier ${modifierIndex + 1}`}
+                                  value={modifier.effect}
+                                  onChange={(effect) => updateTriggerProfileSlot(slot, (config) => ({
                                     ...config,
                                     modifiers: config.modifiers.map((entry, index) => (
-                                      index === modifierIndex
-                                        ? { ...entry, effect: { ...asClassicEffect(entry.effect), mode } as TriggerEffectSpec }
-                                        : entry
+                                      index === modifierIndex ? { ...entry, effect } : entry
                                     ))
                                   }))}
                                 />
-                                {(['startPercent', 'wallPercent', 'forcePercent'] as const).map((key) => (
-                                  <label key={key} className="trigger-profiles-effect-slider">
-                                    <span>{key === 'startPercent' ? 'Start' : key === 'wallPercent' ? 'Wall' : 'Force'}</span>
-                                    <TriggerLabMeter
-                                      label={`${label} modifier ${modifierIndex + 1} ${key}`}
-                                      value={asClassicEffect(modifier.effect)[key]}
-                                      onChange={(value) => updateTriggerProfileSlot(slot, (config) => ({
-                                        ...config,
-                                        modifiers: config.modifiers.map((entry, index) => (
-                                          index === modifierIndex
-                                            ? { ...entry, effect: { ...asClassicEffect(entry.effect), [key]: value } as TriggerEffectSpec }
-                                            : entry
-                                        ))
-                                      }))}
-                                      onCommit={(value) => updateTriggerProfileSlot(slot, (config) => ({
-                                        ...config,
-                                        modifiers: config.modifiers.map((entry, index) => (
-                                          index === modifierIndex
-                                            ? { ...entry, effect: { ...asClassicEffect(entry.effect), [key]: value } as TriggerEffectSpec }
-                                            : entry
-                                        ))
-                                      }))}
-                                    />
-                                    <strong>{asClassicEffect(modifier.effect)[key]}%</strong>
-                                  </label>
-                                ))}
                               </div>
                             </div>
                           ))}

@@ -552,3 +552,50 @@ describe('triggerStripMaxChips', () => {
     expect(triggerStripMaxChips(1110)).toBe(8);
   });
 });
+
+describe('shared trigger effect editor', () => {
+  const editorPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'TriggerEffectEditor.tsx');
+  const editorSource = readFileSync(editorPath, 'utf8');
+
+  it('exposes all seven effect modes with the agreed labels', () => {
+    for (const label of ['Off', 'Feedback', 'Weapon', 'Vibration', 'Multi Feedback', 'Slope', 'Multi Vibration']) {
+      expect(editorSource).toContain(`'${label}'`);
+    }
+    for (const mode of ['off', 'feedback', 'weapon', 'vibration', 'multi-feedback', 'slope', 'multi-vibration']) {
+      expect(editorSource).toContain(`'${mode}'`);
+    }
+  });
+
+  it('resets to the mode default effect when switching modes', () => {
+    expect(editorSource).toContain('defaultEffectForMode(');
+  });
+
+  it('renders a ten-zone strip and a 1-255 frequency field for the multi modes', () => {
+    expect(editorSource).toContain('trigger-zone-strip');
+    expect(editorSource).toContain('frequencyHz');
+    expect(editorSource).toContain('max={255}');
+    expect(stylesSource).toContain('.trigger-zone-strip');
+    expect(stylesSource).toContain('.trigger-zone-value');
+  });
+
+  it('is used by the profile editor slot cards (base + modifiers) and the Trigger Lab card', () => {
+    const slotStart = appSource.indexOf('trigger-profiles-slot-card');
+    expect(slotStart).toBeGreaterThanOrEqual(0);
+    const slotEnd = appSource.indexOf('Identity &amp; Matching', slotStart);
+    const slotRegion = appSource.slice(slotStart, slotEnd);
+    expect(slotRegion).toContain('<TriggerEffectEditor');
+    const modifiersStart = slotRegion.indexOf('trigger-profiles-modifiers');
+    expect(slotRegion.slice(modifiersStart)).toContain('<TriggerEffectEditor');
+
+    const labStart = appSource.indexOf('feature-card test-card');
+    expect(labStart).toBeGreaterThanOrEqual(0);
+    const labEnd = appSource.indexOf('trigger-action-row', labStart);
+    const labRegion = appSource.slice(labStart, labEnd);
+    expect(labRegion).toContain('<TriggerEffectEditor');
+  });
+
+  it('keeps Trigger Lab test playback on the daemon-supported classic modes', () => {
+    expect(appSource).toContain('previewAdaptiveTriggerEffect');
+    expect(appSource).toContain('TRIGGER_LAB_TESTABLE_MODES');
+  });
+});

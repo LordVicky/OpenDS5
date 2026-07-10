@@ -18,6 +18,7 @@ import { GameWatcher, listCandidateGameProcesses } from './game-watcher';
 import { EvdevInputReader } from './evdev-input-reader';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
 import type {
+  AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
   BridgePresetId,
   ChordAssignment,
@@ -1224,6 +1225,10 @@ function registerIpc(
   ipcMain.handle('bridge:testAdaptiveTriggers', async (_event, value?: TriggerTestMode, target?: TriggerTestTarget) => {
     await triggerProfileEngine.suspend();
     return service.testAdaptiveTriggers(value, target);
+  });
+  ipcMain.handle('bridge:previewAdaptiveTriggerEffect', async (_event, effect: AdaptiveTriggerPreviewEffect) => {
+    await triggerProfileEngine.suspend();
+    return service.previewAdaptiveTriggerEffect(effect);
   });
   ipcMain.handle('bridge:resetAdaptiveTriggers', async () => {
     const result = await service.resetAdaptiveTriggers();
