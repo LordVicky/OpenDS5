@@ -14,6 +14,7 @@ import {
 import { SettingsStore } from './settings-store';
 import { growBoundsToMinimum, loadWindowState, resolveWindowBounds, saveWindowState } from './window-state';
 import { readProfileFileForImport, TriggerProfileStore } from './trigger-profile-store';
+import { ProfileLibrary, type LibraryEntry } from './profile-library';
 import { GameWatcher, listCandidateGameProcesses } from './game-watcher';
 import { EvdevInputReader } from './evdev-input-reader';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
@@ -1039,7 +1040,8 @@ async function runPicoFirmwareIpcAction(
 function registerIpc(
   service: BridgeService,
   triggerProfileStore: TriggerProfileStore,
-  triggerProfileEngine: TriggerProfileEngine
+  triggerProfileEngine: TriggerProfileEngine,
+  profileLibrary: ProfileLibrary
 ): void {
   ipcMain.handle('bridge:listTriggerProfiles', () => triggerProfileStore.list());
   ipcMain.handle('bridge:saveTriggerProfile', (_event, profile: TriggerProfile) => {
@@ -1113,6 +1115,17 @@ function registerIpc(
     }
     if (importedAny) triggerProfileEngine.refreshProfiles();
     return results;
+  });
+  ipcMain.handle('bridge:getProfileLibraryCatalog', () => profileLibrary.getCatalog());
+  ipcMain.handle('bridge:installLibraryProfile', async (_event, entry: LibraryEntry) => {
+    try {
+      const parsed = await profileLibrary.fetchProfile(entry);
+      const imported = triggerProfileStore.importProfile(parsed, 'library');
+      if (imported.ok) triggerProfileEngine.refreshProfiles();
+      return imported;
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
   ipcMain.handle('bridge:getTriggerProfileEngineStatus', () => triggerProfileEngine.getStatus());
   ipcMain.handle('bridge:previewTriggerProfileDraft', async (_event, triggers: DraftPreviewTriggers | null) => {
@@ -1348,6 +1361,9 @@ app.whenReady().then(async () => {
   const triggerProfileStore = new TriggerProfileStore(
     path.join(app.getPath('userData'), 'trigger-profiles')
   );
+  const profileLibrary = new ProfileLibrary(
+    path.join(app.getPath('userData'), 'profile-library')
+  );
   triggerProfileEngine = new TriggerProfileEngine({
     sink: bridgeService,
     store: triggerProfileStore,
@@ -1370,7 +1386,7 @@ app.whenReady().then(async () => {
       window.webContents.send('bridge:triggerProfileEngineStatus', status);
     }
   });
-  registerIpc(bridgeService, triggerProfileStore, triggerProfileEngine);
+  registerIpc(bridgeService, triggerProfileStore, triggerProfileEngine, profileLibrary);
 
   mainWindow = createWindow(settingsStore.get().uiScalePercent);
   mainWindow.on('maximize', sendWindowMaximizedState);

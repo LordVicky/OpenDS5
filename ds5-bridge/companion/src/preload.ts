@@ -22,6 +22,8 @@ import type {
   WindowsDeviceCleanupResult
 } from './shared/types';
 import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/trigger-profiles';
+import type { LibraryCatalog, LibraryEntry } from './main/profile-library';
+import type { ImportResult } from './main/trigger-profile-store';
 import type { GameProcessCandidate } from './main/game-watcher';
 
 const api = {
@@ -227,6 +229,12 @@ const api = {
   ),
   importTriggerProfiles: (): Promise<Array<{ file: string; ok: boolean; error?: string; name?: string }>> => (
     ipcRenderer.invoke('bridge:importTriggerProfiles')
+  ),
+  getProfileLibraryCatalog: (): Promise<LibraryCatalog> => (
+    ipcRenderer.invoke('bridge:getProfileLibraryCatalog')
+  ),
+  installLibraryProfile: (entry: LibraryEntry): Promise<ImportResult> => (
+    ipcRenderer.invoke('bridge:installLibraryProfile', entry)
   ),
   setTriggerProfilesEnabled: (enabled: boolean): Promise<EngineStatus> => (
     ipcRenderer.invoke('bridge:setTriggerProfilesEnabled', enabled)
