@@ -1053,11 +1053,21 @@ function registerIpc(
   });
   ipcMain.handle('bridge:setTriggerProfilesEnabled', async (_event, enabled: boolean) => {
     await triggerProfileEngine.setEnabled(enabled);
-    return triggerProfileEngine.getStatus();
+    const status = triggerProfileEngine.getStatus();
+    triggerProfileStore.saveEngineState({
+      enabled: status.enabled,
+      pinnedProfileId: status.matchedBy === 'pin' ? status.activeProfileId : null
+    });
+    return status;
   });
   ipcMain.handle('bridge:pinTriggerProfile', (_event, id: string | null) => {
     triggerProfileEngine.pinProfile(id);
-    return triggerProfileEngine.getStatus();
+    const status = triggerProfileEngine.getStatus();
+    triggerProfileStore.saveEngineState({
+      enabled: status.enabled,
+      pinnedProfileId: status.matchedBy === 'pin' ? status.activeProfileId : null
+    });
+    return status;
   });
   ipcMain.handle('bridge:getTriggerProfileEngineStatus', () => triggerProfileEngine.getStatus());
   ipcMain.handle('bridge:previewTriggerProfileDraft', async (_event, triggers: DraftPreviewTriggers | null) => {
@@ -1296,6 +1306,16 @@ app.whenReady().then(async () => {
     reader: new EvdevInputReader()
   });
   triggerProfileEngine.refreshProfiles();
+  // Restore the engine's persisted enabled/pin state; before this, every
+  // launch silently started with the game watcher off while the UI still
+  // looked like auto mode.
+  const persistedEngineState = triggerProfileStore.loadEngineState();
+  if (persistedEngineState.pinnedProfileId) {
+    triggerProfileEngine.pinProfile(persistedEngineState.pinnedProfileId);
+  }
+  if (persistedEngineState.enabled) {
+    void triggerProfileEngine.setEnabled(true);
+  }
   triggerProfileEngine.on('status', (status: EngineStatus) => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send('bridge:triggerProfileEngineStatus', status);

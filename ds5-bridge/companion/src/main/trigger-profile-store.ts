@@ -7,16 +7,48 @@ import {
   type TriggerProfile
 } from '../shared/trigger-profiles';
 
+export interface TriggerEngineState {
+  enabled: boolean;
+  pinnedProfileId: string | null;
+}
+
+const ENGINE_STATE_FILE = 'engine-state.json';
+
 export class TriggerProfileStore {
   constructor(private readonly directory: string) {
     mkdirSync(directory, { recursive: true });
+  }
+
+  loadEngineState(): TriggerEngineState {
+    const fallback: TriggerEngineState = { enabled: false, pinnedProfileId: null };
+    try {
+      const parsed: unknown = JSON.parse(
+        readFileSync(path.join(this.directory, ENGINE_STATE_FILE), 'utf8')
+      );
+      if (typeof parsed !== 'object' || parsed === null) return fallback;
+      const candidate = parsed as Partial<TriggerEngineState>;
+      return {
+        enabled: candidate.enabled === true,
+        pinnedProfileId: typeof candidate.pinnedProfileId === 'string' ? candidate.pinnedProfileId : null
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  saveEngineState(state: TriggerEngineState): void {
+    writeFileSync(
+      path.join(this.directory, ENGINE_STATE_FILE),
+      `${JSON.stringify(state, null, 2)}\n`,
+      'utf8'
+    );
   }
 
   list(): TriggerProfile[] {
     const profiles = new Map<string, TriggerProfile>();
     profiles.set(DEFAULT_PROFILE_ID, createDefaultProfile());
     for (const entry of readdirSync(this.directory)) {
-      if (!entry.endsWith('.json')) continue;
+      if (!entry.endsWith('.json') || entry === ENGINE_STATE_FILE) continue;
       const filePath = path.join(this.directory, entry);
       try {
         const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
