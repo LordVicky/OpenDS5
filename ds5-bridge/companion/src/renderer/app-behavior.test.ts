@@ -52,6 +52,20 @@ describe('renderer behavior guards', () => {
     expect(appSource).toContain('paired directly to Windows over Bluetooth may need to be paired again');
   });
 
+  it('provides an in-app profile library browser with cache fallback', () => {
+    expect(appSource).toContain('trigger-profiles-library-button');
+    expect(appSource).toContain('getProfileLibraryCatalog');
+    const installFunction = extractFunction('installTriggerProfileFromLibrary');
+    expect(installFunction).toContain('installLibraryProfile');
+    expect(installFunction).toContain('refreshTriggerProfiles');
+    expect(installFunction).toContain('showTriggerProfileTransferStatus');
+    expect(appSource).toContain("Couldn't refresh — showing cached list from");
+    expect(appSource).toContain('https://github.com/LordVicky/Virtual-DS5-Bridge');
+    expect(appSource).toContain('From library');
+    expect(appSource).not.toContain('dangerouslySetInnerHTML');
+    expect(stylesSource).toContain('.trigger-profiles-library');
+  });
+
   it('does not block haptic testing just because audio is active', () => {
     const start = appSource.indexOf('const testHapticsUnavailable =');
     expect(start).toBeGreaterThanOrEqual(0);

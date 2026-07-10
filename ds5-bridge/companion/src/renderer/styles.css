@@ -8261,3 +8261,117 @@ button.trigger-lab-chip {
   line-height: 1.45;
   color: var(--text-muted);
 }
+
+.trigger-profiles-library-modal {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(600px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  animation: modal-panel-in 160ms ease-out;
+}
+
+.trigger-profiles-library-heading {
+  justify-content: space-between;
+  padding: 4px 4px 6px 8px;
+}
+
+.trigger-profiles-library-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px;
+}
+
+.trigger-profiles-library-empty,
+.trigger-profiles-library-error p {
+  margin: 6px 4px;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.trigger-profiles-library-stale {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 0.8rem;
+}
+
+.trigger-profiles-library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trigger-profiles-library-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: 10px;
+}
+
+.trigger-profiles-library-entry-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.trigger-profiles-library-entry-game {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.trigger-profiles-library-entry-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.trigger-profiles-library-entry-author {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.trigger-profiles-library-entry-description {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.trigger-profiles-library-entry-error {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.trigger-profiles-library-install-button {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.trigger-profiles-provenance {
+  margin: 2px 0 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}

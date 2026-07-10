@@ -149,6 +149,7 @@ import type {
   TriggerProfile
 } from '../shared/trigger-profiles';
 import type { GameProcessCandidate } from '../main/game-watcher';
+import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
 
 type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
@@ -2737,6 +2738,11 @@ export function App() {
   const [triggerStripWidth, setTriggerStripWidth] = useState(0);
   const [triggerStripActionsWidth, setTriggerStripActionsWidth] = useState(0);
   const lastAutoMatchedProfileRef = useRef<string | null>(null);
+  const [triggerProfileLibraryOpen, setTriggerProfileLibraryOpen] = useState(false);
+  const [triggerProfileLibraryCatalog, setTriggerProfileLibraryCatalog] = useState<LibraryCatalog | null>(null);
+  const [triggerProfileLibraryLoading, setTriggerProfileLibraryLoading] = useState(false);
+  const [triggerProfileLibraryInstalling, setTriggerProfileLibraryInstalling] = useState<string | null>(null);
+  const [triggerProfileLibraryInstallErrors, setTriggerProfileLibraryInstallErrors] = useState<Record<string, string>>({});
   const [gameDetectPopoverOpen, setGameDetectPopoverOpen] = useState(false);
   const [gameDetectCandidates, setGameDetectCandidates] = useState<GameProcessCandidate[]>([]);
   const [gameDetectLoading, setGameDetectLoading] = useState(false);
@@ -5595,6 +5601,54 @@ export function App() {
     }
   }
 
+  async function openTriggerProfileLibrary() {
+    setTriggerProfileLibraryOpen(true);
+    setTriggerProfileLibraryInstallErrors({});
+    setTriggerProfileLibraryLoading(true);
+    try {
+      const catalog = await window.bridge.getProfileLibraryCatalog();
+      setTriggerProfileLibraryCatalog(catalog);
+    } catch (err) {
+      setTriggerProfileLibraryCatalog({
+        entries: [],
+        fetchedAtMs: 0,
+        fromCache: false,
+        error: err instanceof Error ? err.message : String(err)
+      });
+    } finally {
+      setTriggerProfileLibraryLoading(false);
+    }
+  }
+
+  async function installTriggerProfileFromLibrary(entry: LibraryEntry) {
+    setTriggerProfileLibraryInstalling(entry.file);
+    setTriggerProfileLibraryInstallErrors((errors) => {
+      const next = { ...errors };
+      delete next[entry.file];
+      return next;
+    });
+    try {
+      const result = await window.bridge.installLibraryProfile(entry);
+      if (!result.ok) {
+        setTriggerProfileLibraryInstallErrors((errors) => ({ ...errors, [entry.file]: result.error }));
+        return;
+      }
+      const installedName = result.profile.name;
+      const profiles = await refreshTriggerProfiles();
+      const match = profiles.find((profile) => profile.name === installedName);
+      if (match) loadTriggerProfileDraft(match);
+      setTriggerProfileLibraryOpen(false);
+      showTriggerProfileTransferStatus('good', `Installed "${installedName}" from the library`);
+    } catch (err) {
+      setTriggerProfileLibraryInstallErrors((errors) => ({
+        ...errors,
+        [entry.file]: err instanceof Error ? err.message : String(err)
+      }));
+    } finally {
+      setTriggerProfileLibraryInstalling(null);
+    }
+  }
+
   async function toggleTriggerProfilesEnabled() {
     const status = await window.bridge.setTriggerProfilesEnabled(!triggerProfilesEnabled);
     setTriggerProfilesEnabled(status.enabled);
@@ -7503,6 +7557,11 @@ export function App() {
                     <div className="title-copy">
                       <h3>Editor</h3>
                       <p>Edit the selected profile's match rules and trigger effects.</p>
+                      {triggerProfileDraft.meta?.source ? (
+                        <p className="trigger-profiles-provenance">
+                          {triggerProfileDraft.meta.source === 'library' ? 'From library' : 'Imported'}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="trigger-profiles-status-group trigger-profiles-editor-match-source">
                       <span className="overview-status-heading">
@@ -7990,6 +8049,14 @@ export function App() {
                 <button type="button" onClick={() => void importTriggerProfilesFromDisk()}>
                   <IconUpload size={14} />
                   Import
+                </button>
+                <button
+                  type="button"
+                  className="trigger-profiles-library-button"
+                  onClick={() => void openTriggerProfileLibrary()}
+                >
+                  <IconBooks size={14} />
+                  Library
                 </button>
                 <button type="button" onClick={createTriggerProfile}>
                   <Plus size={14} />
@@ -9571,6 +9638,88 @@ export function App() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {triggerProfileLibraryOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setTriggerProfileLibraryOpen(false)}
+        >
+          <div
+            className="settings-menu trigger-profiles-library-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Profile library"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="settings-menu-heading trigger-profiles-library-heading">
+              <div className="modal-heading-copy">
+                <IconBooks size={16} />
+                <span>Profile Library</span>
+              </div>
+              <button
+                className="modal-close-button"
+                type="button"
+                aria-label="Close profile library"
+                onClick={() => setTriggerProfileLibraryOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="trigger-profiles-library-body">
+              {triggerProfileLibraryLoading ? (
+                <p className="trigger-profiles-library-empty">Loading library…</p>
+              ) : !triggerProfileLibraryCatalog ? null : triggerProfileLibraryCatalog.entries.length === 0 ? (
+                <div className="trigger-profiles-library-error">
+                  <p>
+                    {triggerProfileLibraryCatalog.error
+                      ? `Couldn't load the profile library — ${triggerProfileLibraryCatalog.error}`
+                      : 'The profile library has no profiles yet.'}
+                  </p>
+                  {triggerProfileLibraryCatalog.error ? (
+                    <p>Browse profiles manually at https://github.com/LordVicky/Virtual-DS5-Bridge</p>
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  {triggerProfileLibraryCatalog.fromCache && (
+                    <p className="trigger-profiles-library-stale">
+                      {`Couldn't refresh — showing cached list from ${new Date(triggerProfileLibraryCatalog.fetchedAtMs).toLocaleString()}`}
+                    </p>
+                  )}
+                  <ul className="trigger-profiles-library-list">
+                    {triggerProfileLibraryCatalog.entries.map((entry) => (
+                      <li key={entry.file} className="trigger-profiles-library-entry">
+                        <div className="trigger-profiles-library-entry-copy">
+                          <span className="trigger-profiles-library-entry-game">{entry.game}</span>
+                          <span className="trigger-profiles-library-entry-title">
+                            <strong>{entry.name}</strong>
+                            <span className="trigger-profiles-library-entry-author">by {entry.author}</span>
+                          </span>
+                          <p className="trigger-profiles-library-entry-description">{entry.description}</p>
+                          {triggerProfileLibraryInstallErrors[entry.file] ? (
+                            <p className="trigger-profiles-library-entry-error">
+                              {triggerProfileLibraryInstallErrors[entry.file]}
+                            </p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary-action trigger-profiles-library-install-button"
+                          disabled={triggerProfileLibraryInstalling !== null}
+                          onClick={() => void installTriggerProfileFromLibrary(entry)}
+                        >
+                          {triggerProfileLibraryInstalling === entry.file ? 'Installing…' : 'Install'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
