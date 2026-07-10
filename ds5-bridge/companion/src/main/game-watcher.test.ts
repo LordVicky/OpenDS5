@@ -28,11 +28,23 @@ describe('GameWatcher', () => {
     expect(watcher.getActive()).toEqual({ profileId: 'default', matchedBy: 'default', matchedName: null });
   });
 
-  it('activates a matching profile only after the debounce window', () => {
+  it('matches a game already running at start immediately (no debounce)', () => {
     const watcher = makeWatcher(() => ['game.exe']);
     const changes: string[] = [];
     watcher.on('change', (change) => changes.push(change.profileId));
     watcher.start();
+    expect(changes).toEqual(['shooter']);
+    expect(watcher.getActive().matchedName).toBe('game.exe');
+    watcher.stop();
+  });
+
+  it('activates a game launched after start only after the debounce window', () => {
+    let running: string[] = [];
+    const watcher = makeWatcher(() => running);
+    const changes: string[] = [];
+    watcher.on('change', (change) => changes.push(change.profileId));
+    watcher.start();
+    running = ['game.exe'];
     vi.advanceTimersByTime(4000);
     expect(changes).toEqual([]);
     vi.advanceTimersByTime(2000);

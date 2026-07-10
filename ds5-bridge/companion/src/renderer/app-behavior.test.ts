@@ -13,7 +13,8 @@ import {
   mirrorTriggerSlotBase,
   filterTriggerProfiles,
   filterSelectOptionsByLabel,
-  pickTriggerStripChips
+  pickTriggerStripChips,
+  triggerStripMaxChips
 } from './App';
 import type { TriggerProfile } from '../shared/trigger-profiles';
 
@@ -509,5 +510,45 @@ describe('pickTriggerStripChips', () => {
     expect(chips).toHaveLength(2);
     expect(overflow).toHaveLength(19);
     expect(overflow.some((p) => p.id === 'p3')).toBe(false);
+  });
+
+  it('shows more chips when maxChips allows, ordered default, selected, then most recent', () => {
+    const profiles = [
+      makeStripProfile('default', 0),
+      makeStripProfile('a', 10),
+      makeStripProfile('b', 30),
+      makeStripProfile('c', 20)
+    ];
+    const { chips, overflow } = pickTriggerStripChips(profiles, 'a', 3);
+    expect(chips.map((p) => p.id)).toEqual(['default', 'a', 'b']);
+    expect(overflow.map((p) => p.id)).toEqual(['c']);
+  });
+
+  it('collapses everything including Default into overflow when maxChips is 0', () => {
+    const profiles = [
+      makeStripProfile('default', 0),
+      makeStripProfile('a', 10)
+    ];
+    const { chips, overflow } = pickTriggerStripChips(profiles, 'a', 0);
+    expect(chips).toEqual([]);
+    expect(overflow.map((p) => p.id)).toEqual(['default', 'a']);
+  });
+});
+
+describe('trigger strip width observer', () => {
+  it('attaches only after the startup screen is gone, keyed on that transition', () => {
+    // With [] deps the observer would run against null refs (the strip is not
+    // rendered while StartupScreen shows) and never measure anything.
+    expect(appSource).toContain('const mainUiMounted = Boolean(snapshot) && !startupVisible;');
+    expect(appSource).toContain('}, [mainUiMounted]);');
+  });
+});
+
+describe('triggerStripMaxChips', () => {
+  it('grows chip budget with available width and hits zero on narrow strips', () => {
+    expect(triggerStripMaxChips(150)).toBe(0);
+    expect(triggerStripMaxChips(390)).toBe(2);
+    expect(triggerStripMaxChips(510)).toBe(3);
+    expect(triggerStripMaxChips(1110)).toBe(8);
   });
 });

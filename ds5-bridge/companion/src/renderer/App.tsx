@@ -1004,43 +1004,55 @@ export type TriggerStripChipSelection = {
 
 /**
  * Decide which trigger profiles are shown as inline chips versus moved into the
- * overflow dropdown. The Default profile is always the first chip. The second
- * chip is the currently selected non-default profile if there is one, otherwise
- * the most-recently-updated non-default profile (by updatedAtMs). Everything
- * else becomes overflow, preserving the incoming order. This bounds the chip row
- * to at most two chips so the strip can never overflow its action buttons.
+ * overflow dropdown. The Default profile is always the first chip. The next
+ * chips are the currently selected non-default profile (if any), then the
+ * remaining non-default profiles by most-recently-updated (updatedAtMs), up to
+ * maxChips total. Everything else becomes overflow, preserving the incoming
+ * order. With maxChips 0 every profile (including Default) collapses into the
+ * dropdown so the strip fits arbitrarily narrow windows.
  */
 export function pickTriggerStripChips(
   profiles: readonly TriggerProfile[],
-  selectedId: string | null
+  selectedId: string | null,
+  maxChips = 2
 ): TriggerStripChipSelection {
   const defaultProfile = profiles.find((profile) => profile.id === 'default') ?? null;
-  const nonDefault = profiles.filter((profile) => profile.id !== 'default');
-
-  let second: TriggerProfile | null = null;
+  const ranked = profiles
+    .filter((profile) => profile.id !== 'default')
+    .sort((a, b) => b.updatedAtMs - a.updatedAtMs);
   if (selectedId && selectedId !== 'default') {
-    second = nonDefault.find((profile) => profile.id === selectedId) ?? null;
-  }
-  if (!second && nonDefault.length > 0) {
-    second = nonDefault.reduce(
-      (best, profile) => (profile.updatedAtMs > best.updatedAtMs ? profile : best),
-      nonDefault[0]
-    );
+    const index = ranked.findIndex((profile) => profile.id === selectedId);
+    if (index > 0) {
+      const [selected] = ranked.splice(index, 1);
+      ranked.unshift(selected);
+    }
   }
 
   const chipIds = new Set<string>();
   const chips: TriggerProfile[] = [];
-  if (defaultProfile) {
+  if (maxChips > 0 && defaultProfile) {
     chips.push(defaultProfile);
     chipIds.add(defaultProfile.id);
   }
-  if (second && !chipIds.has(second.id)) {
-    chips.push(second);
-    chipIds.add(second.id);
+  for (const profile of ranked) {
+    if (chips.length >= maxChips) break;
+    chips.push(profile);
+    chipIds.add(profile.id);
   }
 
   const overflow = profiles.filter((profile) => !chipIds.has(profile.id));
   return { chips, overflow };
+}
+
+/**
+ * Chips that fit in the space left over after the strip's action buttons
+ * (measured live, passed in as availableWidth = strip minus actions). Reserves
+ * room for the overflow dropdown + gaps (~150px), then budgets ~120px per chip.
+ */
+export function triggerStripMaxChips(availableWidth: number): number {
+  const reserved = 150;
+  const perChip = 120;
+  return Math.max(0, Math.floor((availableWidth - reserved) / perChip));
 }
 
 function controllerPowerSavingActiveFromSnapshot(snapshot: BridgeSnapshot | null | undefined): boolean {
@@ -2762,6 +2774,11 @@ export function App() {
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
   const [triggerProfilesLinked, setTriggerProfilesLinked] = useState(false);
   const [triggerProfileModifiersOpen, setTriggerProfileModifiersOpen] = useState<Record<TriggerProfileSlotKey, boolean>>({ l2: false, r2: false });
+  const triggerStripRef = useRef<HTMLDivElement | null>(null);
+  const triggerStripActionsRef = useRef<HTMLDivElement | null>(null);
+  const [triggerStripWidth, setTriggerStripWidth] = useState(0);
+  const [triggerStripActionsWidth, setTriggerStripActionsWidth] = useState(0);
+  const lastAutoMatchedProfileRef = useRef<string | null>(null);
   const [gameDetectPopoverOpen, setGameDetectPopoverOpen] = useState(false);
   const [gameDetectCandidates, setGameDetectCandidates] = useState<GameProcessCandidate[]>([]);
   const [gameDetectLoading, setGameDetectLoading] = useState(false);
@@ -3207,6 +3224,48 @@ export function App() {
       unsubscribe();
     };
   }, []);
+
+  // Track the profile strip's width so the chip row adapts to the window size,
+  // collapsing into the overflow dropdown when the strip gets too narrow.
+  // The strip only exists once the startup screen is gone, so this effect must
+  // key on that transition — with [] deps it would run against null refs and
+  // never observe anything.
+  const mainUiMounted = Boolean(snapshot) && !startupVisible;
+  useEffect(() => {
+    if (!mainUiMounted) return;
+    const strip = triggerStripRef.current;
+    const actions = triggerStripActionsRef.current;
+    if (!strip || !actions || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.contentRect.width;
+        if (entry.target === strip) setTriggerStripWidth(width);
+        else if (entry.target === actions) setTriggerStripActionsWidth(width);
+      }
+    });
+    observer.observe(strip);
+    observer.observe(actions);
+    return () => observer.disconnect();
+  }, [mainUiMounted]);
+
+  // When the engine auto-matches a running game, follow it in the editor so the
+  // viewport shows the profile that is actually driving the triggers. Only on
+  // the transition to a newly matched profile, so manual selection still wins.
+  useEffect(() => {
+    const status = triggerProfileEngineStatus;
+    if (!status) return;
+    if (status.matchedBy !== 'process' || !status.activeProfileId) {
+      // Not auto-matched right now (pinned, fallback, or no game): clear the
+      // marker so the next process match re-follows even for the same game.
+      lastAutoMatchedProfileRef.current = null;
+      return;
+    }
+    if (lastAutoMatchedProfileRef.current === status.activeProfileId) return;
+    const profile = triggerProfiles.find((entry) => entry.id === status.activeProfileId);
+    if (!profile) return;
+    lastAutoMatchedProfileRef.current = status.activeProfileId;
+    loadTriggerProfileDraft(profile);
+  }, [triggerProfileEngineStatus, triggerProfiles]);
 
   // Live-preview edited trigger draft effects on the controller (debounced);
   // armed only after an actual trigger edit so selecting a profile never writes.
@@ -7337,6 +7396,42 @@ export function App() {
                 <h2>Game Trigger Profiles</h2>
                 <p>Automatically switch adaptive trigger effects per game.</p>
               </div>
+              <div
+                className="trigger-profiles-heading-status"
+                title={
+                  triggerProfileEngineStatus
+                    ? formatEngineStatusLine(
+                        triggerProfileEngineStatus,
+                        triggerProfileNameById(triggerProfileEngineStatus.activeProfileId)
+                      )
+                    : 'Waiting for engine status'
+                }
+              >
+                <div className="trigger-profiles-status-group">
+                  <span className="overview-status-heading">
+                    <Activity size={14} />
+                    Engine
+                  </span>
+                  <span className="status-badge">
+                    <span
+                      className={`dot ${
+                        triggerProfileEngineStatus && triggerProfileEngineStatus.enabled && !triggerProfileEngineStatus.suspended
+                          ? 'good'
+                          : 'warn'
+                      }`}
+                    />
+                    <strong>
+                      {!triggerProfileEngineStatus
+                        ? 'Waiting for status'
+                        : triggerProfileEngineStatus.suspended
+                          ? 'Suspended'
+                          : triggerProfileEngineStatus.enabled
+                            ? 'Running'
+                            : 'Disabled'}
+                    </strong>
+                  </span>
+                </div>
+              </div>
               <div className="inline-switch">
                 <span>Game Trigger Profiles</span>
                 <button
@@ -7352,73 +7447,6 @@ export function App() {
               </div>
             </div>
 
-            <div
-              className="trigger-profiles-status"
-              title={
-                triggerProfileEngineStatus
-                  ? formatEngineStatusLine(
-                      triggerProfileEngineStatus,
-                      triggerProfileNameById(triggerProfileEngineStatus.activeProfileId)
-                    )
-                  : 'Waiting for engine status'
-              }
-            >
-              <div className="trigger-profiles-status-group">
-                <span className="overview-status-heading">
-                  <Activity size={14} />
-                  Engine
-                </span>
-                <span className="status-badge">
-                  <span
-                    className={`dot ${
-                      triggerProfileEngineStatus && triggerProfileEngineStatus.enabled && !triggerProfileEngineStatus.suspended
-                        ? 'good'
-                        : 'warn'
-                    }`}
-                  />
-                  <strong>
-                    {!triggerProfileEngineStatus
-                      ? 'Waiting for status'
-                      : triggerProfileEngineStatus.suspended
-                        ? 'Suspended'
-                        : triggerProfileEngineStatus.enabled
-                          ? 'Running'
-                          : 'Disabled'}
-                  </strong>
-                </span>
-              </div>
-              <div className="trigger-profiles-status-group">
-                <span className="overview-status-heading">
-                  <IconTargetArrow size={14} />
-                  Active Profile
-                </span>
-                <span className="status-badge">
-                  <strong>
-                    {triggerProfileEngineStatus
-                      ? triggerProfileNameById(triggerProfileEngineStatus.activeProfileId)
-                      : '—'}
-                  </strong>
-                </span>
-              </div>
-              <div className="trigger-profiles-status-group">
-                <span className="overview-status-heading">
-                  <IconDeviceGamepad2 size={14} />
-                  Match Source
-                </span>
-                <span className="status-badge">
-                  <strong>
-                    {!triggerProfileEngineStatus
-                      ? '—'
-                      : triggerProfileEngineStatus.matchedBy === 'pin'
-                        ? 'Pinned'
-                        : triggerProfileEngineStatus.matchedBy === 'process'
-                          ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
-                          : 'Default fallback'}
-                  </strong>
-                </span>
-              </div>
-            </div>
-
             <div className="feature-card-grid trigger-profiles-grid">
               {triggerProfileDraft ? (
                 <section className="feature-card trigger-profiles-editor-card">
@@ -7427,6 +7455,23 @@ export function App() {
                     <div className="title-copy">
                       <h3>Editor</h3>
                       <p>Edit the selected profile's match rules and trigger effects.</p>
+                    </div>
+                    <div className="trigger-profiles-status-group trigger-profiles-editor-match-source">
+                      <span className="overview-status-heading">
+                        <IconDeviceGamepad2 size={14} />
+                        Match Source
+                      </span>
+                      <span className="status-badge">
+                        <strong>
+                          {!triggerProfileEngineStatus
+                            ? '—'
+                            : triggerProfileEngineStatus.matchedBy === 'pin'
+                              ? 'Pinned'
+                              : triggerProfileEngineStatus.matchedBy === 'process'
+                                ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
+                                : 'Default fallback'}
+                        </strong>
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -7439,69 +7484,6 @@ export function App() {
                   </div>
 
                   <div className="trigger-profiles-editor-body">
-                  <div className="trigger-profiles-group">
-                    <h4 className="trigger-profiles-group-title">Identity &amp; Matching</h4>
-                    <label className="trigger-profiles-name-field">
-                      <span>Name</span>
-                      <input
-                        value={triggerProfileDraft.name}
-                        maxLength={48}
-                        onChange={(event) => {
-                          const name = event.target.value;
-                          setTriggerProfileDraft((draft) => (draft ? { ...draft, name } : draft));
-                        }}
-                      />
-                    </label>
-
-                    <label className="trigger-profiles-process-field">
-                      <span>Process Names (comma-separated)</span>
-                      <input
-                        value={triggerProfileProcessNamesInput}
-                        placeholder="game.exe, other.exe"
-                        onChange={(event) => setTriggerProfileProcessNamesInput(event.target.value)}
-                      />
-                    </label>
-
-                    <div className="game-detect-anchor" ref={gameDetectPopoverRef}>
-                      <button
-                        type="button"
-                        className="secondary-action game-detect-button"
-                        disabled={gameDetectLoading}
-                        onClick={() => void detectRunningGame()}
-                      >
-                        <SearchIcon size={14} />
-                        Detect running game
-                      </button>
-
-                      {gameDetectPopoverOpen && (
-                        <div className="game-detect-popover" role="dialog" aria-label="Detected running games">
-                          {gameDetectCandidates.length === 0 ? (
-                            <p className="game-detect-empty">No game detected — is it running?</p>
-                          ) : (
-                            <ul className="game-detect-list">
-                              {gameDetectCandidates.map((candidate) => (
-                                <li key={candidate.name}>
-                                  <button
-                                    type="button"
-                                    className="game-detect-candidate"
-                                    onClick={() => pickDetectedGameProcess(candidate.name)}
-                                  >
-                                    <span className="game-detect-candidate-name">{candidate.name}</span>
-                                    {candidate.kind !== 'other' && (
-                                      <span className="game-detect-candidate-kind">
-                                        {candidate.kind === 'proton' ? 'Proton' : 'game path'}
-                                      </span>
-                                    )}
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
                   <div className="trigger-profiles-slots">
                   {TRIGGER_PROFILE_SLOTS.map(([slot, label]) => {
                     const slotConfig = triggerProfileDraft.triggers[slot];
@@ -7797,6 +7779,69 @@ export function App() {
                   })}
                   </div>
 
+                  <div className="trigger-profiles-group">
+                    <h4 className="trigger-profiles-group-title">Identity &amp; Matching</h4>
+                    <label className="trigger-profiles-name-field">
+                      <span>Name</span>
+                      <input
+                        value={triggerProfileDraft.name}
+                        maxLength={48}
+                        onChange={(event) => {
+                          const name = event.target.value;
+                          setTriggerProfileDraft((draft) => (draft ? { ...draft, name } : draft));
+                        }}
+                      />
+                    </label>
+
+                    <label className="trigger-profiles-process-field">
+                      <span>Process Names (comma-separated)</span>
+                      <input
+                        value={triggerProfileProcessNamesInput}
+                        placeholder="game.exe, other.exe"
+                        onChange={(event) => setTriggerProfileProcessNamesInput(event.target.value)}
+                      />
+                    </label>
+
+                    <div className="game-detect-anchor" ref={gameDetectPopoverRef}>
+                      <button
+                        type="button"
+                        className="secondary-action game-detect-button"
+                        disabled={gameDetectLoading}
+                        onClick={() => void detectRunningGame()}
+                      >
+                        <SearchIcon size={14} />
+                        Detect running game
+                      </button>
+
+                      {gameDetectPopoverOpen && (
+                        <div className="game-detect-popover" role="dialog" aria-label="Detected running games">
+                          {gameDetectCandidates.length === 0 ? (
+                            <p className="game-detect-empty">No game detected — is it running?</p>
+                          ) : (
+                            <ul className="game-detect-list">
+                              {gameDetectCandidates.map((candidate) => (
+                                <li key={candidate.name}>
+                                  <button
+                                    type="button"
+                                    className="game-detect-candidate"
+                                    onClick={() => pickDetectedGameProcess(candidate.name)}
+                                  >
+                                    <span className="game-detect-candidate-name">{candidate.name}</span>
+                                    {candidate.kind !== 'other' && (
+                                      <span className="game-detect-candidate-kind">
+                                        {candidate.kind === 'proton' ? 'Proton' : 'game path'}
+                                      </span>
+                                    )}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   </div>
                 </section>
               ) : (
@@ -7807,6 +7852,23 @@ export function App() {
                       <h3>Editor</h3>
                       <p>Edit the selected profile's match rules and trigger effects.</p>
                     </div>
+                    <div className="trigger-profiles-status-group trigger-profiles-editor-match-source">
+                      <span className="overview-status-heading">
+                        <IconDeviceGamepad2 size={14} />
+                        Match Source
+                      </span>
+                      <span className="status-badge">
+                        <strong>
+                          {!triggerProfileEngineStatus
+                            ? '—'
+                            : triggerProfileEngineStatus.matchedBy === 'pin'
+                              ? 'Pinned'
+                              : triggerProfileEngineStatus.matchedBy === 'process'
+                                ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
+                                : 'Default fallback'}
+                        </strong>
+                      </span>
+                    </div>
                   </div>
                   <div className="trigger-profiles-empty-state">
                     <IconTargetArrow size={22} />
@@ -7816,9 +7878,15 @@ export function App() {
               )}
             </div>
 
-            <div className="trigger-profiles-strip">
+            <div className="trigger-profiles-strip" ref={triggerStripRef}>
               {(() => {
-                const { chips, overflow } = pickTriggerStripChips(triggerProfiles, selectedTriggerProfileId);
+                const { chips, overflow } = pickTriggerStripChips(
+                  triggerProfiles,
+                  selectedTriggerProfileId,
+                  triggerStripWidth > 0 && triggerStripActionsWidth > 0
+                    ? triggerStripMaxChips(triggerStripWidth - triggerStripActionsWidth)
+                    : 2
+                );
                 const overflowActive = overflow.find(
                   (profile) => triggerProfileEngineStatus?.activeProfileId === profile.id
                 ) ?? null;
@@ -7851,10 +7919,6 @@ export function App() {
                               <span className="dot good" aria-label="Currently active" />
                             )}
                             <span className="trigger-profiles-chip-name">{profile.name}</span>
-                            {triggerProfileEngineStatus?.activeProfileId === profile.id
-                              && triggerProfileEngineStatus.matchedBy === 'process' && (
-                              <span className="trigger-profiles-chip-matched">matched</span>
-                            )}
                             {triggerProfileEngineStatus?.activeProfileId === profile.id
                               && triggerProfileEngineStatus.matchedBy === 'pin' && (
                               <span className="trigger-profiles-chip-matched">pinned</span>
@@ -7904,7 +7968,7 @@ export function App() {
                   </>
                 );
               })()}
-              <div className="trigger-profiles-strip-actions">
+              <div className="trigger-profiles-strip-actions" ref={triggerStripActionsRef}>
                 <button type="button" onClick={createTriggerProfile}>
                   <Plus size={14} />
                   New
@@ -7920,19 +7984,26 @@ export function App() {
                   <Trash2 size={14} />
                   Delete
                 </button>
-                <label className="trigger-profiles-pin-field">
-                  <span>Pin</span>
-                  <CustomSelect
-                    value={triggerProfileEngineStatus?.matchedBy === 'pin' ? (triggerProfileEngineStatus.activeProfileId) : ''}
-                    options={[
-                      ['Auto', ''],
-                      ...triggerProfiles.map((profile): [string, string] => [profile.name, profile.id])
-                    ]}
-                    ariaLabel="Pin active trigger profile"
-                    floatingMenu
-                    onChange={(value) => void pinSelectedTriggerProfile(value)}
-                  />
-                </label>
+                <button
+                  type="button"
+                  className={`trigger-profiles-auto-toggle ${triggerProfileEngineStatus?.matchedBy === 'pin' ? '' : 'on'}`}
+                  aria-pressed={triggerProfileEngineStatus?.matchedBy !== 'pin'}
+                  title={
+                    triggerProfileEngineStatus?.matchedBy === 'pin'
+                      ? 'Pinned to Default — click to switch back to automatic game matching'
+                      : 'Auto matching running games — click to pin the Default profile'
+                  }
+                  onClick={() => {
+                    if (triggerProfileEngineStatus?.matchedBy === 'pin') {
+                      void pinSelectedTriggerProfile('');
+                    } else {
+                      void pinSelectedTriggerProfile('default');
+                      selectTriggerProfile('default');
+                    }
+                  }}
+                >
+                  Auto
+                </button>
               </div>
             </div>
           </div>

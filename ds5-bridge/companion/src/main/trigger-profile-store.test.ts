@@ -71,3 +71,25 @@ describe('TriggerProfileStore', () => {
     expect(new TriggerProfileStore(dir).get('default')?.name).toBe('My Fallback');
   });
 });
+
+describe('TriggerProfileStore engine state', () => {
+  it('round-trips enabled and pin state, defaulting to disabled/auto', () => {
+    expect(store.loadEngineState()).toEqual({ enabled: false, pinnedProfileId: null });
+    store.saveEngineState({ enabled: true, pinnedProfileId: 'default' });
+    expect(store.loadEngineState()).toEqual({ enabled: true, pinnedProfileId: 'default' });
+    store.saveEngineState({ enabled: true, pinnedProfileId: null });
+    expect(store.loadEngineState()).toEqual({ enabled: true, pinnedProfileId: null });
+  });
+
+  it('does not surface the engine state file as a profile', () => {
+    store.saveEngineState({ enabled: true, pinnedProfileId: null });
+    const profiles = store.list();
+    expect(profiles).toHaveLength(1);
+    expect(profiles[0].id).toBe('default');
+  });
+
+  it('falls back to defaults on corrupt state files', () => {
+    writeFileSync(path.join(dir, 'engine-state.json'), 'not json', 'utf8');
+    expect(store.loadEngineState()).toEqual({ enabled: false, pinnedProfileId: null });
+  });
+});

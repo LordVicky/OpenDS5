@@ -195,6 +195,10 @@ export class GameWatcher extends EventEmitter {
 
   start(): void {
     if (this.timer) return;
+    // Match an already-running game right away (no debounce) so enabling the
+    // engine — including the startup restore — doesn't sit on Default for
+    // pollInterval + debounce before recognizing it.
+    this.poll(true);
     this.timer = setInterval(() => this.poll(false), this.pollIntervalMs);
   }
 
