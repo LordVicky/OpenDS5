@@ -30,6 +30,13 @@ export interface ProfileMatch {
   windowTitles: string[];
 }
 
+export interface TriggerProfileMeta {
+  game?: string;
+  author?: string;
+  description?: string;
+  source?: 'library' | 'import';
+}
+
 export interface TriggerProfile {
   version: 1;
   id: string;
@@ -37,6 +44,7 @@ export interface TriggerProfile {
   match: ProfileMatch;
   triggers: { l2: TriggerSlotConfig; r2: TriggerSlotConfig };
   updatedAtMs: number;
+  meta?: TriggerProfileMeta;
 }
 
 export interface EngineStatus {
@@ -49,7 +57,9 @@ export interface EngineStatus {
 
 export const DEFAULT_PROFILE_ID = 'default';
 
-const PROFILE_KEYS = ['version', 'id', 'name', 'match', 'triggers', 'updatedAtMs'];
+const PROFILE_KEYS = ['version', 'id', 'name', 'match', 'triggers', 'updatedAtMs', 'meta'];
+const META_STRING_KEYS = ['game', 'author', 'description'] as const;
+const META_MAX_LENGTH = 500;
 const ZONE_COUNT = 10;
 const INPUT_CONDITIONS: InputConditionType[] = [
   'trigger-held-over',
@@ -234,6 +244,52 @@ function validateSlot(raw: unknown, path: string): SlotResult {
   return { ok: true, slot: { base, modifiers } };
 }
 
+type MetaResult = { ok: true; meta: TriggerProfileMeta } | { ok: false; error: string };
+
+function validateMeta(raw: unknown): MetaResult {
+  if (!isRecord(raw)) return { ok: false, error: 'meta must be an object' };
+  const allowed = [...META_STRING_KEYS, 'source'];
+  for (const key of Object.keys(raw)) {
+    if (!allowed.includes(key)) return { ok: false, error: `meta.${key} is not an allowed meta field` };
+  }
+  const meta: TriggerProfileMeta = {};
+  for (const key of META_STRING_KEYS) {
+    if (raw[key] === undefined) continue;
+    if (typeof raw[key] !== 'string') return { ok: false, error: `meta.${key} must be a string` };
+    if ((raw[key] as string).length > META_MAX_LENGTH) {
+      return { ok: false, error: `meta.${key} must be at most ${META_MAX_LENGTH} characters` };
+    }
+    meta[key] = raw[key] as string;
+  }
+  if (raw.source !== undefined) {
+    if (raw.source !== 'library' && raw.source !== 'import') {
+      return { ok: false, error: "meta.source must be 'library' or 'import'" };
+    }
+    meta.source = raw.source;
+  }
+  return { ok: true, meta };
+}
+
+export function slugifyTriggerProfileName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+export function uniqueTriggerProfileId(name: string, existingIds: readonly string[]): string {
+  const base = slugifyTriggerProfileName(name);
+  const taken = new Set(existingIds);
+  const isTaken = (candidate: string) => candidate === 'default' || candidate === '' || taken.has(candidate);
+  if (!isTaken(base)) {
+    return base;
+  }
+  let suffix = 2;
+  let candidate = `${base}-${suffix}`;
+  while (isTaken(candidate)) {
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
+  }
+  return candidate;
+}
+
 export function validateTriggerProfile(raw: unknown): ValidationResult {
   if (!isRecord(raw)) return fail('profile must be an object');
   for (const key of Object.keys(raw)) {
@@ -256,6 +312,12 @@ export function validateTriggerProfile(raw: unknown): ValidationResult {
     slots[slot] = result.slot;
   }
   if (typeof raw.updatedAtMs !== 'number') return fail('updatedAtMs must be a number');
+  let meta: TriggerProfileMeta | undefined;
+  if (raw.meta !== undefined) {
+    const metaResult = validateMeta(raw.meta);
+    if (!metaResult.ok) return fail(metaResult.error);
+    meta = metaResult.meta;
+  }
   return {
     ok: true,
     profile: {
@@ -267,7 +329,8 @@ export function validateTriggerProfile(raw: unknown): ValidationResult {
         windowTitles: [...raw.match.windowTitles]
       },
       triggers: slots,
-      updatedAtMs: raw.updatedAtMs
+      updatedAtMs: raw.updatedAtMs,
+      ...(meta ? { meta } : {})
     }
   };
 }

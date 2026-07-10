@@ -37,6 +37,48 @@ describe('validateTriggerProfile', () => {
     expect(result).toEqual({ ok: false, error: expect.stringContaining('bogus') });
   });
 
+  it('accepts a valid meta block and preserves it', () => {
+    const result = validateTriggerProfile({
+      ...valid,
+      meta: { game: 'Cyberpunk', author: 'me', description: 'nice', source: 'library' }
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.profile.meta).toEqual({
+        game: 'Cyberpunk',
+        author: 'me',
+        description: 'nice',
+        source: 'library'
+      });
+    }
+  });
+
+  it('leaves meta absent when not provided', () => {
+    const result = validateTriggerProfile(valid);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect('meta' in result.profile).toBe(false);
+  });
+
+  it('rejects unknown meta keys naming the offender', () => {
+    const result = validateTriggerProfile({ ...valid, meta: { bogusMeta: 'x' } });
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('bogusMeta') });
+  });
+
+  it('rejects non-string meta fields', () => {
+    const result = validateTriggerProfile({ ...valid, meta: { game: 123 } });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects meta fields over 500 chars', () => {
+    const result = validateTriggerProfile({ ...valid, meta: { description: 'x'.repeat(501) } });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects invalid meta.source values', () => {
+    const result = validateTriggerProfile({ ...valid, meta: { source: 'bogus' } });
+    expect(result.ok).toBe(false);
+  });
+
   it('rejects unsupported version', () => {
     expect(validateTriggerProfile({ ...valid, version: 2 }).ok).toBe(false);
   });

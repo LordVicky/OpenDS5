@@ -132,7 +132,14 @@ import type {
   TriggerTestTarget
 } from '../shared/protocol';
 import type { AudioHapticsSession, BridgeSnapshot, UiScalePercent, UiThemePreset } from '../shared/types';
-import { createDefaultProfile, defaultEffectForMode } from '../shared/trigger-profiles';
+import {
+  createDefaultProfile,
+  defaultEffectForMode,
+  slugifyTriggerProfileName,
+  uniqueTriggerProfileId
+} from '../shared/trigger-profiles';
+
+export { slugifyTriggerProfileName, uniqueTriggerProfileId };
 import type {
   EngineStatus,
   InputConditionType,
@@ -907,10 +914,6 @@ function defaultTriggerModifier(): TriggerModifier {
   };
 }
 
-export function slugifyTriggerProfileName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
-
 const PROVISIONAL_TRIGGER_PROFILE_ID_PREFIX = 'draft-';
 
 function makeProvisionalTriggerProfileId(): string {
@@ -919,22 +922,6 @@ function makeProvisionalTriggerProfileId(): string {
 
 export function isProvisionalTriggerProfileId(id: string): boolean {
   return id.startsWith(PROVISIONAL_TRIGGER_PROFILE_ID_PREFIX);
-}
-
-export function uniqueTriggerProfileId(name: string, existingIds: readonly string[]): string {
-  const base = slugifyTriggerProfileName(name);
-  const taken = new Set(existingIds);
-  const isTaken = (candidate: string) => candidate === 'default' || candidate === '' || taken.has(candidate);
-  if (!isTaken(base)) {
-    return base;
-  }
-  let suffix = 2;
-  let candidate = `${base}-${suffix}`;
-  while (isTaken(candidate)) {
-    suffix += 1;
-    candidate = `${base}-${suffix}`;
-  }
-  return candidate;
 }
 
 export function mergeTriggerProfiles(

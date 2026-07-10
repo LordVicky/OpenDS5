@@ -13,7 +13,7 @@ import {
 } from './pico-firmware-updater';
 import { SettingsStore } from './settings-store';
 import { growBoundsToMinimum, loadWindowState, resolveWindowBounds, saveWindowState } from './window-state';
-import { TriggerProfileStore } from './trigger-profile-store';
+import { readProfileFileForImport, TriggerProfileStore } from './trigger-profile-store';
 import { GameWatcher, listCandidateGameProcesses } from './game-watcher';
 import { EvdevInputReader } from './evdev-input-reader';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
@@ -1069,6 +1069,50 @@ function registerIpc(
       pinnedProfileId: status.matchedBy === 'pin' ? status.activeProfileId : null
     });
     return status;
+  });
+  ipcMain.handle('bridge:exportTriggerProfile', async (_event, id: string) => {
+    const profile = triggerProfileStore.get(id);
+    if (!profile) return { saved: false };
+    const options: Electron.SaveDialogOptions = {
+      title: 'Export Trigger Profile',
+      defaultPath: `${profile.name.replace(/[^a-zA-Z0-9_-]+/g, '-')}.json`,
+      filters: [{ name: 'Trigger Profiles', extensions: ['json'] }]
+    };
+    const result = mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showSaveDialog(mainWindow, options)
+      : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return { saved: false };
+    fs.writeFileSync(result.filePath, `${JSON.stringify(profile, null, 2)}\n`, 'utf8');
+    return { saved: true, path: result.filePath };
+  });
+  ipcMain.handle('bridge:importTriggerProfiles', async () => {
+    const options: Electron.OpenDialogOptions = {
+      title: 'Import Trigger Profiles',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Trigger Profiles', extensions: ['json'] }]
+    };
+    const dialogResult = mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+    if (dialogResult.canceled) return [];
+    const results: Array<{ file: string; ok: boolean; error?: string; name?: string }> = [];
+    let importedAny = false;
+    for (const filePath of dialogResult.filePaths) {
+      const read = readProfileFileForImport(filePath);
+      if (!read.ok) {
+        results.push({ file: filePath, ok: false, error: read.error });
+        continue;
+      }
+      const imported = triggerProfileStore.importProfile(read.parsed, 'import');
+      if (imported.ok) {
+        importedAny = true;
+        results.push({ file: filePath, ok: true, name: imported.profile.name });
+      } else {
+        results.push({ file: filePath, ok: false, error: imported.error });
+      }
+    }
+    if (importedAny) triggerProfileEngine.refreshProfiles();
+    return results;
   });
   ipcMain.handle('bridge:getTriggerProfileEngineStatus', () => triggerProfileEngine.getStatus());
   ipcMain.handle('bridge:previewTriggerProfileDraft', async (_event, triggers: DraftPreviewTriggers | null) => {

@@ -222,6 +222,12 @@ const api = {
     ipcRenderer.invoke('bridge:saveTriggerProfile', profile)
   ),
   deleteTriggerProfile: (id: string): Promise<boolean> => ipcRenderer.invoke('bridge:deleteTriggerProfile', id),
+  exportTriggerProfile: (id: string): Promise<{ saved: boolean; path?: string }> => (
+    ipcRenderer.invoke('bridge:exportTriggerProfile', id)
+  ),
+  importTriggerProfiles: (): Promise<Array<{ file: string; ok: boolean; error?: string; name?: string }>> => (
+    ipcRenderer.invoke('bridge:importTriggerProfiles')
+  ),
   setTriggerProfilesEnabled: (enabled: boolean): Promise<EngineStatus> => (
     ipcRenderer.invoke('bridge:setTriggerProfilesEnabled', enabled)
   ),
