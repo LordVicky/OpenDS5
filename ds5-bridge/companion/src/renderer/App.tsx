@@ -2726,7 +2726,11 @@ export function App() {
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
   const [triggerProfilesLinked, setTriggerProfilesLinked] = useState(false);
   const [triggerProfileModifiersOpen, setTriggerProfileModifiersOpen] = useState<Record<TriggerProfileSlotKey, boolean>>({ l2: false, r2: false });
-  const [triggerProfileTransferStatus, setTriggerProfileTransferStatus] = useState<{ tone: string; message: string } | null>(null);
+  const [triggerProfileTransferStatus, setTriggerProfileTransferStatus] = useState<{
+    tone: string;
+    message: string;
+    failures?: Array<{ file: string; error: string }>;
+  } | null>(null);
   const triggerProfileTransferStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerStripRef = useRef<HTMLDivElement | null>(null);
   const triggerStripActionsRef = useRef<HTMLDivElement | null>(null);
@@ -3149,6 +3153,9 @@ export function App() {
       }
       if (startupReadyTimerRef.current !== null) {
         window.clearTimeout(startupReadyTimerRef.current);
+      }
+      if (triggerProfileTransferStatusTimeout.current !== null) {
+        clearTimeout(triggerProfileTransferStatusTimeout.current);
       }
       window.removeEventListener('mouseup', finishWindowDrag);
       window.removeEventListener('blur', finishWindowDrag);
@@ -5529,19 +5536,27 @@ export function App() {
     await refreshTriggerProfiles(saved.id, isProvisional ? previousId : undefined);
   }
 
-  function showTriggerProfileTransferStatus(tone: string, message: string) {
+  function showTriggerProfileTransferStatus(
+    tone: string,
+    message: string,
+    failures?: Array<{ file: string; error: string }>
+  ) {
     if (triggerProfileTransferStatusTimeout.current) {
       clearTimeout(triggerProfileTransferStatusTimeout.current);
     }
-    setTriggerProfileTransferStatus({ tone, message });
+    setTriggerProfileTransferStatus({ tone, message, failures });
     triggerProfileTransferStatusTimeout.current = setTimeout(() => {
       setTriggerProfileTransferStatus(null);
       triggerProfileTransferStatusTimeout.current = null;
-    }, 5000);
+    }, failures && failures.length > 0 ? 12000 : 5000);
   }
 
   async function exportTriggerProfileDraft() {
     if (!triggerProfileDraft) return;
+    if (isProvisionalTriggerProfileId(triggerProfileDraft.id)) {
+      showTriggerProfileTransferStatus('warn', 'Save the profile before exporting');
+      return;
+    }
     const result = await window.bridge.exportTriggerProfile(triggerProfileDraft.id);
     if (result.saved) {
       showTriggerProfileTransferStatus('good', `Exported "${triggerProfileDraft.name}"`);
@@ -5552,7 +5567,12 @@ export function App() {
     const results = await window.bridge.importTriggerProfiles();
     if (results.length === 0) return;
     const imported = results.filter((entry) => entry.ok);
-    const failed = results.length - imported.length;
+    const failures = results
+      .filter((entry) => !entry.ok)
+      .map((entry) => ({
+        file: entry.file.split(/[\\/]/).pop() ?? entry.file,
+        error: entry.error ?? 'Unknown error'
+      }));
     const profiles = await refreshTriggerProfiles();
     const firstImportedName = imported[0]?.name;
     if (firstImportedName) {
@@ -5560,12 +5580,17 @@ export function App() {
       if (match) loadTriggerProfileDraft(match);
     }
     if (imported.length === 0) {
-      showTriggerProfileTransferStatus('bad', `Import failed for ${failed} file${failed === 1 ? '' : 's'}`);
+      showTriggerProfileTransferStatus(
+        'bad',
+        `Import failed for ${failures.length} file${failures.length === 1 ? '' : 's'}`,
+        failures
+      );
     } else {
       const base = `Imported ${imported.length} profile${imported.length === 1 ? '' : 's'}`;
       showTriggerProfileTransferStatus(
-        failed > 0 ? 'warn' : 'good',
-        failed > 0 ? `${base} (${failed} failed)` : base
+        failures.length > 0 ? 'warn' : 'good',
+        failures.length > 0 ? `${base} (${failures.length} failed)` : base,
+        failures.length > 0 ? failures : undefined
       );
     }
   }
@@ -7947,8 +7972,19 @@ export function App() {
               })()}
               <div className="trigger-profiles-strip-actions" ref={triggerStripActionsRef}>
                 {triggerProfileTransferStatus ? (
-                  <span className={`status-badge ${triggerProfileTransferStatus.tone} trigger-profiles-transfer-status`}>
-                    {triggerProfileTransferStatus.message}
+                  <span className="trigger-profiles-transfer-status">
+                    <span className={`status-badge ${triggerProfileTransferStatus.tone}`}>
+                      {triggerProfileTransferStatus.message}
+                    </span>
+                    {triggerProfileTransferStatus.failures && triggerProfileTransferStatus.failures.length > 0 ? (
+                      <span className="trigger-profiles-transfer-errors">
+                        {triggerProfileTransferStatus.failures.map((failure, index) => (
+                          <span key={`${failure.file}-${index}`} className="trigger-profiles-transfer-error">
+                            <strong>{failure.file}</strong> — {failure.error}
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
                   </span>
                 ) : null}
                 <button type="button" onClick={() => void importTriggerProfilesFromDisk()}>

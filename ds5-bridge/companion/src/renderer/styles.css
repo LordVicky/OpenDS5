@@ -8095,8 +8095,34 @@ button.trigger-lab-chip {
 }
 
 .trigger-profiles-strip-actions > .trigger-profiles-transfer-status {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   margin-right: 4px;
   white-space: nowrap;
+}
+
+.trigger-profiles-transfer-errors {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 360px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: var(--surface-raised, rgba(24, 24, 28, 0.97));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.trigger-profiles-transfer-error {
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .trigger-profiles-strip-actions > button {

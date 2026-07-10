@@ -625,4 +625,25 @@ describe('shared trigger effect editor', () => {
     const exportButton = headerRegion.slice(headerRegion.lastIndexOf('<button', exportStart), exportStart);
     expect(exportButton).toContain('!triggerProfileDraft');
   });
+
+  it('surfaces per-file import errors and guards unsaved exports', () => {
+    // Import handler carries per-file failure details (file + error) into the status state.
+    const importFunction = extractFunction('importTriggerProfilesFromDisk');
+    expect(importFunction).toContain('failures');
+    expect(importFunction).toContain('entry.error');
+    // Failures render as visible text in the transfer status area.
+    expect(appSource).toContain('trigger-profiles-transfer-errors');
+    expect(appSource).toContain('triggerProfileTransferStatus.failures');
+    expect(appSource).toContain('{failure.file}');
+    expect(appSource).toContain('{failure.error}');
+    expect(stylesSource).toContain('.trigger-profiles-transfer-errors');
+    // Exporting an unsaved (provisional) draft gives feedback instead of silence.
+    const exportFunction = extractFunction('exportTriggerProfileDraft');
+    expect(exportFunction).toContain('isProvisionalTriggerProfileId');
+    expect(exportFunction).toContain('Save the profile before exporting');
+    // The transfer status timer is cleared on unmount with the other timer refs.
+    const cleanupStart = appSource.indexOf("window.removeEventListener('mouseup', finishWindowDrag)");
+    const cleanupRegion = appSource.slice(cleanupStart - 2000, cleanupStart);
+    expect(cleanupRegion).toContain('triggerProfileTransferStatusTimeout.current');
+  });
 });
