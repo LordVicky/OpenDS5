@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
   BridgePresetId,
   ChordAssignment,
@@ -21,6 +22,8 @@ import type {
   WindowsDeviceCleanupResult
 } from './shared/types';
 import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/trigger-profiles';
+import type { LibraryCatalog, LibraryEntry } from './main/profile-library';
+import type { ImportResult } from './main/trigger-profile-store';
 import type { GameProcessCandidate } from './main/game-watcher';
 
 const api = {
@@ -162,6 +165,9 @@ const api = {
   testAdaptiveTriggers: (mode?: TriggerTestMode, target?: TriggerTestTarget): Promise<BridgeSnapshot> => (
     ipcRenderer.invoke('bridge:testAdaptiveTriggers', mode, target)
   ),
+  previewAdaptiveTriggerEffect: (effect: AdaptiveTriggerPreviewEffect): Promise<BridgeSnapshot> => (
+    ipcRenderer.invoke('bridge:previewAdaptiveTriggerEffect', effect)
+  ),
   resetAdaptiveTriggers: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:resetAdaptiveTriggers'),
   restoreDefaults: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:restoreDefaults'),
   setButtonRemap: (buttonId: RemapButtonId, targetId: RemapButtonId): Promise<BridgeSnapshot> => (
@@ -218,6 +224,18 @@ const api = {
     ipcRenderer.invoke('bridge:saveTriggerProfile', profile)
   ),
   deleteTriggerProfile: (id: string): Promise<boolean> => ipcRenderer.invoke('bridge:deleteTriggerProfile', id),
+  exportTriggerProfile: (id: string): Promise<{ saved: boolean; path?: string }> => (
+    ipcRenderer.invoke('bridge:exportTriggerProfile', id)
+  ),
+  importTriggerProfiles: (): Promise<Array<{ file: string; ok: boolean; error?: string; name?: string }>> => (
+    ipcRenderer.invoke('bridge:importTriggerProfiles')
+  ),
+  getProfileLibraryCatalog: (): Promise<LibraryCatalog> => (
+    ipcRenderer.invoke('bridge:getProfileLibraryCatalog')
+  ),
+  installLibraryProfile: (entry: LibraryEntry): Promise<ImportResult> => (
+    ipcRenderer.invoke('bridge:installLibraryProfile', entry)
+  ),
   setTriggerProfilesEnabled: (enabled: boolean): Promise<EngineStatus> => (
     ipcRenderer.invoke('bridge:setTriggerProfilesEnabled', enabled)
   ),

@@ -380,6 +380,86 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
     }
     return kAckOk;
   }
+  // Linux-port extension: 0x21 is already SET_HOST_PERSONA upstream, so the
+  // V2 trigger command lives in the extension namespace next to 0x40.
+  case 0x41: { // APPLY_ADAPTIVE_TRIGGER_EFFECT_V2 (value: mode | target << 8)
+    const std::uint8_t mode = static_cast<std::uint8_t>(value & 0xff);
+    const std::uint8_t target = static_cast<std::uint8_t>((value >> 8) & 0xff);
+    if (mode > 6 || !valid_trigger_target(target)) {
+      return kAckErrInvalidValue;
+    }
+    CompanionTriggerEffect effect{
+        .active = true,
+        .mode = mode,
+        .target = target,
+    };
+    switch (mode) {
+    case 0: // feedback
+    case 1: // weapon
+    case 2: { // vibration
+      effect.start_percent = report[11];
+      effect.wall_percent = report[12];
+      effect.force_percent = report[13];
+      effect.frequency_hz = report[14];
+      if (!valid_percent(effect.start_percent) ||
+          !valid_percent(effect.wall_percent) ||
+          !valid_percent(effect.force_percent)) {
+        return kAckErrInvalidValue;
+      }
+      if (mode == 2 && effect.frequency_hz == 0) {
+        return kAckErrInvalidValue;
+      }
+      break;
+    }
+    case 3: // off: no payload
+      break;
+    case 4: // multi-feedback: 10 zone percents
+    case 6: { // multi-vibration: frequency + 10 zone percents
+      std::size_t offset = 11;
+      if (mode == 6) {
+        effect.frequency_hz = report[offset++];
+        if (effect.frequency_hz == 0) {
+          return kAckErrInvalidValue;
+        }
+      }
+      for (std::size_t zone = 0; zone < effect.zone_percents.size(); ++zone) {
+        effect.zone_percents[zone] = report[offset + zone];
+        if (!valid_percent(effect.zone_percents[zone])) {
+          return kAckErrInvalidValue;
+        }
+      }
+      break;
+    }
+    case 5: { // slope: [start, end, start_force, end_force]
+      effect.start_percent = report[11];
+      effect.end_percent = report[12];
+      effect.force_percent = report[13];
+      effect.end_force_percent = report[14];
+      if (!valid_percent(effect.start_percent) ||
+          !valid_percent(effect.end_percent) ||
+          !valid_percent(effect.force_percent) ||
+          !valid_percent(effect.end_force_percent) ||
+          effect.end_percent <= effect.start_percent) {
+        return kAckErrInvalidValue;
+      }
+      break;
+    }
+    default:
+      return kAckErrInvalidValue;
+    }
+    if (!connected) {
+      return kAckErrNotConnected;
+    }
+    // Storage matches 0x20: per-trigger slots so one apply never clobbers
+    // the other trigger's effect.
+    if (target != 2) {
+      actuation.persistent_trigger_left = effect;
+    }
+    if (target != 1) {
+      actuation.persistent_trigger_right = effect;
+    }
+    return kAckOk;
+  }
   case 0x0E: // RESET_ADAPTIVE_TRIGGERS
     if (value != 0) {
       return kAckErrInvalidValue;

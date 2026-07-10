@@ -14,3 +14,5 @@ Module.symvers
 modules.order
 vds/module/.*.cmd
 artifacts/
+revert-to-main.sh
+.remember/

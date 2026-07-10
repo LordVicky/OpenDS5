@@ -36,6 +36,7 @@ import {
   pollingRateModeValue
 } from '../shared/protocol';
 import type {
+  AdaptiveTriggerEffectV2Targeted,
   AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsAttack,
   AudioReactiveHapticsBassFocus,
@@ -351,6 +352,47 @@ function triggerTestTargetValue(target: TriggerTestTarget): number {
   if (target === 'l2') return 1;
   if (target === 'r2') return 2;
   return 0;
+}
+
+// Full V2 mode byte space (mirrors the vdsd daemon 0x41 handler). Distinct from
+// triggerTestModeValue, which is typed to the 3 classic TriggerTestMode arms.
+function triggerEffectV2ModeValue(mode: AdaptiveTriggerEffectV2Targeted['mode']): number {
+  switch (mode) {
+    case 'feedback':
+      return 0;
+    case 'weapon':
+      return 1;
+    case 'vibration':
+      return 2;
+    case 'off':
+      return 3;
+    case 'multi-feedback':
+      return 4;
+    case 'slope':
+      return 5;
+    case 'multi-vibration':
+      return 6;
+  }
+}
+
+// extraPayload layout per the daemon 0x41 handler (report[11..]).
+function triggerEffectV2ExtraPayload(effect: AdaptiveTriggerEffectV2Targeted): number[] {
+  switch (effect.mode) {
+    case 'feedback':
+      return [effect.startPercent, 0, effect.forcePercent, 0];
+    case 'weapon':
+      return [effect.startPercent, effect.wallPercent, effect.forcePercent, 0];
+    case 'vibration':
+      return [effect.startPercent, 0, effect.forcePercent, effect.frequencyHz ?? 0];
+    case 'off':
+      return [];
+    case 'multi-feedback':
+      return [...effect.zones];
+    case 'slope':
+      return [effect.startPercent, effect.endPercent, effect.startForcePercent, effect.endForcePercent];
+    case 'multi-vibration':
+      return [effect.frequencyHz, ...effect.zones];
+  }
 }
 
 function audioReactiveHapticsModeValue(mode: AudioReactiveHapticsMode): number {
@@ -3028,6 +3070,15 @@ export class BridgeService extends EventEmitter {
     const value = triggerTestModeValue(normalized.mode) | (triggerTestTargetValue(normalized.target) << 8);
     await this.sendCommand(COMMAND_ID.APPLY_ADAPTIVE_TRIGGER_EFFECT, value, {
       extraPayload: [normalized.startPercent, normalized.wallPercent, normalized.forcePercent],
+      throwOnCommandError: false
+    });
+    return this.getSnapshot();
+  }
+
+  async applyAdaptiveTriggerEffectV2(effect: AdaptiveTriggerEffectV2Targeted): Promise<BridgeSnapshot> {
+    const value = triggerEffectV2ModeValue(effect.mode) | (triggerTestTargetValue(effect.target) << 8);
+    await this.sendCommand(COMMAND_ID.APPLY_ADAPTIVE_TRIGGER_EFFECT_V2, value, {
+      extraPayload: triggerEffectV2ExtraPayload(effect),
       throwOnCommandError: false
     });
     return this.getSnapshot();

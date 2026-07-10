@@ -62,6 +62,9 @@
 !/src/**/*.hpp
 !/src/**/*.hxx
 
+!/tests/
+!/tests/*.cc
+
 !/windrv/
 !/windrv/*.ps1
 !/windrv/vds_filter/

@@ -8094,6 +8094,37 @@ button.trigger-lab-chip {
   gap: 8px;
 }
 
+.trigger-profiles-strip-actions > .trigger-profiles-transfer-status {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.trigger-profiles-transfer-errors {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 360px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: var(--surface-raised, rgba(24, 24, 28, 0.97));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.trigger-profiles-transfer-error {
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .trigger-profiles-strip-actions > button {
   min-height: 32px;
   display: inline-flex;
@@ -8135,3 +8166,212 @@ button.trigger-lab-chip {
   box-shadow: 0 0 10px color-mix(in srgb, var(--success) 35%, transparent);
 }
 
+
+/* Shared trigger effect editor (profile slots, modifiers, Trigger Lab) */
+.trigger-effect-editor {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.trigger-effect-mode-grid {
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+}
+
+.trigger-effect-editor.compact {
+  gap: 7px;
+}
+
+.trigger-effect-editor.compact .trigger-lab-mode-button {
+  min-height: 28px;
+  font-size: 10.5px;
+}
+
+.trigger-effect-off-note {
+  margin: 2px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.trigger-effect-frequency {
+  justify-self: start;
+}
+
+.trigger-effect-frequency input {
+  width: 84px;
+}
+
+.trigger-zone-strip {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px 2px 4px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--control-radius);
+  background: var(--surface-control-soft);
+}
+
+.trigger-zone {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.trigger-zone-slider {
+  position: relative;
+  width: 100%;
+  height: 84px;
+  overflow: hidden;
+}
+
+.trigger-zone-slider input[type="range"] {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 84px;
+  height: 18px;
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+
+.trigger-zone-slider input[type="range"]::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -4.5px;
+}
+
+.trigger-effect-editor.compact .trigger-zone-slider {
+  height: 64px;
+}
+
+.trigger-effect-editor.compact .trigger-zone-slider input[type="range"] {
+  width: 64px;
+}
+
+.trigger-zone-value {
+  font-size: 10.5px;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.trigger-lab-test-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.trigger-profiles-library-modal {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(600px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  animation: modal-panel-in 160ms ease-out;
+}
+
+.trigger-profiles-library-heading {
+  justify-content: space-between;
+  padding: 4px 4px 6px 8px;
+}
+
+.trigger-profiles-library-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px;
+}
+
+.trigger-profiles-library-empty,
+.trigger-profiles-library-error p {
+  margin: 6px 4px;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.trigger-profiles-library-stale {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 0.8rem;
+}
+
+.trigger-profiles-library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trigger-profiles-library-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: 10px;
+}
+
+.trigger-profiles-library-entry-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.trigger-profiles-library-entry-game {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.trigger-profiles-library-entry-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.trigger-profiles-library-entry-author {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.trigger-profiles-library-entry-description {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.trigger-profiles-library-entry-error {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.trigger-profiles-library-install-button {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.trigger-profiles-provenance {
+  margin: 2px 0 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}

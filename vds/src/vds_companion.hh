@@ -52,11 +52,18 @@ struct CompanionSettings {
 
 struct CompanionTriggerEffect {
   bool active = false;
+  // V1 modes: 0 feedback, 1 weapon, 2 vibration.
+  // V2-only modes: 3 off, 4 multi-feedback, 5 slope, 6 multi-vibration.
   std::uint8_t mode = 0;
   std::uint8_t target = 0; // 0 both, 1 left, 2 right
   std::uint8_t start_percent = 0;
   std::uint8_t wall_percent = 0;
   std::uint8_t force_percent = 0;
+  // V2 extensions (defaults keep V1 aggregate initializers valid).
+  std::uint8_t frequency_hz = 0;                // vibration/multi-vibration
+  std::array<std::uint8_t, 10> zone_percents{}; // multi-* per-zone strengths
+  std::uint8_t end_percent = 0;                 // slope end position
+  std::uint8_t end_force_percent = 0;           // slope end strength
 };
 
 // Momentary and persistent effects requested through companion commands; the
