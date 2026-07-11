@@ -252,6 +252,14 @@ build_runner() { # path
       else
         printf 'modprobe vds_hcd || fail "Load vds_hcd" "modprobe vds_hcd"\n'
       fi
+      # Start the daemon when it is already installed (daemon install itself
+      # is out of scope for this installer until the userspace phase lands).
+      printf 'if systemctl list-unit-files vdsd.service >/dev/null 2>&1 && systemctl cat vdsd.service >/dev/null 2>&1; then\n'
+      printf '  echo "==> Starting vdsd.service"\n'
+      printf '  systemctl enable --now vdsd.service || fail "Start vdsd.service" "systemctl enable --now vdsd.service"\n'
+      printf 'else\n'
+      printf '  echo "vdsd.service not installed yet; skipping daemon start"\n'
+      printf 'fi\n'
     fi
   } > "$1"
 }

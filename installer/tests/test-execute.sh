@@ -29,6 +29,12 @@ assert_contains "$(cat "$tmp/log")" "dnf install -y dkms kernel-devel" "steps ex
 assert_contains "$(cat "$tmp/log")" "dkms install vds_hcd/" "dkms step executed"
 assert_eq 1 "$(grep -c '^bash ' "$tmp/log")" "root helper invoked exactly once (single auth prompt)"
 
+# with verify enabled, the runner loads the module and starts vdsd if installed
+: > "$tmp/log"
+env "${base_env[@]}" OPENDS5_SKIP_VERIFY=0 bash "$here/../opends5-install" --yes >/dev/null
+assert_contains "$(cat "$tmp/log")" "modprobe vds_hcd" "runner loads module"
+assert_contains "$(cat "$tmp/log")" "systemctl enable --now vdsd.service" "runner starts vdsd when unit exists"
+
 # failure rolls back and exits 4
 : > "$tmp/log"
 set +e
