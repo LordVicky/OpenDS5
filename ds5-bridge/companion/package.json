@@ -59,6 +59,10 @@
         "to": "vds-module/include"
       },
       {
+        "from": "../../vds-bin",
+        "to": "vds-bin"
+      },
+      {
         "from": "../assets/controllers",
         "to": "assets/controllers",
         "filter": [

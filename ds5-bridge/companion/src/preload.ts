@@ -25,6 +25,21 @@ import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/t
 import type { LibraryCatalog, LibraryEntry } from './main/profile-library';
 import type { ImportResult } from './main/trigger-profile-store';
 import type { GameProcessCandidate } from './main/game-watcher';
+import type { SetupProgressEvent } from './main/setup-service';
+
+// The preload runs sandboxed: only `require('electron')` is available, so the
+// setup channel names are inlined rather than imported from ./main/setup-ipc.
+// setup-ipc.test.ts pins these literals to SETUP_CHANNELS so they cannot drift.
+const SETUP_CHANNELS = {
+  getPlan: 'setup:get-plan',
+  install: 'setup:install',
+  progress: 'setup:progress',
+  skip: 'setup:skip',
+  finish: 'setup:finish',
+  openLog: 'setup:open-log',
+  copyDiagnostics: 'setup:copy-diagnostics',
+  reopen: 'setup:reopen'
+} as const;
 
 const api = {
   getStatus: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:getStatus'),
@@ -262,4 +277,23 @@ const api = {
 
 contextBridge.exposeInMainWorld('bridge', api);
 
+const setupApi = {
+  getPlan: (): Promise<{ steps: string[] } | { unsupported: string }> =>
+    ipcRenderer.invoke(SETUP_CHANNELS.getPlan),
+  install: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.install),
+  onProgress: (cb: (e: SetupProgressEvent) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: SetupProgressEvent) =>
+      cb(payload);
+    ipcRenderer.on(SETUP_CHANNELS.progress, listener);
+    return () => ipcRenderer.removeListener(SETUP_CHANNELS.progress, listener);
+  },
+  skip: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.skip),
+  finish: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.finish),
+  openLog: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.openLog),
+  copyDiagnostics: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.copyDiagnostics),
+  reopen: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.reopen),
+};
+contextBridge.exposeInMainWorld('setup', setupApi);
+
 export type BridgeApi = typeof api;
+export type SetupApi = typeof setupApi;
