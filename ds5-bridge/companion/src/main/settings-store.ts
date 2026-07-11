@@ -141,6 +141,7 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
   uiScalePercent: 100,
   uiThemePreset: 'dark',
   launchAtStartupEnabled: false,
+  setupSkipped: false,
   showBatteryPercentTrayIcon: false,
   hapticsEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.hapticsEnabled,
   hapticsGainPercent: DEFAULT_CONTROLLER_PROFILE_SETTINGS.hapticsGainPercent,
@@ -860,6 +861,9 @@ function normalizeSettings(value: Partial<CompanionSettings> | null | undefined)
     launchAtStartupEnabled: typeof value?.launchAtStartupEnabled === 'boolean'
       ? value.launchAtStartupEnabled
       : DEFAULT_SETTINGS.launchAtStartupEnabled,
+    setupSkipped: typeof value?.setupSkipped === 'boolean'
+      ? value.setupSkipped
+      : DEFAULT_SETTINGS.setupSkipped,
     showBatteryPercentTrayIcon: typeof value?.showBatteryPercentTrayIcon === 'boolean'
       ? value.showBatteryPercentTrayIcon
       : DEFAULT_SETTINGS.showBatteryPercentTrayIcon,

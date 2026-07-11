@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BridgeService } from './bridge-service';
-import { runSystemInstall, shouldRunSystemInstall } from './install-system-cli';
+import { resolveInstallerPath, runSystemInstall, shouldRunSystemInstall } from './install-system-cli';
+import { isSetupNeeded, SetupService } from './setup-service';
+import { openSetupWindow, shouldShowSetupWizard } from './setup-window';
 import {
   PICO_UNIVERSAL_FLASH_NUKE_FILE,
   PICO_UNIVERSAL_FLASH_NUKE_SHA256_FILE,
@@ -1365,6 +1367,45 @@ if (shouldRunSystemInstall(process.argv)) {
   app.exit(runSystemInstall(process.resourcesPath, app.getVersion(), extraArgs));
 }
 
+function resolveInstallerScriptPath(): string {
+  const packaged = resolveInstallerPath(process.resourcesPath);
+  if (fs.existsSync(packaged)) {
+    return packaged;
+  }
+  // dev run from the repo checkout: ds5-bridge/companion/dist/main/main -> repo root
+  return path.join(__dirname, '..', '..', '..', '..', '..', 'installer', 'opends5-install');
+}
+
+function runSetupWizardIfNeeded(settingsStore: SettingsStore): Promise<void> {
+  const needed = process.platform === 'linux' ? isSetupNeeded() : false;
+  if (
+    !shouldShowSetupWizard({
+      platform: process.platform,
+      needed,
+      skipped: settingsStore.get().setupSkipped
+    })
+  ) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const service = new SetupService(resolveInstallerScriptPath(), app.getVersion());
+    openSetupWindow({
+      service,
+      indexPath: path.join(__dirname, '..', '..', 'renderer', 'index.html'),
+      preloadPath: path.join(__dirname, '..', 'preload.js'),
+      icon: createRuntimeIcon(),
+      onSkip: () => {
+        settingsStore.update({ setupSkipped: true });
+        resolve();
+      },
+      onFinish: () => {
+        settingsStore.update({ setupSkipped: false });
+        resolve();
+      }
+    });
+  });
+}
+
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) {
     return;
@@ -1405,6 +1446,11 @@ app.whenReady().then(async () => {
     }
   });
   registerIpc(bridgeService, triggerProfileStore, triggerProfileEngine, profileLibrary);
+
+  // Linux first launch: run the system setup wizard to completion (or skip)
+  // before the main window exists, so the app never starts against a
+  // half-installed driver stack.
+  await runSetupWizardIfNeeded(settingsStore);
 
   mainWindow = createWindow(settingsStore.get().uiScalePercent);
   mainWindow.on('maximize', sendWindowMaximizedState);

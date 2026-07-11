@@ -17,8 +17,8 @@ plan() { # extra env...
       OPENDS5_DRY_RUN=1 bash "$here/../opends5-install" --yes
 }
 
-# without bundle: no userspace steps
-out="$(plan OPENDS5_SYSROOT=/nonexistent)"
+# without bundle: no userspace steps (explicit override at an empty dir)
+out="$(plan OPENDS5_SYSROOT=/nonexistent OPENDS5_USERSPACE_DIR=/nonexistent)"
 case "$out" in *"/usr/local/bin/"*) f=1 ;; *) f=0 ;; esac
 assert_eq 0 "$f" "no userspace steps without bundle"
 
