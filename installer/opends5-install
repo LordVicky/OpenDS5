@@ -92,6 +92,106 @@ detect_sig_enforced() {
   if grep -qs '^CONFIG_MODULE_SIG_FORCE=y' "$cfg"; then echo 1; else echo 0; fi
 }
 
+PLAN_DESC=()
+PLAN_CMD=()
+PLAN_FATAL=""
+PLAN_NIXOS=0
+MODULE_SRC=""
+MODULE_VER=""
+
+plan_add() { PLAN_DESC+=("$1"); PLAN_CMD+=("$2"); }
+
+resolve_module_source() {
+  local script_dir cand
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  for cand in "${APPDIR:-/nonexistent}/resources/vds-module" \
+              "$script_dir/../vds-module" \
+              "$script_dir/../vds/module"; do
+    if [ -f "$cand/dkms.conf" ]; then
+      MODULE_SRC="$cand"
+      MODULE_VER="$(module_version "$cand/dkms.conf")"
+      break
+    fi
+  done
+  if [ -z "$MODULE_SRC" ]; then
+    echo "error: vds module source not found (looked in AppImage resources and repo)" >&2
+    exit 1
+  fi
+  # In-tree dkms.conf carries an "unknown" placeholder; resolve via generate-version.sh.
+  if [ -z "$MODULE_VER" ] || [ "$MODULE_VER" = "unknown" ]; then
+    if [ -x "$MODULE_SRC/../generate-version.sh" ]; then
+      MODULE_VER="$("$MODULE_SRC/../generate-version.sh" 2>/dev/null || true)"
+    fi
+    [ -n "$MODULE_VER" ] && [ "$MODULE_VER" != "unknown" ] || MODULE_VER="0.0.0"
+  fi
+}
+
+plan_source_staging() {
+  local dest="/usr/src/vds_hcd-${MODULE_VER}"
+  plan_add "Stage module source to ${dest}" \
+    "mkdir -p '${dest}' && cp -a '${MODULE_SRC}/.' '${dest}/' && \
+     find '${dest}' \\( -name '*.o' -o -name '*.ko*' -o -name '*.mod*' -o -name modules.order -o -name Module.symvers \\) -delete && \
+     sed -i 's/^PACKAGE_VERSION=.*/PACKAGE_VERSION=\"${MODULE_VER}\"/' '${dest}/dkms.conf'"
+}
+
+plan_dkms() {
+  local mk=""
+  [ "$(detect_clang_lto)" = "1" ] && mk=" LLVM=1"
+  plan_add "Register and build vds_hcd with DKMS" \
+    "dkms add vds_hcd/${MODULE_VER} || true; dkms install vds_hcd/${MODULE_VER}${mk}"
+  plan_add "Enable autoload on boot" \
+    "printf 'vds_hcd\n' > /etc/modules-load.d/vds.conf"
+}
+
+build_plan() {
+  local platform flavor hdrs
+  platform="$(detect_platform)"
+  flavor="$(detect_kernel_flavor)"
+  hdrs="$(headers_package "$platform" "$flavor")"
+  case "$platform" in
+    fedora)
+      plan_add "Install DKMS and kernel headers (dnf)" "dnf install -y dkms ${hdrs}"
+      plan_secureboot; plan_source_staging; plan_dkms ;;
+    fedora-immutable)
+      plan_add "Layer akmods + headers (rpm-ostree; REBOOT REQUIRED before module build)" \
+        "rpm-ostree install --idempotent akmods ${hdrs}"
+      plan_add "After reboot, re-run this installer to build the module" \
+        "echo 'reboot, then run: opends5-install'"
+      plan_secureboot; plan_source_staging; plan_dkms ;;
+    arch)
+      plan_add "Install DKMS and kernel headers (pacman)" "pacman -S --needed --noconfirm dkms ${hdrs}"
+      plan_secureboot; plan_source_staging; plan_dkms ;;
+    debian)
+      plan_add "Install DKMS and kernel headers (apt)" "apt-get install -y dkms ${hdrs}"
+      plan_secureboot; plan_source_staging; plan_dkms ;;
+    suse)
+      plan_add "Install DKMS and kernel headers (zypper)" "zypper --non-interactive install dkms ${hdrs}"
+      plan_secureboot; plan_source_staging; plan_dkms ;;
+    nixos)
+      PLAN_NIXOS=1
+      plan_add "Generate NixOS module snippet ./opends5-vds.nix (no system changes)" "generate_nixos_snippet" ;;
+    *)
+      PLAN_FATAL="This distribution is unsupported by the automatic installer.
+See docs/PORTING.md for manual installation instructions." ;;
+  esac
+  if [ -n "${OPENDS5_TEST_INJECT_FAIL:-}" ]; then
+    plan_add "test-injected failure" "$OPENDS5_TEST_INJECT_FAIL"
+  fi
+}
+
+# Stubs replaced in later tasks.
+plan_secureboot() { :; }
+confirm_and_execute() { :; }
+generate_nixos_snippet() { echo "would write ./opends5-vds.nix"; }
+
+print_plan() {
+  local i
+  echo "The following steps will be performed:"
+  for i in "${!PLAN_DESC[@]}"; do
+    printf '  %d. %s\n' "$((i + 1))" "${PLAN_DESC[$i]}"
+  done
+}
+
 main() {
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -102,7 +202,15 @@ main() {
     esac
     shift
   done
-  echo "OpenDS5 system installer (skeleton)"
+  resolve_module_source
+  build_plan
+  if [ -n "$PLAN_FATAL" ]; then echo "unsupported: $PLAN_FATAL" >&2; exit 3; fi
+  print_plan
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '%s\n' "${PLAN_CMD[@]}"
+    exit 0
+  fi
+  confirm_and_execute
 }
 
 usage() {
