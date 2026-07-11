@@ -45,6 +45,20 @@
     ],
     "extraResources": [
       {
+        "from": "../../installer",
+        "to": "installer",
+        "filter": ["opends5-install"]
+      },
+      {
+        "from": "../../vds/module",
+        "to": "vds-module",
+        "filter": ["**/*", "!*.o", "!*.ko*", "!*.mod*", "!modules.order", "!Module.symvers"]
+      },
+      {
+        "from": "../../vds/include",
+        "to": "vds-module/include"
+      },
+      {
         "from": "../assets/controllers",
         "to": "assets/controllers",
         "filter": [

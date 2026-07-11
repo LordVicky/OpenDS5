@@ -18,9 +18,8 @@ echo "==> stopping dev test units"
 systemctl stop vdsd-test vdsd-test2 vdsd-test3 2>/dev/null || true
 systemctl reset-failed vdsd-test vdsd-test2 vdsd-test3 2>/dev/null || true
 
-echo "==> kernel module (DKMS) + autoload"
-make -C "$repo/vds/module" install
-echo vds_hcd > /etc/modules-load.d/vds.conf
+echo "==> kernel module (opends5-install)"
+OPENDS5_SKIP_VERIFY=1 bash "$repo/installer/opends5-install" --yes
 modprobe vds_hcd
 
 echo "==> userspace + systemd service"

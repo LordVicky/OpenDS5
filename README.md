@@ -31,6 +31,13 @@ The Pico 2 W firmware, board files, and Windows installer tooling from
 DS5_Bridge were intentionally **not** imported — the vds transport replaces
 that hardware path.
 
+## System setup (kernel module)
+
+Run `./OpenDS5.AppImage --install-system` once. It detects your distro,
+installs DKMS/akmods + kernel headers, builds and signs the `vds_hcd` module,
+and handles Secure Boot (Fedora, Arch/CachyOS, Debian/Ubuntu, openSUSE,
+Bazzite/Silverblue, NixOS). See [docs/INSTALLER.md](docs/INSTALLER.md).
+
 ## Trigger Profiles
 
 Adaptive trigger profiles let the companion app automatically apply
