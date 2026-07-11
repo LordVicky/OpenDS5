@@ -14,6 +14,7 @@ out="$(plan_for fedora 6.15.4-200.fc44.x86_64)"
 assert_contains "$out" "dnf install -y dkms kernel-devel" "fedora installs dkms+devel"
 assert_contains "$out" "dkms install vds_hcd/"            "fedora dkms install"
 assert_contains "$out" "/usr/src/vds_hcd-"                "fedora stages source"
+assert_contains "$out" "include/" "staging copies shared vds headers (Kbuild -Iinclude)"
 assert_contains "$out" "modules-load.d/vds.conf"          "fedora autoload"
 
 out="$(plan_for fedora-cachyos 7.1.2-cachyos1.fc44.x86_64)"

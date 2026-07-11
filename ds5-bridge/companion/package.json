@@ -55,6 +55,10 @@
         "filter": ["**/*", "!*.o", "!*.ko*", "!*.mod*", "!modules.order", "!Module.symvers"]
       },
       {
+        "from": "../../vds/include",
+        "to": "vds-module/include"
+      },
+      {
         "from": "../assets/controllers",
         "to": "assets/controllers",
         "filter": [

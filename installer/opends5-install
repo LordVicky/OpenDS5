@@ -132,8 +132,14 @@ resolve_module_source() {
 
 plan_source_staging() {
   local dest="/usr/src/vds_hcd-${MODULE_VER}"
+  # Kbuild compiles with -I$(src)/include; the shared headers live in the
+  # sibling vds/include/ in the repo (already inside MODULE_SRC when bundled).
+  local inc=""
+  if [ -d "${MODULE_SRC}/../include/uapi" ]; then
+    inc=" && cp -a '${MODULE_SRC}/../include/.' '${dest}/include/'"
+  fi
   plan_add "Stage module source to ${dest}" \
-    "mkdir -p '${dest}' && cp -a '${MODULE_SRC}/.' '${dest}/' && \
+    "rm -rf '${dest}' && mkdir -p '${dest}/include' && cp -a '${MODULE_SRC}/.' '${dest}/'${inc} && \
      find '${dest}' \\( -name '*.o' -o -name '*.ko*' -o -name '*.mod*' -o -name modules.order -o -name Module.symvers \\) -delete && \
      sed -i 's/^PACKAGE_VERSION=.*/PACKAGE_VERSION=\"${MODULE_VER}\"/' '${dest}/dkms.conf'"
 }
@@ -262,6 +268,10 @@ verify_install() {
 generate_nixos_snippet() {
   rm -rf ./opends5-vds-src
   cp -a "$MODULE_SRC" ./opends5-vds-src
+  if [ -d "$MODULE_SRC/../include/uapi" ]; then
+    mkdir -p ./opends5-vds-src/include
+    cp -a "$MODULE_SRC/../include/." ./opends5-vds-src/include/
+  fi
   find ./opends5-vds-src \( -name '*.o' -o -name '*.ko*' -o -name '*.mod*' \) -delete
   cat > ./opends5-vds.nix <<EOF
 # OpenDS5 vds_hcd kernel module for NixOS.

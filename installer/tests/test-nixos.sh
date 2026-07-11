@@ -9,6 +9,7 @@ env OPENDS5_OS_RELEASE="$here/fixtures/nixos/os-release" OPENDS5_UNAME_R=6.15.4 
     bash "$here/../opends5-install" --yes >/dev/null
 assert_eq 1 "$([ -f opends5-vds.nix ] && echo 1 || echo 0)" "snippet written"
 assert_eq 1 "$([ -f opends5-vds-src/dkms.conf ] && echo 1 || echo 0)" "module source copied"
+assert_eq 1 "$([ -f opends5-vds-src/include/uapi/vds.h ] && echo 1 || echo 0)" "shared headers copied"
 assert_contains "$(cat opends5-vds.nix)" "boot.extraModulePackages" "wires extraModulePackages"
 assert_contains "$(cat opends5-vds.nix)" "vds_hcd" "names the module"
 cd /
