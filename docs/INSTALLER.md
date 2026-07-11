@@ -50,6 +50,20 @@ locally with `scripts/collect-vds-bin.sh`), the installer also:
 Without a bundle (e.g. a plain repo checkout) these steps are skipped and
 `install-system.sh` builds vdsd from source instead.
 
+## Application launcher
+
+When run from an AppImage, the installer also installs the app itself so users
+never have to place the file or hand-write a `.desktop` entry:
+
+- copies the running AppImage to `~/Applications/OpenDS5.AppImage` (skipped if
+  it is already there — re-running is idempotent),
+- installs the icon to `~/.local/share/icons/hicolor/256x256/apps/opends5.png`,
+- writes `~/.local/share/applications/opends5.desktop` with `Exec=` pointing at
+  the installed copy, then refreshes the desktop database.
+
+All three are owned by the invoking user, not root. Outside an AppImage (repo
+checkout) the step is skipped.
+
 The binaries are built in CI on Ubuntu 22.04 (glibc 2.35 baseline), so one
 build runs on every 2022-or-newer distribution.
 

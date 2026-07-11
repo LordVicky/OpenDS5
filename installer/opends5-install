@@ -245,6 +245,46 @@ plan_userspace() {
   plan_add "Reload systemd" "systemctl daemon-reload"
 }
 
+# When run from an AppImage, install it to ~/Applications and give the user a
+# real launcher, so they never have to place the file or write a .desktop by hand.
+plan_desktop_entry() {
+  local src="${APPIMAGE:-}"
+  [ -n "$src" ] && [ -f "$src" ] || return 0
+  local user home apps dest desktop icon_dir icon_src icon_dest
+  user="$(id -un)"
+  home="$HOME"
+  apps="$home/Applications"
+  dest="$apps/OpenDS5.AppImage"
+  desktop="$home/.local/share/applications/opends5.desktop"
+  icon_dir="$home/.local/share/icons/hicolor/256x256/apps"
+  icon_dest="$icon_dir/opends5.png"
+  icon_src=""
+  for cand in "${APPDIR:-/nonexistent}/resources/assets/controllers/ds5-bridge_app-icon-tile.png" \
+              "${APPDIR:-/nonexistent}/resources/assets/controllers/ds5-bridge_mark.png"; do
+    [ -f "$cand" ] && { icon_src="$cand"; break; }
+  done
+
+  plan_add "Install OpenDS5 to ${apps} and add it to your applications menu" \
+    "mkdir -p '${apps}' '${icon_dir}' '$(dirname "$desktop")' && \
+     if [ '${src}' != '${dest}' ]; then install -m 0755 '${src}' '${dest}'; fi && \
+     ${icon_src:+install -m 0644 '${icon_src}' '${icon_dest}' && } \
+     printf '%s\n' \
+       '[Desktop Entry]' \
+       'Type=Application' \
+       'Name=OpenDS5' \
+       'GenericName=DualSense Bridge' \
+       'Comment=DualSense haptics, triggers and remapping over Bluetooth' \
+       'Exec=${dest}' \
+       'Icon=${icon_src:+${icon_dest}}' \
+       'Terminal=false' \
+       'Categories=Game;' \
+       'StartupWMClass=OpenDS5' \
+       > '${desktop}' && \
+     chmod 0644 '${desktop}' && \
+     chown '${user}:' '${dest}' '${desktop}' ${icon_src:+'${icon_dest}'} && \
+     { update-desktop-database '$(dirname "$desktop")' >/dev/null 2>&1 || true; }"
+}
+
 plan_kernel_and_userspace() { # [pkg_install_desc pkg_install_cmd]
   if [ "$(detect_kernel_satisfied)" = "1" ] && [ -n "$USERSPACE_SRC" ]; then
     plan_add "Kernel module already loaded; skipping module build" "true"
@@ -253,6 +293,7 @@ plan_kernel_and_userspace() { # [pkg_install_desc pkg_install_cmd]
     plan_secureboot; plan_source_staging; plan_dkms
   fi
   plan_userspace
+  plan_desktop_entry
 }
 
 build_plan() {
