@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BridgeService } from './bridge-service';
+import { runSystemInstall, shouldRunSystemInstall } from './install-system-cli';
 import {
   PICO_UNIVERSAL_FLASH_NUKE_FILE,
   PICO_UNIVERSAL_FLASH_NUKE_SHA256_FILE,
@@ -1357,6 +1358,11 @@ function registerIpc(
     }
     void shell.openExternal(url);
   });
+}
+
+if (shouldRunSystemInstall(process.argv)) {
+  const extraArgs = process.argv.slice(process.argv.indexOf('--install-system') + 1);
+  app.exit(runSystemInstall(process.resourcesPath, extraArgs));
 }
 
 app.whenReady().then(async () => {

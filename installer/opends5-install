@@ -138,7 +138,7 @@ plan_dkms() {
   local mk=""
   [ "$(detect_clang_lto)" = "1" ] && mk=" LLVM=1"
   plan_add "Register and build vds_hcd with DKMS" \
-    "dkms add vds_hcd/${MODULE_VER} || true; dkms install vds_hcd/${MODULE_VER}${mk}"
+    "dkms remove vds_hcd/${MODULE_VER} --all >/dev/null 2>&1 || true; dkms add vds_hcd/${MODULE_VER} && dkms install vds_hcd/${MODULE_VER}${mk}"
   plan_add "Enable autoload on boot" \
     "printf 'vds_hcd\n' > /etc/modules-load.d/vds.conf"
 }
