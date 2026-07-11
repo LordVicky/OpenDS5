@@ -53,8 +53,10 @@ step.
 
 - Additive only: installs packages and adds files; never removes or edits
   existing host configuration, bootloader entries, or other modules.
-- Root only per step, via `pkexec` (system auth dialog) or `sudo`; detection
-  and planning run unprivileged.
+- Single authentication: after you confirm the plan, all privileged steps run
+  in one `pkexec`/`sudo` invocation (one password prompt). Your password is
+  never read or stored by the installer. Detection and planning run
+  unprivileged; the NixOS flow never escalates at all.
 - No network access: everything executed ships inside the AppImage/repo.
 - Fail closed: the first failing step aborts the run, prints the exact manual
   retry command, and rolls back the DKMS registration.

@@ -224,9 +224,29 @@ as_root() {
   fi
 }
 
-rollback() {
-  echo "Rolling back partial DKMS registration..." >&2
-  as_root bash -c "dkms remove vds_hcd/${MODULE_VER} --all || true"
+# Emit one root-executed runner script for the whole plan, so the user
+# authenticates exactly once. Fail-closed: the first failing step rolls back
+# the DKMS registration inside the same script and exits 4.
+build_runner() { # path
+  {
+    printf '#!/usr/bin/env bash\nset -u\n'
+    printf 'fail() {\n'
+    printf '  echo "FAILED: $1" >&2\n'
+    printf '  echo "  Retry manually with: sudo bash -c \\"$2\\"" >&2\n'
+    printf '  echo "  Troubleshooting: https://github.com/LordVicky/OpenDS5/blob/main/docs/INSTALLER.md" >&2\n'
+    printf '  echo "Rolling back partial DKMS registration..." >&2\n'
+    printf '  dkms remove vds_hcd/%s --all >/dev/null 2>&1 || true\n' "$MODULE_VER"
+    printf '  exit 4\n}\n'
+    local i
+    for i in "${!PLAN_CMD[@]}"; do
+      printf 'echo %q\n' "==> ${PLAN_DESC[$i]}"
+      printf '( %s ) || fail %q %q\n' "${PLAN_CMD[$i]}" "${PLAN_DESC[$i]}" "${PLAN_CMD[$i]}"
+    done
+    if [ "${OPENDS5_SKIP_VERIFY:-0}" != "1" ]; then
+      printf 'echo "==> Loading module"\n'
+      printf 'modprobe vds_hcd || fail "Load vds_hcd" "modprobe vds_hcd"\n'
+    fi
+  } > "$1"
 }
 
 confirm_and_execute() {
@@ -235,29 +255,24 @@ confirm_and_execute() {
     read -r reply
     case "$reply" in n|N|no|NO) echo "Aborted."; exit 0 ;; esac
   fi
-  local i
-  for i in "${!PLAN_CMD[@]}"; do
-    echo "==> ${PLAN_DESC[$i]}"
-    if [ "${PLAN_CMD[$i]}" = "generate_nixos_snippet" ]; then
-      generate_nixos_snippet; continue
-    fi
-    if ! as_root bash -c "${PLAN_CMD[$i]}"; then
-      echo "FAILED: ${PLAN_DESC[$i]}" >&2
-      echo "  command: ${PLAN_CMD[$i]}" >&2
-      echo "  Retry manually with: sudo bash -c '${PLAN_CMD[$i]}'" >&2
-      echo "  Troubleshooting: https://github.com/LordVicky/OpenDS5/blob/main/docs/INSTALLER.md" >&2
-      rollback
-      exit 4
-    fi
-  done
-  if [ "$PLAN_NIXOS" = "1" ]; then return 0; fi
+  if [ "$PLAN_NIXOS" = "1" ]; then
+    # NixOS flow is entirely unprivileged.
+    echo "==> ${PLAN_DESC[0]}"
+    generate_nixos_snippet
+    return 0
+  fi
+  local runner rc=0
+  runner="$(mktemp)"
+  build_runner "$runner"
+  as_root bash "$runner" || rc=$?
+  rm -f "$runner"
+  [ "$rc" -eq 0 ] || exit "$rc"
   if [ "${OPENDS5_SKIP_VERIFY:-0}" = "1" ]; then echo "Done (verify skipped)."; return 0; fi
   verify_install
 }
 
 verify_install() {
   echo "==> Verifying"
-  as_root modprobe vds_hcd
   if ls /dev/vds* >/dev/null 2>&1; then
     echo "Success: vds_hcd loaded, /dev/vds* present."
   else
