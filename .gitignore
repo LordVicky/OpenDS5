@@ -16,3 +16,4 @@ vds/module/.*.cmd
 artifacts/
 revert-to-main.sh
 .remember/
+vds-bin/
