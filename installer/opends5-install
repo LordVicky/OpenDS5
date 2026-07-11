@@ -14,6 +14,60 @@ module_version() { # dkms_conf_path -> version
   sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' "$1"
 }
 
+os_release_val() { # key -> value (unquoted), empty if absent
+  sed -n "s/^$1=//p" "$OS_RELEASE" 2>/dev/null | tr -d '"' | head -n1
+}
+
+detect_platform() {
+  local id like
+  id="$(os_release_val ID)"
+  like="$(os_release_val ID_LIKE)"
+  if [ "$id" = "nixos" ]; then echo nixos; return; fi
+  case " $id $like " in
+    *" fedora "*)
+      if [ -e "${SYSROOT}/run/ostree-booted" ]; then echo fedora-immutable; else echo fedora; fi ;;
+    *" arch "*)   echo arch ;;
+    *" debian "*|*" ubuntu "*) echo debian ;;
+    *" suse "*|*" opensuse "*) echo suse ;;
+    *) echo unsupported ;;
+  esac
+}
+
+detect_kernel_flavor() {
+  case "$KERNEL_RELEASE" in
+    *cachyos*)  echo cachyos ;;
+    *zen*)      echo zen ;;
+    *hardened*) echo hardened ;;
+    *-rt*)      echo rt ;;
+    *lts*)      echo lts ;;
+    *)          echo generic ;;
+  esac
+}
+
+headers_package() { # platform flavor
+  local platform="$1" flavor="$2"
+  case "$platform" in
+    arch)
+      case "$flavor" in
+        generic) echo linux-headers ;;
+        *)       echo "linux-${flavor}-headers" ;;
+      esac ;;
+    fedora|fedora-immutable)
+      case "$flavor" in
+        cachyos) echo kernel-cachyos-devel ;;
+        *)       echo kernel-devel ;;
+      esac ;;
+    debian) echo "linux-headers-${KERNEL_RELEASE}" ;;
+    suse)   echo kernel-default-devel ;;
+    *)      echo "" ;;
+  esac
+}
+
+detect_clang_lto() {
+  local cfg="${SYSROOT}/usr/lib/modules/${KERNEL_RELEASE}/build/.config"
+  if grep -qs '^CONFIG_LTO_CLANG=y' "$cfg"; then echo 1; else echo 0; fi
+}
+
 main() {
   while [ $# -gt 0 ]; do
     case "$1" in
