@@ -13,17 +13,11 @@ out="$(plan_sb disabled /nonexistent)"
 case "$out" in *mok*) f=1 ;; *) f=0 ;; esac
 assert_eq 0 "$f" "no MOK steps when SB off"
 
-# SB on, enforcement off -> sign, no enrollment
+# SB on -> use DKMS default key, ensure enrollment, clean up old override
 out="$(plan_sb enabled /nonexistent)"
-assert_contains "$out" "/var/lib/opends5/mok.key" "signing key configured"
-assert_contains "$out" "framework.conf.d/opends5.conf" "dkms signing framework config"
-case "$out" in *"mokutil --import"*) f=1 ;; *) f=0 ;; esac
-assert_eq 0 "$f" "no enrollment when enforcement off"
-
-# SB on + lockdown integrity -> enrollment step present
-tmp="$(mktemp -d)"; mkdir -p "$tmp/sys/kernel/security"
-printf 'none [integrity] confidentiality\n' > "$tmp/sys/kernel/security/lockdown"
-out="$(plan_sb enabled "$tmp")"
-assert_contains "$out" "mokutil --import" "enrollment when enforced"
-rm -rf "$tmp"
+assert_contains "$out" "/var/lib/dkms/mok.key" "uses DKMS default signing key"
+assert_contains "$out" "mokutil --import" "ensures MOK enrollment (skipped at runtime if already enrolled)"
+assert_contains "$out" "rm -f /etc/dkms/framework.conf.d/opends5.conf" "removes stale signing override"
+case "$out" in *"keyout '/var/lib/opends5"*) f=1 ;; *) f=0 ;; esac
+assert_eq 0 "$f" "no custom OpenDS5 key generated"
 finish

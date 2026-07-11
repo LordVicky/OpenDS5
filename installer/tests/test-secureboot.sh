@@ -16,13 +16,16 @@ assert_eq none "$(SYSROOT=/nonexistent detect_lockdown)" "lockdown file missing 
 assert_eq 1 "$(OPENDS5_SB_STATE=enabled detect_secureboot)"  "SB enabled override"
 assert_eq 0 "$(OPENDS5_SB_STATE=disabled detect_secureboot)" "SB disabled override"
 
-# enforcement: lockdown none + no MODULE_SIG_FORCE -> 0 (the CachyOS-kernel case)
+# enforcement: SB on always counts as enforced (Fedora-lineage kernels enforce
+# module signatures under SB even with lockdown "none")
 : > "$tmp/usr/lib/modules/6.1-test/build/.config"
-assert_eq 0 "$(SYSROOT=$tmp KERNEL_RELEASE=6.1-test detect_sig_enforced)" "SB on but not enforced"
+printf '[none] integrity confidentiality\n' > "$tmp/sys/kernel/security/lockdown"
+assert_eq 1 "$(OPENDS5_SB_STATE=enabled SYSROOT=$tmp KERNEL_RELEASE=6.1-test detect_sig_enforced)" "SB on -> enforced"
+assert_eq 0 "$(OPENDS5_SB_STATE=disabled SYSROOT=$tmp KERNEL_RELEASE=6.1-test detect_sig_enforced)" "SB off, lockdown none -> not enforced"
 printf 'CONFIG_MODULE_SIG_FORCE=y\n' > "$tmp/usr/lib/modules/6.1-test/build/.config"
-assert_eq 1 "$(SYSROOT=$tmp KERNEL_RELEASE=6.1-test detect_sig_enforced)" "MODULE_SIG_FORCE enforced"
+assert_eq 1 "$(OPENDS5_SB_STATE=disabled SYSROOT=$tmp KERNEL_RELEASE=6.1-test detect_sig_enforced)" "MODULE_SIG_FORCE enforced"
 printf 'none [integrity] confidentiality\n' > "$tmp/sys/kernel/security/lockdown"
 : > "$tmp/usr/lib/modules/6.1-test/build/.config"
-assert_eq 1 "$(SYSROOT=$tmp KERNEL_RELEASE=6.1-test detect_sig_enforced)" "lockdown enforced"
+assert_eq 1 "$(OPENDS5_SB_STATE=disabled SYSROOT=$tmp KERNEL_RELEASE=6.1-test detect_sig_enforced)" "lockdown enforced"
 rm -rf "$tmp"
 finish

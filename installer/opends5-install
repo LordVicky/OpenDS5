@@ -87,6 +87,9 @@ detect_secureboot() {
 }
 
 detect_sig_enforced() {
+  # Fedora-lineage kernels enforce module signatures whenever Secure Boot is
+  # on, even with lockdown reporting "none" — treat SB-on as enforced.
+  if [ "$(detect_secureboot)" = "1" ]; then echo 1; return; fi
   if [ "$(detect_lockdown)" != "none" ]; then echo 1; return; fi
   local cfg="${SYSROOT}/usr/lib/modules/${KERNEL_RELEASE}/build/.config"
   if grep -qs '^CONFIG_MODULE_SIG_FORCE=y' "$cfg"; then echo 1; else echo 0; fi
@@ -191,27 +194,25 @@ See docs/PORTING.md for manual installation instructions." ;;
 
 plan_secureboot() {
   [ "$(detect_secureboot)" = "1" ] || return 0
-  local keydir=/var/lib/opends5
-  plan_add "Configure DKMS module signing (key: ${keydir}/mok.key)" \
-    "mkdir -p -m 0700 '${keydir}' && \
-     if [ ! -f '${keydir}/mok.key' ]; then \
+  # DKMS signs with its own default key (/var/lib/dkms/mok.key), which on many
+  # systems is already enrolled in MOK. Use it instead of a custom key, and
+  # remove the signing override an earlier OpenDS5 installer version wrote.
+  local key=/var/lib/dkms/mok.key cert=/var/lib/dkms/mok.pub
+  plan_add "Ensure DKMS signing key exists and is enrolled in MOK (Secure Boot)" \
+    "rm -f /etc/dkms/framework.conf.d/opends5.conf; \
+     if [ ! -f '${key}' ]; then \
        openssl req -new -x509 -newkey rsa:2048 -nodes -days 36500 \
-         -subj '/CN=OpenDS5 module signing key/' \
-         -keyout '${keydir}/mok.key' -outform DER -out '${keydir}/mok.der'; \
-       chmod 0600 '${keydir}/mok.key'; \
-     fi && \
-     mkdir -p /etc/dkms/framework.conf.d && \
-     printf 'mok_signing_key=%s\nmok_certificate=%s\n' \
-       '${keydir}/mok.key' '${keydir}/mok.der' \
-       > /etc/dkms/framework.conf.d/opends5.conf"
-  if [ "$(detect_sig_enforced)" = "1" ]; then
-    plan_add "Enroll signing key in MOK (you will set a one-time password; a blue 'MOK Manager' screen appears on next reboot -- choose Enroll MOK)" \
-      "if mokutil --test-key '${keydir}/mok.der' 2>/dev/null | grep -q 'already enrolled'; then \
-         echo 'MOK key already enrolled'; \
-       else \
-         mokutil --import '${keydir}/mok.der'; \
-       fi"
-  fi
+         -subj '/CN=DKMS module signing key/' \
+         -keyout '${key}' -outform DER -out '${cert}'; \
+       chmod 0600 '${key}'; \
+     fi; \
+     if mokutil --test-key '${cert}' 2>/dev/null | grep -qi 'already enrolled'; then \
+       echo 'DKMS signing key already enrolled in MOK'; \
+     else \
+       echo 'Enrolling DKMS signing key: choose a one-time password now;'; \
+       echo 'on next reboot pick Enroll MOK in the blue MOK Manager screen.'; \
+       mokutil --import '${cert}'; \
+     fi"
 }
 
 as_root() {
@@ -244,7 +245,13 @@ build_runner() { # path
     done
     if [ "${OPENDS5_SKIP_VERIFY:-0}" != "1" ]; then
       printf 'echo "==> Loading module"\n'
-      printf 'modprobe vds_hcd || fail "Load vds_hcd" "modprobe vds_hcd"\n'
+      if [ "$(detect_secureboot)" = "1" ]; then
+        # A freshly imported MOK key only becomes trusted after the reboot
+        # enrollment; a signature rejection here is expected in that case.
+        printf 'modprobe vds_hcd || { echo "Module built and signed, but the kernel rejected the key."; echo "If you just enrolled the MOK key: reboot, complete Enroll MOK, and the module will load automatically."; exit 6; }\n'
+      else
+        printf 'modprobe vds_hcd || fail "Load vds_hcd" "modprobe vds_hcd"\n'
+      fi
     fi
   } > "$1"
 }

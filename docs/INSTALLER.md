@@ -31,13 +31,14 @@ kernel updates rebuild automatically), and enables autoload via
 
 ## Secure Boot
 
-If Secure Boot is enabled, the installer configures DKMS module signing with a
-locally generated key (`/var/lib/opends5/mok.key`, root-only). It only asks
-you to enroll the key (`mokutil --import`, one-time password, blue MOK Manager
-screen on next reboot) when the kernel actually enforces module signatures
-(lockdown active or `CONFIG_MODULE_SIG_FORCE`). Kernels with Secure Boot on
-but no lockdown (e.g. CachyOS kernels) get a signed module with no enrollment
-step.
+If Secure Boot is enabled, modules must be signed with a MOK-enrolled key —
+Fedora-lineage kernels enforce this even when lockdown reports `none`. The
+installer uses DKMS's own default signing key (`/var/lib/dkms/mok.key`,
+root-only; generated if missing) so systems that already did the MOK dance for
+any DKMS module need nothing extra. If the key isn't enrolled yet, it runs
+`mokutil --import` (you choose a one-time password, then confirm in the blue
+MOK Manager screen on next reboot); in that case the module is built and
+installed but only loads after the reboot (exit code 6).
 
 ## Exit codes
 
@@ -48,6 +49,7 @@ step.
 | 3 | Unsupported distribution |
 | 4 | A step failed; partial DKMS registration rolled back |
 | 5 | Module built and loaded but `/dev/vds*` missing |
+| 6 | Module built and signed; reboot needed to complete MOK enrollment before it loads |
 
 ## Security guarantees
 
