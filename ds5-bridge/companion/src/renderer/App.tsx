@@ -7411,7 +7411,7 @@ export function App() {
                     ))}
                   </div>
                 </section>
-                <section className="feature-card test-card">
+                <section className="feature-card test-card trigger-test-card">
                   <div className="feature-card-title">
                     <span className="feature-icon"><IconTestPipe size={20} /></span>
                     <div className="title-copy">
