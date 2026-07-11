@@ -73,11 +73,16 @@ classic V1 command.
   JSON files. Import always creates a *fresh copy*: the profile is re-validated,
   given a new id and a collision-free display name, and stamped with
   `meta.source` recording where it came from (`import` or `library`).
-- **Profile library:** curated per-game profiles live in the repo under
-  `profiles/library/`. To add a game, open a PR that adds your profile JSON to
-  `profiles/library/` and run `node scripts/build-index.mjs` to regenerate the
-  library index (CI verifies the index is in sync). The in-app library browser
-  fetches this index and installs profiles as fresh copies.
+- **Profile library:** curated per-game profiles live on the dedicated
+  [`Profiles-Library` branch](https://github.com/LordVicky/OpenDS5/tree/Profiles-Library)
+  under `profiles/library/`, so new game support ships without an app release.
+  To add a game, open a PR **against the `Profiles-Library` branch** that adds
+  your profile JSON to `profiles/library/` and run `node scripts/build-index.mjs`
+  to regenerate the library index (CI verifies the index is in sync). The in-app
+  library browser fetches that branch's index and installs profiles as fresh
+  copies. Maintainer note: update the library branch via PRs or cherry-picks —
+  don't merge `dev` into it wholesale (the code branches no longer carry
+  `profiles/library/`, so a merge would delete the library).
 
 ### Full-surface modes need a current vdsd
 
