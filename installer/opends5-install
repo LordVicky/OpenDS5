@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# OpenDS5 system installer: prepares the host for the vds_hcd kernel module.
+# Spec: docs/superpowers/specs/2026-07-11-system-installer-design.md
+set -euo pipefail
+
+# --- injectable environment (tests override these) ---
+OS_RELEASE="${OPENDS5_OS_RELEASE:-/etc/os-release}"
+KERNEL_RELEASE="${OPENDS5_UNAME_R:-$(uname -r)}"
+SYSROOT="${OPENDS5_SYSROOT:-}"           # prefix for /sys, /run, /usr probes
+DRY_RUN="${OPENDS5_DRY_RUN:-0}"
+ASSUME_YES=0
+
+module_version() { # dkms_conf_path -> version
+  sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' "$1"
+}
+
+main() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --yes) ASSUME_YES=1 ;;
+      --dry-run) DRY_RUN=1 ;;
+      -h|--help) usage; exit 0 ;;
+      *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+  done
+  echo "OpenDS5 system installer (skeleton)"
+}
+
+usage() {
+  cat <<'EOF'
+Usage: opends5-install [--yes] [--dry-run]
+Prepares this system for the vds_hcd kernel module.
+EOF
+}
+
+if [ "${OPENDS5_INSTALL_SOURCED:-0}" != "1" ]; then
+  main "$@"
+fi
