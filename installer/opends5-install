@@ -179,9 +179,60 @@ See docs/PORTING.md for manual installation instructions." ;;
   fi
 }
 
-# Stubs replaced in later tasks.
+# Stub replaced in a later task.
 plan_secureboot() { :; }
-confirm_and_execute() { :; }
+
+as_root() {
+  if [ -n "${OPENDS5_ROOT_CMD:-}" ]; then "$OPENDS5_ROOT_CMD" "$@"; return; fi
+  if [ "$(id -u)" -eq 0 ]; then "$@"; return; fi
+  if command -v pkexec >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    pkexec "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+rollback() {
+  echo "Rolling back partial DKMS registration..." >&2
+  as_root bash -c "dkms remove vds_hcd/${MODULE_VER} --all || true"
+}
+
+confirm_and_execute() {
+  if [ "$ASSUME_YES" != "1" ]; then
+    printf 'Proceed? [Y/n] '
+    read -r reply
+    case "$reply" in n|N|no|NO) echo "Aborted."; exit 0 ;; esac
+  fi
+  local i
+  for i in "${!PLAN_CMD[@]}"; do
+    echo "==> ${PLAN_DESC[$i]}"
+    if [ "${PLAN_CMD[$i]}" = "generate_nixos_snippet" ]; then
+      generate_nixos_snippet; continue
+    fi
+    if ! as_root bash -c "${PLAN_CMD[$i]}"; then
+      echo "FAILED: ${PLAN_DESC[$i]}" >&2
+      echo "  command: ${PLAN_CMD[$i]}" >&2
+      echo "  Retry manually with: sudo bash -c '${PLAN_CMD[$i]}'" >&2
+      echo "  Troubleshooting: https://github.com/LordVicky/OpenDS5/blob/main/docs/INSTALLER.md" >&2
+      rollback
+      exit 4
+    fi
+  done
+  if [ "$PLAN_NIXOS" = "1" ]; then return 0; fi
+  if [ "${OPENDS5_SKIP_VERIFY:-0}" = "1" ]; then echo "Done (verify skipped)."; return 0; fi
+  verify_install
+}
+
+verify_install() {
+  echo "==> Verifying"
+  as_root modprobe vds_hcd
+  if ls /dev/vds* >/dev/null 2>&1; then
+    echo "Success: vds_hcd loaded, /dev/vds* present."
+  else
+    echo "Module loaded but /dev/vds* not found; check 'dmesg | grep vds_hcd'." >&2
+    exit 5
+  fi
+}
 generate_nixos_snippet() { echo "would write ./opends5-vds.nix"; }
 
 print_plan() {
