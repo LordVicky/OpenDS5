@@ -255,7 +255,45 @@ verify_install() {
     exit 5
   fi
 }
-generate_nixos_snippet() { echo "would write ./opends5-vds.nix"; }
+generate_nixos_snippet() {
+  rm -rf ./opends5-vds-src
+  cp -a "$MODULE_SRC" ./opends5-vds-src
+  find ./opends5-vds-src \( -name '*.o' -o -name '*.ko*' -o -name '*.mod*' \) -delete
+  cat > ./opends5-vds.nix <<EOF
+# OpenDS5 vds_hcd kernel module for NixOS.
+# Import from configuration.nix:  imports = [ ./opends5-vds.nix ];
+{ config, pkgs, ... }:
+let
+  kernel = config.boot.kernelPackages.kernel;
+  vds_hcd = pkgs.stdenv.mkDerivation {
+    pname = "vds_hcd";
+    version = "${MODULE_VER}";
+    src = ./opends5-vds-src;
+    hardeningDisable = [ "pic" ];
+    nativeBuildInputs = kernel.moduleBuildDependencies;
+    makeFlags = [
+      "KERNELRELEASE=\${kernel.modDirVersion}"
+      "KDIR=\${kernel.dev}/lib/modules/\${kernel.modDirVersion}/build"
+      "INSTALL_MOD_PATH=\$(out)"
+    ];
+    installPhase = ''
+      install -D vds_hcd.ko \$out/lib/modules/\${kernel.modDirVersion}/extra/vds_hcd.ko
+    '';
+  };
+in
+{
+  boot.extraModulePackages = [ vds_hcd ];
+  boot.kernelModules = [ "vds_hcd" ];
+}
+EOF
+  cat <<'EOF'
+Wrote ./opends5-vds.nix and ./opends5-vds-src/.
+NixOS cannot be modified imperatively; to install:
+  1. Move both into your configuration directory.
+  2. Add  imports = [ ./opends5-vds.nix ];  to configuration.nix.
+  3. Run: sudo nixos-rebuild switch
+EOF
+}
 
 print_plan() {
   local i
