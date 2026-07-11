@@ -8456,11 +8456,43 @@ button.trigger-lab-chip {
   flex-wrap: wrap;
   margin-top: 4px;
 }
-.setup-actions button.primary {
-  background: var(--accent);
+
+/* Pill buttons. Default is the app's blue action; the install button borrows
+   the Trigger Profiles "auto mode" green exactly. */
+.setup-actions button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 18px;
+  border: 1px solid var(--accent-border-strong);
+  border-radius: 999px;
+  background: var(--accent-selected);
   color: var(--accent-text);
-  border-color: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
-.setup-actions button.primary:hover {
-  background: var(--accent-strong);
+
+.setup-actions button:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+}
+
+.setup-actions button.install,
+.setup-actions button.install:hover:not(:disabled) {
+  padding: 0 22px;
+  background: var(--surface-control-soft);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 55%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--success) 35%, transparent);
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.setup-actions button.install:hover:not(:disabled) {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--success) 45%, transparent);
 }

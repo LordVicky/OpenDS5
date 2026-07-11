@@ -71,9 +71,7 @@ export function SetupWizard() {
             module and a background service. This needs your administrator password once.
           </p>
           <div className="setup-actions">
-            <button className="primary" onClick={() => void toReview()}>
-              Set up
-            </button>
+            <button onClick={() => void toReview()}>Set up</button>
             <button onClick={() => void window.setup.skip()}>Skip for now</button>
           </div>
         </section>
@@ -104,15 +102,12 @@ export function SetupWizard() {
           )}
           <div className="setup-actions">
             {!unsupported && !isNixos && (
-              <button className="primary" onClick={startInstall}>
+              <button className="install" onClick={startInstall}>
                 Install
               </button>
             )}
             {isNixos && (
-              <button
-                className="primary"
-                onClick={() => void navigator.clipboard.writeText(plan.join('\n'))}
-              >
+              <button onClick={() => void navigator.clipboard.writeText(plan.join('\n'))}>
                 Copy plan
               </button>
             )}
@@ -140,9 +135,9 @@ export function SetupWizard() {
           {progress.outcome === 'success' && (
             <>
               <p>Log out and back in once so group permissions apply to game input features.</p>
-              <button className="primary" onClick={() => void window.setup.finish()}>
-                Open OpenDS5
-              </button>
+              <div className="setup-actions">
+                <button onClick={() => void window.setup.finish()}>Open OpenDS5</button>
+              </div>
             </>
           )}
           {progress.outcome === 'reboot' && (
@@ -151,9 +146,9 @@ export function SetupWizard() {
                 Your Secure Boot key was enrolled. Reboot, choose “Enroll MOK” in the blue screen,
                 and the driver loads automatically. You can use the app after that.
               </p>
-              <button className="primary" onClick={() => void window.setup.finish()}>
-                Close
-              </button>
+              <div className="setup-actions">
+                <button onClick={() => void window.setup.finish()}>Close</button>
+              </div>
             </>
           )}
           {progress.outcome === 'error' && (
@@ -163,7 +158,7 @@ export function SetupWizard() {
                 {progress.logPath ? ` (${progress.logPath})` : ''}.
               </p>
               <div className="setup-actions">
-                <button className="primary" onClick={startInstall}>
+                <button className="install" onClick={startInstall}>
                   Retry
                 </button>
                 <button onClick={() => void window.setup.openLog()}>Open log</button>
