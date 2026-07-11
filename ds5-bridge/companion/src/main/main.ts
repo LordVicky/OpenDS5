@@ -13,6 +13,7 @@ import {
 } from './pico-firmware-updater';
 import { SettingsStore } from './settings-store';
 import { growBoundsToMinimum, loadWindowState, resolveWindowBounds, saveWindowState } from './window-state';
+import { deriveLegacyUserDataPath, migrateLegacyUserData } from './user-data-migration';
 import { readProfileFileForImport, TriggerProfileStore } from './trigger-profile-store';
 import { ProfileLibrary, type LibraryEntry } from './profile-library';
 import { GameWatcher, listCandidateGameProcesses } from './game-watcher';
@@ -43,7 +44,7 @@ import type {
   UiThemePreset
 } from '../shared/types';
 
-const APP_NAME = 'DS5 Bridge';
+const APP_NAME = 'OpenDS5';
 const WINDOWS_APP_USER_MODEL_ID = 'io.github.sundaymoments.ds5bridge';
 const WINDOWS_TOAST_ACTIVATOR_CLSID = '{A8B3700D-4BB5-4E22-BF57-0C43B7C2FDF6}';
 const APP_MARK_PNG = path.join('assets', 'controllers', 'ds5-bridge_mark.png');
@@ -421,7 +422,7 @@ function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {
     minWidth,
     minHeight,
     show: false,
-    title: 'DS5 Bridge',
+    title: 'OpenDS5',
     frame: false,
     resizable: true,
     maximizable: true,
@@ -980,7 +981,7 @@ async function confirmPicoFlashNuke(): Promise<boolean> {
     type: 'warning',
     title: 'Nuke Pico flash?',
     message: 'Nuke Pico flash?',
-    detail: 'This will copy the bundled Pico Universal Flash Nuke UF2 to the mounted Pico bootloader drive and erase the Pico flash.\n\nThe bridge will not work again until you flash the DS5 Bridge firmware back onto the Pico. Use this only when recovering from a bad or stuck firmware install.',
+    detail: 'This will copy the bundled Pico Universal Flash Nuke UF2 to the mounted Pico bootloader drive and erase the Pico flash.\n\nThe bridge will not work again until you flash the OpenDS5 firmware back onto the Pico. Use this only when recovering from a bad or stuck firmware install.',
     buttons: ['Nuke Pico', 'Cancel'],
     defaultId: 1,
     cancelId: 1,
@@ -1355,6 +1356,15 @@ app.whenReady().then(async () => {
   app.setName(APP_NAME);
   ensureWindowsNotificationShortcut();
   Menu.setApplicationMenu(null);
+  // One-time DS5 Bridge -> OpenDS5 rebrand migration: carry legacy userData
+  // (settings, trigger profiles, library cache, window state) into the new
+  // productName-derived location before anything reads or writes it.
+  try {
+    const userDataPath = app.getPath('userData');
+    migrateLegacyUserData(deriveLegacyUserDataPath(userDataPath), userDataPath, fs);
+  } catch (error) {
+    console.error('[main] legacy userData migration failed', error);
+  }
   const settingsStore = new SettingsStore(app.getPath('userData'));
   applyLaunchAtStartup(settingsStore.get().launchAtStartupEnabled);
   bridgeService = new BridgeService(settingsStore);

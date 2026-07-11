@@ -2297,7 +2297,7 @@ describe('BridgeService', () => {
 
     await service.testNotification();
 
-    expect(toasts).toEqual([{ title: 'DS5 Bridge', body: 'Notifications are working.' }]);
+    expect(toasts).toEqual([{ title: 'OpenDS5', body: 'Notifications are working.' }]);
   });
 
   it('turns feature kill switches into effective zero-value firmware commands', async () => {

@@ -1,6 +1,6 @@
-# Virtual DS5 Bridge
+# OpenDS5
 
-Bring the **DS5 Bridge** feature set (audio, haptics, Trigger Lab, lighting,
+Bring the **OpenDS5** feature set (audio, haptics, Trigger Lab, lighting,
 button remapping, personas, chords) to **Linux** — with no Pico 2 W hardware —
 by using **vds** (virtual DualSense) as the transport layer instead of the
 Pico dongle.
@@ -38,7 +38,7 @@ per-game DualSense trigger effects (weapon/vibration modes, start/wall/force
 percentages) for games that have no native DualSense support — the app
 detects the running process, matches it to a saved profile, and pushes the
 effect to the controller through the same bridge transport used for the rest
-of DS5 Bridge's features.
+of OpenDS5's features.
 
 - **Where profiles live:** `<userData>/trigger-profiles/*.json` (one file
   per profile; see `TriggerProfileStore` in

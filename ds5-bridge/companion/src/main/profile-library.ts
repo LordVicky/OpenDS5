@@ -3,7 +3,7 @@ import path from 'node:path';
 import { MAX_PROFILE_FILE_BYTES } from './trigger-profile-store';
 
 export const LIBRARY_INDEX_URL =
-  'https://raw.githubusercontent.com/LordVicky/Virtual-DS5-Bridge/main/profiles/library/index.json';
+  'https://raw.githubusercontent.com/LordVicky/OpenDS5/main/profiles/library/index.json';
 export const MAX_INDEX_BYTES = 1048576;
 
 const FETCH_TIMEOUT_MS = 10000;
