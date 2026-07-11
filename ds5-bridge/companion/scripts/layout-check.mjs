@@ -64,7 +64,7 @@ try {
     await assertNoModalOverflow(startupTutorial, 'Feature tile tutorial');
     await page.getByLabel('Toggle example effect').click();
     await page.getByRole('button', { name: /Next/ }).click();
-    const supportTutorial = page.getByRole('dialog', { name: 'Support DS5 Bridge' });
+    const supportTutorial = page.getByRole('dialog', { name: 'Support OpenDS5' });
     await assertNoModalOverflow(supportTutorial, 'Support tutorial');
     await assertNaturalImageRatio(supportTutorial.locator('.startup-tutorial-kofi-button img'), 'Support tutorial Ko-fi badge');
     await page.getByRole('button', { name: 'Continue' }).click({ timeout: 7000 });

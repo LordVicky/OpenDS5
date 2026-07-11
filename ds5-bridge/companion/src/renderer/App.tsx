@@ -1112,11 +1112,11 @@ function BridgeMark() {
 function StartupScreen({ ready }: { ready: boolean }) {
   return (
     <main className={`startup-screen ${ready ? 'ready' : ''}`} aria-live="polite">
-      <section className="startup-card" aria-label="Starting DS5 Bridge">
+      <section className="startup-card" aria-label="Starting OpenDS5">
         <div className="startup-brand">
           <BridgeMark />
           <div>
-            <strong>DS5 Bridge</strong>
+            <strong>OpenDS5</strong>
             <span>Starting companion</span>
           </div>
         </div>
@@ -1153,7 +1153,7 @@ function StartupTutorial({
         className="settings-menu bridge-settings-modal startup-tutorial-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={step === 'feature-toggle' ? 'Feature tile tutorial' : 'Support DS5 Bridge'}
+        aria-label={step === 'feature-toggle' ? 'Feature tile tutorial' : 'Support OpenDS5'}
       >
         {step === 'feature-toggle' ? (
           <>
@@ -1204,7 +1204,7 @@ function StartupTutorial({
               <span className="startup-tutorial-step">2 / 2</span>
             </div>
             <div className="startup-tutorial-copy">
-              <h2>Enjoying DS5 Bridge?</h2>
+              <h2>Enjoying OpenDS5?</h2>
               <p>If this app makes your setup better, please consider supporting the work on Ko-fi.</p>
             </div>
             <button
@@ -5863,10 +5863,10 @@ export function App() {
           }
         }}
       >
-        <span className="bridge-wordmark" aria-label="DS5 Bridge">
+        <span className="bridge-wordmark" aria-label="OpenDS5">
           <BridgeMark />
-          <span className="bridge-wordmark-ds">DS5</span>
-          <span className="bridge-wordmark-name">Bridge</span>
+          <span className="bridge-wordmark-ds">Open</span>
+          <span className="bridge-wordmark-name">DS5</span>
         </span>
         <div className="topbar-right">
           <div className="bridge-tools">
@@ -9680,7 +9680,7 @@ export function App() {
                       : 'The profile library has no profiles yet.'}
                   </p>
                   {triggerProfileLibraryCatalog.error ? (
-                    <p>Browse profiles manually at https://github.com/LordVicky/Virtual-DS5-Bridge</p>
+                    <p>Browse profiles manually at https://github.com/LordVicky/OpenDS5</p>
                   ) : null}
                 </div>
               ) : (

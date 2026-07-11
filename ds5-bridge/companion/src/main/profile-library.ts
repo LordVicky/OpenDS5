@@ -2,8 +2,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { MAX_PROFILE_FILE_BYTES } from './trigger-profile-store';
 
+// The library lives on the dedicated Profiles-Library branch so new game
+// profiles go live without touching the release branches.
 export const LIBRARY_INDEX_URL =
-  'https://raw.githubusercontent.com/LordVicky/Virtual-DS5-Bridge/main/profiles/library/index.json';
+  'https://raw.githubusercontent.com/LordVicky/OpenDS5/Profiles-Library/profiles/library/index.json';
 export const MAX_INDEX_BYTES = 1048576;
 
 const FETCH_TIMEOUT_MS = 10000;

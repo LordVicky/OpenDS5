@@ -60,7 +60,7 @@ describe('renderer behavior guards', () => {
     expect(installFunction).toContain('refreshTriggerProfiles');
     expect(installFunction).toContain('showTriggerProfileTransferStatus');
     expect(appSource).toContain("Couldn't refresh — showing cached list from");
-    expect(appSource).toContain('https://github.com/LordVicky/Virtual-DS5-Bridge');
+    expect(appSource).toContain('https://github.com/LordVicky/OpenDS5');
     expect(appSource).toContain('From library');
     expect(appSource).not.toContain('dangerouslySetInnerHTML');
     expect(stylesSource).toContain('.trigger-profiles-library');

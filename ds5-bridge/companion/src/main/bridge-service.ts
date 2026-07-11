@@ -1267,10 +1267,10 @@ function buildWindowsDeviceCleanupRunnerScript(scriptPath: string, logPath: stri
     `$logPath = ${quotedLogPath}`,
     `$scriptPath = ${quotedScriptPath}`,
     'try {',
-    "  \"DS5 Bridge emergency cleanup started: $(Get-Date -Format o)\" | Out-File -LiteralPath $logPath -Encoding UTF8",
+    "  \"OpenDS5 emergency cleanup started: $(Get-Date -Format o)\" | Out-File -LiteralPath $logPath -Encoding UTF8",
     '  & $scriptPath -Apply -IncludeBluetooth -RepeatUntilClean -Force -Confirm:$false *>&1 | Tee-Object -FilePath $logPath -Append',
     '  $exitCode = if ($null -eq $global:LASTEXITCODE) { 0 } else { $global:LASTEXITCODE }',
-    "  \"DS5 Bridge emergency cleanup exited: $exitCode\" | Out-File -LiteralPath $logPath -Encoding UTF8 -Append",
+    "  \"OpenDS5 emergency cleanup exited: $exitCode\" | Out-File -LiteralPath $logPath -Encoding UTF8 -Append",
     '  exit $exitCode',
     '} catch {',
     '  $message = if ($_.Exception) { $_.Exception.Message } else { $_ | Out-String }',
@@ -2981,7 +2981,7 @@ export class BridgeService extends EventEmitter {
 
   async testNotification(): Promise<BridgeSnapshot> {
     this.emit('toast', {
-      title: 'DS5 Bridge',
+      title: 'OpenDS5',
       body: 'Notifications are working.'
     } satisfies BridgeToast);
     return this.getSnapshot();
@@ -3721,7 +3721,7 @@ export class BridgeService extends EventEmitter {
       && this.previousControllerConnected !== controllerConnected
     ) {
       this.emit('toast', {
-        title: 'DS5 Bridge',
+        title: 'OpenDS5',
         body: controllerConnected ? 'Controller connected' : 'Controller disconnected'
       } satisfies BridgeToast);
     }
@@ -3732,7 +3732,7 @@ export class BridgeService extends EventEmitter {
       && status.batteryPercent <= LOW_BATTERY_PERCENT;
     if (settings.notifyLowBattery && lowBattery && !this.lowBatteryToastActive) {
       this.emit('toast', {
-        title: 'DS5 Bridge',
+        title: 'OpenDS5',
         body: `Controller battery low: ${status.batteryPercent}%`
       } satisfies BridgeToast);
     }
@@ -3743,7 +3743,7 @@ export class BridgeService extends EventEmitter {
     const settings = this.settingsStore.get();
     if (settings.notifyControllerConnection && this.previousControllerConnected === true) {
       this.emit('toast', {
-        title: 'DS5 Bridge',
+        title: 'OpenDS5',
         body: 'Controller disconnected'
       } satisfies BridgeToast);
     }
