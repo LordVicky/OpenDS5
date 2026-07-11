@@ -64,6 +64,17 @@ let bridgeService: BridgeService | null = null;
 let triggerProfileEngine: TriggerProfileEngine | null = null;
 let isQuitting = false;
 let shutdownComplete = false;
+// One-time DS5 Bridge -> OpenDS5 rebrand migration: carry legacy userData
+// artifacts (settings, trigger profiles, library cache, window state) into
+// the new productName-derived location. Must run BEFORE
+// app.requestSingleInstanceLock(), which creates and populates the new
+// userData dir with Singleton* housekeeping entries.
+try {
+  const userDataPathForMigration = app.getPath('userData');
+  migrateLegacyUserData(deriveLegacyUserDataPath(userDataPathForMigration), userDataPathForMigration, fs);
+} catch (error) {
+  console.error('[main] legacy userData migration failed', error);
+}
 const hasSingleInstanceLock = ALLOW_PARALLEL_AUTOMATION_INSTANCE || app.requestSingleInstanceLock();
 const audioHapticsIconCache = new Map<string, Promise<string | null> | string | null>();
 const TRAY_BATTERY_ICON_SIZE = 32;
@@ -1356,15 +1367,6 @@ app.whenReady().then(async () => {
   app.setName(APP_NAME);
   ensureWindowsNotificationShortcut();
   Menu.setApplicationMenu(null);
-  // One-time DS5 Bridge -> OpenDS5 rebrand migration: carry legacy userData
-  // (settings, trigger profiles, library cache, window state) into the new
-  // productName-derived location before anything reads or writes it.
-  try {
-    const userDataPath = app.getPath('userData');
-    migrateLegacyUserData(deriveLegacyUserDataPath(userDataPath), userDataPath, fs);
-  } catch (error) {
-    console.error('[main] legacy userData migration failed', error);
-  }
   const settingsStore = new SettingsStore(app.getPath('userData'));
   applyLaunchAtStartup(settingsStore.get().launchAtStartupEnabled);
   bridgeService = new BridgeService(settingsStore);
