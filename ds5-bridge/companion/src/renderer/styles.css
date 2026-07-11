@@ -4969,6 +4969,16 @@ button.feature-icon {
   margin-bottom: 0;
 }
 
+/* The triggers test card hosts the full 7-mode effect editor, which is far
+ * taller than the fixed 76px options row the other test cards use. */
+.trigger-test-card {
+  grid-template-rows: var(--feature-card-header-height) auto var(--action-height) var(--action-height) minmax(40px, auto);
+}
+
+.trigger-test-card .test-options {
+  align-self: start;
+}
+
 .test-options {
   align-self: center;
 }
