@@ -25,8 +25,21 @@ import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/t
 import type { LibraryCatalog, LibraryEntry } from './main/profile-library';
 import type { ImportResult } from './main/trigger-profile-store';
 import type { GameProcessCandidate } from './main/game-watcher';
-import { SETUP_CHANNELS } from './main/setup-ipc';
 import type { SetupProgressEvent } from './main/setup-service';
+
+// The preload runs sandboxed: only `require('electron')` is available, so the
+// setup channel names are inlined rather than imported from ./main/setup-ipc.
+// setup-ipc.test.ts pins these literals to SETUP_CHANNELS so they cannot drift.
+const SETUP_CHANNELS = {
+  getPlan: 'setup:get-plan',
+  install: 'setup:install',
+  progress: 'setup:progress',
+  skip: 'setup:skip',
+  finish: 'setup:finish',
+  openLog: 'setup:open-log',
+  copyDiagnostics: 'setup:copy-diagnostics',
+  reopen: 'setup:reopen'
+} as const;
 
 const api = {
   getStatus: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:getStatus'),
