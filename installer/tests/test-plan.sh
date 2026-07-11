@@ -31,7 +31,7 @@ assert_contains "$out" "zypper --non-interactive install dkms kernel-default-dev
 tmp="$(mktemp -d)"; mkdir -p "$tmp/run"; : > "$tmp/run/ostree-booted"
 out="$(env OPENDS5_OS_RELEASE="$here/fixtures/bazzite/os-release" OPENDS5_UNAME_R=6.15.4-104.bazzite.fc44.x86_64 \
       OPENDS5_SYSROOT="$tmp" OPENDS5_SB_STATE=disabled OPENDS5_DRY_RUN=1 bash "$here/../opends5-install" --yes)"
-assert_contains "$out" "rpm-ostree install --idempotent akmods kernel-devel" "bazzite layers akmods"
+assert_contains "$out" "rpm-ostree install --idempotent dkms kernel-devel" "bazzite layers dkms"
 assert_contains "$out" "reboot" "bazzite warns about reboot"
 rm -rf "$tmp"
 

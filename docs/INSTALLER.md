@@ -20,7 +20,7 @@ exact commands, change nothing).
 | Arch / CachyOS | pacman: dkms + flavor-matched headers (`linux-cachyos-headers`, `linux-zen-headers`, …); Clang/LTO kernels build with `LLVM=1` |
 | Debian / Ubuntu | apt: dkms + `linux-headers-$(uname -r)` |
 | openSUSE | zypper: dkms + `kernel-default-devel` |
-| Bazzite / Silverblue | `rpm-ostree install --idempotent akmods kernel-devel`; requires one reboot, then re-run the installer |
+| Bazzite / Silverblue | `rpm-ostree install --idempotent dkms kernel-devel`; requires one reboot, then re-run the installer |
 | NixOS | No system changes: writes `./opends5-vds.nix` + `./opends5-vds-src/` for `boot.extraModulePackages`; apply with `nixos-rebuild switch` |
 | Anything else | Clean "unsupported" message; see docs/PORTING.md for manual steps |
 

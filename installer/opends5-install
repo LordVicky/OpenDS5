@@ -157,8 +157,8 @@ build_plan() {
       plan_add "Install DKMS and kernel headers (dnf)" "dnf install -y dkms ${hdrs}"
       plan_secureboot; plan_source_staging; plan_dkms ;;
     fedora-immutable)
-      plan_add "Layer akmods + headers (rpm-ostree; REBOOT REQUIRED before module build)" \
-        "rpm-ostree install --idempotent akmods ${hdrs}"
+      plan_add "Layer dkms + headers (rpm-ostree; REBOOT REQUIRED before module build)" \
+        "rpm-ostree install --idempotent dkms ${hdrs}"
       plan_add "After reboot, re-run this installer to build the module" \
         "echo 'reboot, then run: opends5-install'"
       plan_secureboot; plan_source_staging; plan_dkms ;;
