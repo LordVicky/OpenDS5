@@ -1362,7 +1362,7 @@ function registerIpc(
 
 if (shouldRunSystemInstall(process.argv)) {
   const extraArgs = process.argv.slice(process.argv.indexOf('--install-system') + 1);
-  app.exit(runSystemInstall(process.resourcesPath, extraArgs));
+  app.exit(runSystemInstall(process.resourcesPath, app.getVersion(), extraArgs));
 }
 
 app.whenReady().then(async () => {

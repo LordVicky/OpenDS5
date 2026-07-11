@@ -117,13 +117,17 @@ resolve_module_source() {
     echo "error: vds module source not found (looked in AppImage resources and repo)" >&2
     exit 1
   fi
-  # In-tree dkms.conf carries an "unknown" placeholder; resolve via generate-version.sh.
+  # In-tree dkms.conf carries an "unknown" placeholder; resolve the real version
+  # from the caller (AppImage passes the app version), then generate-version.sh.
+  if [ -z "$MODULE_VER" ] || [ "$MODULE_VER" = "unknown" ]; then
+    MODULE_VER="${OPENDS5_MODULE_VERSION:-}"
+  fi
   if [ -z "$MODULE_VER" ] || [ "$MODULE_VER" = "unknown" ]; then
     if [ -x "$MODULE_SRC/../generate-version.sh" ]; then
       MODULE_VER="$("$MODULE_SRC/../generate-version.sh" 2>/dev/null || true)"
     fi
-    [ -n "$MODULE_VER" ] && [ "$MODULE_VER" != "unknown" ] || MODULE_VER="0.0.0"
   fi
+  [ -n "$MODULE_VER" ] && [ "$MODULE_VER" != "unknown" ] || MODULE_VER="0.0.0"
 }
 
 plan_source_staging() {

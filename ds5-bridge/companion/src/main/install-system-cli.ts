@@ -10,9 +10,14 @@ export function resolveInstallerPath(resourcesPath: string): string {
 }
 
 /** Runs the bundled installer attached to the current terminal; returns its exit code. */
-export function runSystemInstall(resourcesPath: string, extraArgs: string[] = []): number {
+export function runSystemInstall(
+  resourcesPath: string,
+  appVersion: string,
+  extraArgs: string[] = [],
+): number {
   const result = spawnSync('bash', [resolveInstallerPath(resourcesPath), ...extraArgs], {
     stdio: 'inherit',
+    env: { ...process.env, OPENDS5_MODULE_VERSION: appVersion },
   });
   return result.status ?? 1;
 }
