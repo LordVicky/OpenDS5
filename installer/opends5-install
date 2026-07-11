@@ -191,14 +191,23 @@ resolve_userspace_source() {
 }
 
 STAGE_DIR=""
+ICON_SRC=""
 
 cleanup_stage() { [ -n "$STAGE_DIR" ] && rm -rf "$STAGE_DIR"; }
+
+resolve_icon_source() {
+  local cand
+  for cand in "${APPDIR:-/nonexistent}/resources/assets/controllers/ds5-bridge_app-icon-tile.png" \
+              "${APPDIR:-/nonexistent}/resources/assets/controllers/ds5-bridge_mark.png"; do
+    if [ -f "$cand" ]; then ICON_SRC="$cand"; return; fi
+  done
+}
 
 # AppImage FUSE mounts (/tmp/.mount_*) are readable only by the user that
 # mounted them — the escalated half of the run cannot see inside. Copy the
 # bundled sources out to a root-readable staging dir while still unprivileged.
 needs_root_staging() {
-  case "${MODULE_SRC}:${USERSPACE_SRC}" in
+  case "${MODULE_SRC}:${USERSPACE_SRC}:${ICON_SRC}" in
     /tmp/.mount_*|*:/tmp/.mount_*) echo 1; return ;;
   esac
   if [ -n "${APPDIR:-}" ]; then echo 1; else echo 0; fi
@@ -218,6 +227,11 @@ stage_sources_for_root() {
     cp -a "$USERSPACE_SRC" "$STAGE_DIR/vds-bin"
     chmod -R a+rX "$STAGE_DIR/vds-bin"
     USERSPACE_SRC="$STAGE_DIR/vds-bin"
+  fi
+  if [ -n "$ICON_SRC" ]; then
+    cp -a "$ICON_SRC" "$STAGE_DIR/opends5-icon.png"
+    chmod 0644 "$STAGE_DIR/opends5-icon.png"
+    ICON_SRC="$STAGE_DIR/opends5-icon.png"
   fi
 }
 
@@ -258,11 +272,8 @@ plan_desktop_entry() {
   desktop="$home/.local/share/applications/opends5.desktop"
   icon_dir="$home/.local/share/icons/hicolor/256x256/apps"
   icon_dest="$icon_dir/opends5.png"
-  icon_src=""
-  for cand in "${APPDIR:-/nonexistent}/resources/assets/controllers/ds5-bridge_app-icon-tile.png" \
-              "${APPDIR:-/nonexistent}/resources/assets/controllers/ds5-bridge_mark.png"; do
-    [ -f "$cand" ] && { icon_src="$cand"; break; }
-  done
+  # Staged out of the AppImage mount already (root cannot read inside it).
+  icon_src="$ICON_SRC"
 
   plan_add "Install OpenDS5 to ${apps} and add it to your applications menu" \
     "mkdir -p '${apps}' '${icon_dir}' '$(dirname "$desktop")' && \
@@ -547,6 +558,7 @@ main() {
   done
   resolve_module_source
   resolve_userspace_source
+  resolve_icon_source
   # Dry runs change nothing, so they report the real bundle paths.
   [ "$DRY_RUN" = "1" ] || stage_sources_for_root
   build_plan
