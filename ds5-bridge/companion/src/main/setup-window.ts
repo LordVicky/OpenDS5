@@ -16,8 +16,11 @@ export function openSetupWindow(opts: {
   indexPath: string;
   preloadPath: string;
   icon?: Electron.NativeImage;
+  /** Explicit "Skip for now": remembered across launches. */
   onSkip: () => void;
   onFinish: () => void;
+  /** Window closed without choosing (WM close, crash): ask again next launch. */
+  onDismiss: () => void;
 }): BrowserWindow {
   const win = new BrowserWindow({
     width: 720,
@@ -91,8 +94,9 @@ export function openSetupWindow(opts: {
       }
     }
     if (!finished) {
-      // Window closed via WM without choosing: treat as skip-for-now.
-      opts.onSkip();
+      // Closed via the WM (or a renderer crash) without choosing anything.
+      // Do NOT persist a skip — that would silently disable setup forever.
+      opts.onDismiss();
     }
   });
 

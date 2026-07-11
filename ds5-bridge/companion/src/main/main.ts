@@ -1401,7 +1401,8 @@ function runSetupWizardIfNeeded(settingsStore: SettingsStore): Promise<void> {
       onFinish: () => {
         settingsStore.update({ setupSkipped: false });
         resolve();
-      }
+      },
+      onDismiss: () => resolve()
     });
   });
 }
