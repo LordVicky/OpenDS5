@@ -14,6 +14,19 @@ module_version() { # dkms_conf_path -> version
   sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' "$1"
 }
 
+user_log_dir() { echo "${OPENDS5_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/opends5}"; }
+root_log_dir() { echo "${OPENDS5_LOG_DIR:-/var/log/opends5}"; }
+log_path() { echo "$(user_log_dir)/install.log"; }
+
+log_header() { # target_file
+  {
+    printf '=== opends5-install run %s ===\n' "$(date -Is)"
+    printf 'version=%s platform=%s kernel=%s flavor=%s sb=%s lockdown=%s\n' \
+      "$MODULE_VER" "$(detect_platform)" "$KERNEL_RELEASE" \
+      "$(detect_kernel_flavor)" "$(detect_secureboot)" "$(detect_lockdown)"
+  } >> "$1"
+}
+
 os_release_val() { # key -> value (unquoted), empty if absent
   sed -n "s/^$1=//p" "$OS_RELEASE" 2>/dev/null | tr -d '"' | head -n1
 }
@@ -161,6 +174,10 @@ build_plan() {
   platform="$(detect_platform)"
   flavor="$(detect_kernel_flavor)"
   hdrs="$(headers_package "$platform" "$flavor")"
+  if [ "${OPENDS5_TEST_ONLY_INJECTED:-0}" = "1" ]; then
+    plan_add "test-injected failure" "${OPENDS5_TEST_INJECT_FAIL:-true}"
+    return
+  fi
   case "$platform" in
     fedora)
       plan_add "Install DKMS and kernel headers (dnf)" "dnf install -y dkms ${hdrs}"
@@ -231,32 +248,43 @@ as_root() {
 build_runner() { # path
   {
     printf '#!/usr/bin/env bash\nset -u\n'
+    printf 'mkdir -p %q\n' "$(root_log_dir)"
+    printf 'RLOG=%q\n' "$(root_log_dir)/install.log"
+    printf 'log() { printf "%%s\\n" "$*" >> "$RLOG"; }\n'
     printf 'fail() {\n'
     printf '  echo "FAILED: $1" >&2\n'
     printf '  echo "  Retry manually with: sudo bash -c \\"$2\\"" >&2\n'
+    printf '  echo "  Full log: $RLOG" >&2\n'
     printf '  echo "  Troubleshooting: https://github.com/LordVicky/OpenDS5/blob/main/docs/INSTALLER.md" >&2\n'
+    printf '  log "FAILED: $1"\n'
     printf '  echo "Rolling back partial DKMS registration..." >&2\n'
     printf '  dkms remove vds_hcd/%s --all >/dev/null 2>&1 || true\n' "$MODULE_VER"
     printf '  exit 4\n}\n'
+    printf 'log "=== opends5-install run $(date -Is) ==="\n'
+    printf 'log %q\n' "version=$MODULE_VER platform=$(detect_platform) kernel=$KERNEL_RELEASE flavor=$(detect_kernel_flavor) sb=$(detect_secureboot) lockdown=$(detect_lockdown)"
     local i
     for i in "${!PLAN_CMD[@]}"; do
       printf 'echo %q\n' "==> ${PLAN_DESC[$i]}"
-      printf '( %s ) || fail %q %q\n' "${PLAN_CMD[$i]}" "${PLAN_DESC[$i]}" "${PLAN_CMD[$i]}"
+      printf 'log %q\n' "STEP $((i + 1)): ${PLAN_DESC[$i]}"
+      printf 'log %q\n' "CMD: ${PLAN_CMD[$i]}"
+      printf '( %s ) >>"$RLOG" 2>&1; rc=$?\n' "${PLAN_CMD[$i]}"
+      printf 'log "exit=$rc"\n'
+      printf '[ "$rc" -eq 0 ] || fail %q %q\n' "${PLAN_DESC[$i]}" "${PLAN_CMD[$i]}"
     done
     if [ "${OPENDS5_SKIP_VERIFY:-0}" != "1" ]; then
-      printf 'echo "==> Loading module"\n'
+      printf 'echo "==> Loading module"\nlog "STEP: modprobe vds_hcd"\n'
       if [ "$(detect_secureboot)" = "1" ]; then
         # A freshly imported MOK key only becomes trusted after the reboot
         # enrollment; a signature rejection here is expected in that case.
-        printf 'modprobe vds_hcd || { echo "Module built and signed, but the kernel rejected the key."; echo "If you just enrolled the MOK key: reboot, complete Enroll MOK, and the module will load automatically."; exit 6; }\n'
+        printf 'modprobe vds_hcd >>"$RLOG" 2>&1 || { echo "Module built and signed, but the kernel rejected the key."; echo "If you just enrolled the MOK key: reboot, complete Enroll MOK, and the module will load automatically."; log "modprobe rejected (MOK pending)"; exit 6; }\n'
       else
-        printf 'modprobe vds_hcd || fail "Load vds_hcd" "modprobe vds_hcd"\n'
+        printf 'modprobe vds_hcd >>"$RLOG" 2>&1 || fail "Load vds_hcd" "modprobe vds_hcd"\n'
       fi
       # Start the daemon when it is already installed (daemon install itself
       # is out of scope for this installer until the userspace phase lands).
       printf 'if systemctl list-unit-files vdsd.service >/dev/null 2>&1 && systemctl cat vdsd.service >/dev/null 2>&1; then\n'
-      printf '  echo "==> Starting vdsd.service"\n'
-      printf '  systemctl enable --now vdsd.service || fail "Start vdsd.service" "systemctl enable --now vdsd.service"\n'
+      printf '  echo "==> Starting vdsd.service"\n  log "STEP: enable vdsd.service"\n'
+      printf '  systemctl enable --now vdsd.service >>"$RLOG" 2>&1 || fail "Start vdsd.service" "systemctl enable --now vdsd.service"\n'
       printf 'else\n'
       printf '  echo "vdsd.service not installed yet; skipping daemon start"\n'
       printf 'fi\n'
@@ -276,6 +304,9 @@ confirm_and_execute() {
     generate_nixos_snippet
     return 0
   fi
+  mkdir -p "$(user_log_dir)"
+  log_header "$(log_path)"
+  print_plan >> "$(log_path)" 2>/dev/null || true
   local runner rc=0
   runner="$(mktemp)"
   build_runner "$runner"
