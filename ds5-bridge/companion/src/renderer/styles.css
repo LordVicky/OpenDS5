@@ -8385,3 +8385,82 @@ button.trigger-lab-chip {
   letter-spacing: 0.04em;
   color: var(--text-muted);
 }
+
+/* ---------- Setup wizard (first-launch window) ---------- */
+.setup-window {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+.setup-card {
+  width: 100%;
+  max-width: 560px;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.setup-card h1 {
+  font-size: 20px;
+  margin: 0;
+}
+.setup-card p {
+  margin: 0;
+  color: var(--text-secondary, #9fb1c9);
+  line-height: 1.5;
+}
+.setup-plan {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.setup-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.setup-steps li::before {
+  content: '○';
+  margin-right: 10px;
+  color: var(--text-secondary, #9fb1c9);
+}
+.setup-steps li[data-status='running']::before {
+  content: '◐';
+  color: var(--accent);
+}
+.setup-steps li[data-status='done']::before {
+  content: '●';
+  color: #3ddc84;
+}
+.setup-steps li[data-status='failed']::before {
+  content: '✕';
+  color: #ff5c5c;
+}
+.setup-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.setup-actions button.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: transparent;
+}
+.setup-actions button.primary:hover {
+  background: var(--accent-strong);
+}
