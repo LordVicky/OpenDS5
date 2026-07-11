@@ -179,8 +179,30 @@ See docs/PORTING.md for manual installation instructions." ;;
   fi
 }
 
-# Stub replaced in a later task.
-plan_secureboot() { :; }
+plan_secureboot() {
+  [ "$(detect_secureboot)" = "1" ] || return 0
+  local keydir=/var/lib/opends5
+  plan_add "Configure DKMS module signing (key: ${keydir}/mok.key)" \
+    "mkdir -p -m 0700 '${keydir}' && \
+     if [ ! -f '${keydir}/mok.key' ]; then \
+       openssl req -new -x509 -newkey rsa:2048 -nodes -days 36500 \
+         -subj '/CN=OpenDS5 module signing key/' \
+         -keyout '${keydir}/mok.key' -outform DER -out '${keydir}/mok.der'; \
+       chmod 0600 '${keydir}/mok.key'; \
+     fi && \
+     mkdir -p /etc/dkms/framework.conf.d && \
+     printf 'mok_signing_key=%s\nmok_certificate=%s\n' \
+       '${keydir}/mok.key' '${keydir}/mok.der' \
+       > /etc/dkms/framework.conf.d/opends5.conf"
+  if [ "$(detect_sig_enforced)" = "1" ]; then
+    plan_add "Enroll signing key in MOK (you will set a one-time password; a blue 'MOK Manager' screen appears on next reboot -- choose Enroll MOK)" \
+      "if mokutil --test-key '${keydir}/mok.der' 2>/dev/null | grep -q 'already enrolled'; then \
+         echo 'MOK key already enrolled'; \
+       else \
+         mokutil --import '${keydir}/mok.der'; \
+       fi"
+  fi
+}
 
 as_root() {
   if [ -n "${OPENDS5_ROOT_CMD:-}" ]; then "$OPENDS5_ROOT_CMD" "$@"; return; fi
