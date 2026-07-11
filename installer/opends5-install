@@ -68,6 +68,30 @@ detect_clang_lto() {
   if grep -qs '^CONFIG_LTO_CLANG=y' "$cfg"; then echo 1; else echo 0; fi
 }
 
+detect_lockdown() {
+  local f="${SYSROOT}/sys/kernel/security/lockdown"
+  [ -r "$f" ] || { echo none; return; }
+  sed -n 's/.*\[\(.*\)\].*/\1/p' "$f"
+}
+
+detect_secureboot() {
+  if [ -n "${OPENDS5_SB_STATE:-}" ]; then
+    if [ "$OPENDS5_SB_STATE" = "enabled" ]; then echo 1; else echo 0; fi
+    return
+  fi
+  if command -v mokutil >/dev/null 2>&1 && mokutil --sb-state 2>/dev/null | grep -q 'SecureBoot enabled'; then
+    echo 1
+  else
+    echo 0
+  fi
+}
+
+detect_sig_enforced() {
+  if [ "$(detect_lockdown)" != "none" ]; then echo 1; return; fi
+  local cfg="${SYSROOT}/usr/lib/modules/${KERNEL_RELEASE}/build/.config"
+  if grep -qs '^CONFIG_MODULE_SIG_FORCE=y' "$cfg"; then echo 1; else echo 0; fi
+}
+
 main() {
   while [ $# -gt 0 ]; do
     case "$1" in
