@@ -9,6 +9,7 @@ KERNEL_RELEASE="${OPENDS5_UNAME_R:-$(uname -r)}"
 SYSROOT="${OPENDS5_SYSROOT:-}"           # prefix for /sys, /run, /usr probes
 DRY_RUN="${OPENDS5_DRY_RUN:-0}"
 ASSUME_YES=0
+JSON_PROGRESS=0
 
 module_version() { # dkms_conf_path -> version
   sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' "$1"
@@ -260,33 +261,47 @@ build_runner() { # path
     printf '  echo "Rolling back partial DKMS registration..." >&2\n'
     printf '  dkms remove vds_hcd/%s --all >/dev/null 2>&1 || true\n' "$MODULE_VER"
     printf '  exit 4\n}\n'
+    printf 'fail_quiet() { log "FAILED: $1"; dkms remove vds_hcd/%s --all >/dev/null 2>&1 || true; exit 4; }\n' "$MODULE_VER"
     printf 'log "=== opends5-install run $(date -Is) ==="\n'
     printf 'log %q\n' "version=$MODULE_VER platform=$(detect_platform) kernel=$KERNEL_RELEASE flavor=$(detect_kernel_flavor) sb=$(detect_secureboot) lockdown=$(detect_lockdown)"
     local i
     for i in "${!PLAN_CMD[@]}"; do
-      printf 'echo %q\n' "==> ${PLAN_DESC[$i]}"
+      if [ "$JSON_PROGRESS" = "1" ]; then
+        printf 'echo %q\n' "{\"event\":\"step\",\"index\":$i,\"status\":\"start\"}"
+      else
+        printf 'echo %q\n' "==> ${PLAN_DESC[$i]}"
+      fi
       printf 'log %q\n' "STEP $((i + 1)): ${PLAN_DESC[$i]}"
       printf 'log %q\n' "CMD: ${PLAN_CMD[$i]}"
       printf '( %s ) >>"$RLOG" 2>&1; rc=$?\n' "${PLAN_CMD[$i]}"
       printf 'log "exit=$rc"\n'
-      printf '[ "$rc" -eq 0 ] || fail %q %q\n' "${PLAN_DESC[$i]}" "${PLAN_CMD[$i]}"
+      if [ "$JSON_PROGRESS" = "1" ]; then
+        printf 'if [ "$rc" -eq 0 ]; then echo %q; else echo %q; fail_quiet %q; fi\n' \
+          "{\"event\":\"step\",\"index\":$i,\"status\":\"ok\"}" \
+          "{\"event\":\"step\",\"index\":$i,\"status\":\"fail\",\"exit\":4}" \
+          "${PLAN_DESC[$i]}"
+      else
+        printf '[ "$rc" -eq 0 ] || fail %q %q\n' "${PLAN_DESC[$i]}" "${PLAN_CMD[$i]}"
+      fi
     done
     if [ "${OPENDS5_SKIP_VERIFY:-0}" != "1" ]; then
-      printf 'echo "==> Loading module"\nlog "STEP: modprobe vds_hcd"\n'
+      local say=""
+      [ "$JSON_PROGRESS" = "1" ] && say=": " # suppress human chatter in JSON mode
+      printf '%secho "==> Loading module"\nlog "STEP: modprobe vds_hcd"\n' "$say"
       if [ "$(detect_secureboot)" = "1" ]; then
         # A freshly imported MOK key only becomes trusted after the reboot
         # enrollment; a signature rejection here is expected in that case.
-        printf 'modprobe vds_hcd >>"$RLOG" 2>&1 || { echo "Module built and signed, but the kernel rejected the key."; echo "If you just enrolled the MOK key: reboot, complete Enroll MOK, and the module will load automatically."; log "modprobe rejected (MOK pending)"; exit 6; }\n'
+        printf 'modprobe vds_hcd >>"$RLOG" 2>&1 || { %secho "Module built and signed, but the kernel rejected the key. If you just enrolled the MOK key: reboot, complete Enroll MOK, and the module will load automatically."; log "modprobe rejected (MOK pending)"; exit 6; }\n' "$say"
       else
         printf 'modprobe vds_hcd >>"$RLOG" 2>&1 || fail "Load vds_hcd" "modprobe vds_hcd"\n'
       fi
       # Start the daemon when it is already installed (daemon install itself
       # is out of scope for this installer until the userspace phase lands).
       printf 'if systemctl list-unit-files vdsd.service >/dev/null 2>&1 && systemctl cat vdsd.service >/dev/null 2>&1; then\n'
-      printf '  echo "==> Starting vdsd.service"\n  log "STEP: enable vdsd.service"\n'
+      printf '  %secho "==> Starting vdsd.service"\n  log "STEP: enable vdsd.service"\n' "$say"
       printf '  systemctl enable --now vdsd.service >>"$RLOG" 2>&1 || fail "Start vdsd.service" "systemctl enable --now vdsd.service"\n'
       printf 'else\n'
-      printf '  echo "vdsd.service not installed yet; skipping daemon start"\n'
+      printf '  %secho "vdsd.service not installed yet; skipping daemon start"\n' "$say"
       printf 'fi\n'
     fi
   } > "$1"
@@ -312,17 +327,25 @@ confirm_and_execute() {
   build_runner "$runner"
   as_root bash "$runner" || rc=$?
   rm -f "$runner"
-  [ "$rc" -eq 0 ] || exit "$rc"
-  if [ "${OPENDS5_SKIP_VERIFY:-0}" = "1" ]; then echo "Done (verify skipped)."; return 0; fi
-  verify_install
+  if [ "$rc" -ne 0 ]; then
+    [ "$JSON_PROGRESS" = "1" ] && printf '{"event":"done","exit":%d}\n' "$rc"
+    exit "$rc"
+  fi
+  if [ "${OPENDS5_SKIP_VERIFY:-0}" != "1" ]; then verify_install; fi
+  if [ "$JSON_PROGRESS" = "1" ]; then
+    printf '{"event":"done","exit":0}\n'
+  elif [ "${OPENDS5_SKIP_VERIFY:-0}" = "1" ]; then
+    echo "Done (verify skipped)."
+  fi
 }
 
 verify_install() {
-  echo "==> Verifying"
+  [ "$JSON_PROGRESS" = "1" ] || echo "==> Verifying"
   if ls /dev/vds* >/dev/null 2>&1; then
-    echo "Success: vds_hcd loaded, /dev/vds* present."
+    [ "$JSON_PROGRESS" = "1" ] || echo "Success: vds_hcd loaded, /dev/vds* present."
   else
     echo "Module loaded but /dev/vds* not found; check 'dmesg | grep vds_hcd'." >&2
+    [ "$JSON_PROGRESS" = "1" ] && printf '{"event":"done","exit":5}\n'
     exit 5
   fi
 }
@@ -370,6 +393,17 @@ NixOS cannot be modified imperatively; to install:
 EOF
 }
 
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+emit_plan_json() {
+  local steps="" i
+  for i in "${!PLAN_DESC[@]}"; do
+    steps="${steps}${steps:+,}\"$(json_escape "${PLAN_DESC[$i]}")\""
+  done
+  printf '{"event":"plan","total":%d,"steps":[%s],"log":"%s"}\n' \
+    "${#PLAN_DESC[@]}" "$steps" "$(json_escape "$(root_log_dir)/install.log")"
+}
+
 print_plan() {
   local i
   echo "The following steps will be performed:"
@@ -383,6 +417,7 @@ main() {
     case "$1" in
       --yes) ASSUME_YES=1 ;;
       --dry-run) DRY_RUN=1 ;;
+      --json-progress) JSON_PROGRESS=1 ;;
       -h|--help) usage; exit 0 ;;
       *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -391,7 +426,7 @@ main() {
   resolve_module_source
   build_plan
   if [ -n "$PLAN_FATAL" ]; then echo "unsupported: $PLAN_FATAL" >&2; exit 3; fi
-  print_plan
+  if [ "$JSON_PROGRESS" = "1" ]; then emit_plan_json; else print_plan; fi
   if [ "$DRY_RUN" = "1" ]; then
     printf '%s\n' "${PLAN_CMD[@]}"
     exit 0
