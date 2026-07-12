@@ -8374,8 +8374,12 @@ button.trigger-lab-chip {
 }
 
 .trigger-profiles-library-install-button {
+  /* .secondary-action sets width: 100%, which in this flex row makes the button
+     claim the whole width and collapse the copy column to a single character. */
+  width: auto;
   flex-shrink: 0;
   align-self: center;
+  padding: 0 16px;
 }
 
 .trigger-profiles-provenance {
