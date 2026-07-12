@@ -732,14 +732,14 @@ button {
   min-width: 0;
 }
 
-/* The opaque tile, not the transparent mark: the startup screen is themed, and a white
-   controller would disappear against the light theme's pale card. */
+/* The app icon, not the transparent mark: the startup screen is themed, and a bare white
+   controller would disappear against the light theme's pale card. The icon is a circle with
+   its own dark ground, so it reads on every theme. */
 .startup-mark {
   width: 40px;
   height: 40px;
   flex: 0 0 auto;
   display: block;
-  border-radius: 9px;
 }
 
 .startup-brand div {
