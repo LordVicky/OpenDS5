@@ -164,8 +164,11 @@ plan_source_staging() {
 plan_dkms() {
   local mk=""
   [ "$(detect_clang_lto)" = "1" ] && mk=" LLVM=1"
+  # Remove every registered vds_hcd, not just MODULE_VER: an upgrade changes the
+  # version, so removing only the incoming one would strand the old registration
+  # and leave two DKMS entries fighting over the same /extra/vds_hcd.ko.
   plan_add "Register and build vds_hcd with DKMS" \
-    "dkms remove vds_hcd/${MODULE_VER} --all >/dev/null 2>&1 || true; dkms add vds_hcd/${MODULE_VER} && dkms install vds_hcd/${MODULE_VER}${mk}"
+    "dkms status vds_hcd 2>/dev/null | sed -n 's|^vds_hcd[/,] *\\([^,:]*\\).*|\\1|p' | sort -u | while read -r v; do [ -n \"\$v\" ] && dkms remove \"vds_hcd/\$v\" --all >/dev/null 2>&1 || true; done; dkms add vds_hcd/${MODULE_VER} && dkms install vds_hcd/${MODULE_VER}${mk}"
   plan_add "Enable autoload on boot" \
     "printf 'vds_hcd\n' > /etc/modules-load.d/vds.conf"
 }
