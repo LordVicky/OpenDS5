@@ -8104,6 +8104,17 @@ button.trigger-lab-chip {
   gap: 8px;
 }
 
+/* Import and Export sit together above the editor. .secondary-action sizes buttons
+   full-width at --action-height for the big test-card actions; these are toolbar-scale
+   controls, so match the strip buttons instead. */
+.trigger-profiles-transfer-button {
+  width: auto;
+  min-height: 32px;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
 .trigger-profiles-strip-actions > .trigger-profiles-transfer-status {
   position: relative;
   display: inline-flex;

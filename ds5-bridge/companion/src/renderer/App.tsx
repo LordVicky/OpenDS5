@@ -7626,7 +7626,15 @@ export function App() {
                     </div>
                     <button
                       type="button"
-                      className="secondary-action trigger-profiles-export-button"
+                      className="secondary-action trigger-profiles-transfer-button"
+                      onClick={() => void importTriggerProfilesFromDisk()}
+                    >
+                      <IconUpload size={14} />
+                      Import
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-action trigger-profiles-transfer-button"
                       disabled={!triggerProfileDraft}
                       onClick={() => void exportTriggerProfileDraft()}
                     >
@@ -8090,10 +8098,6 @@ export function App() {
                     ) : null}
                   </span>
                 ) : null}
-                <button type="button" onClick={() => void importTriggerProfilesFromDisk()}>
-                  <IconUpload size={14} />
-                  Import
-                </button>
                 <button
                   type="button"
                   className="trigger-profiles-library-button"
