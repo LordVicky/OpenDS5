@@ -113,9 +113,11 @@ export class TriggerProfileStore {
 
   /**
    * Always-copy import: validates the incoming profile, assigns a fresh id and
-   * a collision-free display name, and stamps meta.source.
+   * a collision-free display name, and stamps meta.source. `libraryFile` records which
+   * library entry a library install came from, so the library can tell it is already
+   * installed and the editor can reset it back to the published version.
    */
-  importProfile(parsed: unknown, source: 'library' | 'import'): ImportResult {
+  importProfile(parsed: unknown, source: 'library' | 'import', libraryFile?: string): ImportResult {
     const result = validateTriggerProfile(parsed);
     if (!result.ok) return { ok: false, error: result.error };
     const existing = this.list();
@@ -127,9 +129,33 @@ export class TriggerProfileStore {
       ...result.profile,
       id,
       name,
-      meta: { ...result.profile.meta, source }
+      meta: { ...result.profile.meta, source, ...(libraryFile ? { libraryFile } : {}) }
     };
     return { ok: true, profile: this.save(copy) };
+  }
+
+  /**
+   * Overwrite an installed profile with a freshly-fetched copy of the library profile it came
+   * from, keeping its id and display name. This is a reset, not an install: routing it through
+   * importProfile would take the uniqueName path and leave the edited profile in place
+   * alongside a new "Name (2)".
+   */
+  resetToLibrary(id: string, parsed: unknown): ImportResult {
+    const current = this.get(id);
+    if (!current) return { ok: false, error: `No profile with id ${id}` };
+    const result = validateTriggerProfile(parsed);
+    if (!result.ok) return { ok: false, error: result.error };
+    const restored: TriggerProfile = {
+      ...result.profile,
+      id: current.id,
+      name: current.name,
+      meta: {
+        ...result.profile.meta,
+        source: 'library',
+        ...(current.meta?.libraryFile ? { libraryFile: current.meta.libraryFile } : {})
+      }
+    };
+    return { ok: true, profile: this.save(restored) };
   }
 
   private uniqueName(name: string, taken: Set<string>): string {

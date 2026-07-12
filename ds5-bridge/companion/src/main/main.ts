@@ -1135,9 +1135,26 @@ function registerIpc(
   ipcMain.handle('bridge:installLibraryProfile', async (_event, entry: LibraryEntry) => {
     try {
       const parsed = await profileLibrary.fetchProfile(entry);
-      const imported = triggerProfileStore.importProfile(parsed, 'library');
+      const imported = triggerProfileStore.importProfile(parsed, 'library', entry.file);
       if (imported.ok) triggerProfileEngine.refreshProfiles();
       return imported;
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  // Re-fetch the library profile this one was installed from and overwrite it in place,
+  // discarding local edits. Only meaningful for profiles that carry a libraryFile.
+  ipcMain.handle('bridge:resetLibraryProfile', async (_event, id: string) => {
+    try {
+      const current = triggerProfileStore.get(id);
+      const libraryFile = current?.meta?.libraryFile;
+      if (!current || !libraryFile) {
+        return { ok: false, error: 'This profile did not come from the library.' };
+      }
+      const parsed = await profileLibrary.fetchProfile({ file: libraryFile } as LibraryEntry);
+      const restored = triggerProfileStore.resetToLibrary(id, parsed);
+      if (restored.ok) triggerProfileEngine.refreshProfiles();
+      return restored;
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

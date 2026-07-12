@@ -150,6 +150,7 @@ import type {
 } from '../shared/trigger-profiles';
 import type { GameProcessCandidate } from '../main/game-watcher';
 import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
+import { filterLibrary } from './library-search';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
 
 type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
@@ -2725,6 +2726,8 @@ export function App() {
   const [triggerProfileDraft, setTriggerProfileDraft] = useState<TriggerProfile | null>(null);
   const [triggerProfileProcessNamesInput, setTriggerProfileProcessNamesInput] = useState('');
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
+  const [triggerProfileResetConfirm, setTriggerProfileResetConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
+  const [triggerProfileResetting, setTriggerProfileResetting] = useState(false);
   const [triggerProfilesLinked, setTriggerProfilesLinked] = useState(false);
   const [triggerProfileModifiersOpen, setTriggerProfileModifiersOpen] = useState<Record<TriggerProfileSlotKey, boolean>>({ l2: false, r2: false });
   const [triggerProfileTransferStatus, setTriggerProfileTransferStatus] = useState<{
@@ -2743,6 +2746,7 @@ export function App() {
   const [triggerProfileLibraryLoading, setTriggerProfileLibraryLoading] = useState(false);
   const [triggerProfileLibraryInstalling, setTriggerProfileLibraryInstalling] = useState<string | null>(null);
   const [triggerProfileLibraryInstallErrors, setTriggerProfileLibraryInstallErrors] = useState<Record<string, string>>({});
+  const [triggerProfileLibraryQuery, setTriggerProfileLibraryQuery] = useState('');
   const [gameDetectPopoverOpen, setGameDetectPopoverOpen] = useState(false);
   const [gameDetectCandidates, setGameDetectCandidates] = useState<GameProcessCandidate[]>([]);
   const [gameDetectLoading, setGameDetectLoading] = useState(false);
@@ -2884,6 +2888,17 @@ export function App() {
   const remapModifiedCount = useMemo(() => (
     REMAP_ALL_BUTTON_IDS.filter((buttonId) => remapDraft[buttonId] !== buttonId).length
   ), [remapDraft]);
+  const triggerProfileLibraryRows = useMemo(() => (
+    triggerProfileLibraryCatalog
+      ? filterLibrary(triggerProfileLibraryCatalog, triggerProfileLibraryQuery)
+      : []
+  ), [triggerProfileLibraryCatalog, triggerProfileLibraryQuery]);
+  // Library files already installed, so the library can offer Install only for what is not.
+  const installedLibraryFiles = useMemo(() => new Set(
+    triggerProfiles
+      .map((profile) => profile.meta?.libraryFile)
+      .filter((file): file is string => typeof file === 'string')
+  ), [triggerProfiles]);
   const selectedControllerProfile = snapshot?.settings.controllerProfiles.find((profile) => (
     profile.id === snapshot.settings.selectedControllerProfileId
   ));
@@ -5522,6 +5537,32 @@ export function App() {
     await refreshTriggerProfiles(undefined, deletedId);
   }
 
+  // Re-downloads the library profile and overwrites this one in place, discarding local edits.
+  async function confirmResetTriggerProfile() {
+    if (!triggerProfileResetConfirm) return;
+    const { id, name } = triggerProfileResetConfirm;
+    setTriggerProfileResetting(true);
+    try {
+      const result = await window.bridge.resetLibraryProfile(id);
+      if (!result.ok) {
+        showTriggerProfileTransferStatus('warn', `Couldn't reset "${name}" — ${result.error}`);
+        return;
+      }
+      setTriggerProfileResetConfirm(null);
+      const profiles = await refreshTriggerProfiles(id);
+      const match = profiles.find((profile) => profile.id === id);
+      if (match) loadTriggerProfileDraft(match);
+      showTriggerProfileTransferStatus('good', `Reset "${name}" to its library defaults`);
+    } catch (err) {
+      showTriggerProfileTransferStatus(
+        'warn',
+        `Couldn't reset "${name}" — ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setTriggerProfileResetting(false);
+    }
+  }
+
   async function saveTriggerProfileDraft() {
     if (!triggerProfileDraft) return;
     const processNames = parseProcessNamesInput(triggerProfileProcessNamesInput);
@@ -5605,6 +5646,7 @@ export function App() {
   async function openTriggerProfileLibrary() {
     setTriggerProfileLibraryOpen(true);
     setTriggerProfileLibraryInstallErrors({});
+    setTriggerProfileLibraryQuery('');
     setTriggerProfileLibraryLoading(true);
     try {
       const catalog = await window.bridge.getProfileLibraryCatalog();
@@ -5612,6 +5654,7 @@ export function App() {
     } catch (err) {
       setTriggerProfileLibraryCatalog({
         entries: [],
+        nativeGames: [],
         fetchedAtMs: 0,
         fromCache: false,
         error: err instanceof Error ? err.message : String(err)
@@ -7564,40 +7607,52 @@ export function App() {
                         </p>
                       ) : null}
                     </div>
-                    <div className="trigger-profiles-status-group trigger-profiles-editor-match-source">
-                      <span className="overview-status-heading">
-                        <IconDeviceGamepad2 size={14} />
-                        Match Source
-                      </span>
-                      <span className="status-badge">
-                        <strong>
-                          {!triggerProfileEngineStatus
-                            ? '—'
-                            : triggerProfileEngineStatus.matchedBy === 'pin'
-                              ? 'Pinned'
-                              : triggerProfileEngineStatus.matchedBy === 'process'
-                                ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
-                                : 'Default fallback'}
-                        </strong>
-                      </span>
+                    {/* .feature-card-title is a three-column grid, so the header's actions live in
+                        one cell -- loose buttons overflow the template onto an implicit row. */}
+                    <div className="trigger-profiles-editor-header-actions">
+                      <div className="trigger-profiles-status-group trigger-profiles-editor-match-source">
+                        <span className="overview-status-heading">
+                          <IconDeviceGamepad2 size={14} />
+                          Match Source
+                        </span>
+                        <span className="status-badge">
+                          <strong>
+                            {!triggerProfileEngineStatus
+                              ? '—'
+                              : triggerProfileEngineStatus.matchedBy === 'pin'
+                                ? 'Pinned'
+                                : triggerProfileEngineStatus.matchedBy === 'process'
+                                  ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
+                                  : 'Default fallback'}
+                          </strong>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="secondary-action trigger-profiles-transfer-button"
+                        onClick={() => void importTriggerProfilesFromDisk()}
+                      >
+                        <IconDownload size={14} />
+                        Import
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-action trigger-profiles-transfer-button"
+                        disabled={!triggerProfileDraft}
+                        onClick={() => void exportTriggerProfileDraft()}
+                      >
+                        <IconUpload size={14} />
+                        Export
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-action trigger-profiles-save-button"
+                        onClick={() => void saveTriggerProfileDraft()}
+                      >
+                        <Save size={14} />
+                        Save
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="secondary-action trigger-profiles-export-button"
-                      disabled={!triggerProfileDraft}
-                      onClick={() => void exportTriggerProfileDraft()}
-                    >
-                      <IconDownload size={14} />
-                      Export
-                    </button>
-                    <button
-                      type="button"
-                      className="primary-action trigger-profiles-save-button"
-                      onClick={() => void saveTriggerProfileDraft()}
-                    >
-                      <Save size={14} />
-                      Save
-                    </button>
                   </div>
 
                   <div className="trigger-profiles-editor-body">
@@ -8047,10 +8102,6 @@ export function App() {
                     ) : null}
                   </span>
                 ) : null}
-                <button type="button" onClick={() => void importTriggerProfilesFromDisk()}>
-                  <IconUpload size={14} />
-                  Import
-                </button>
                 <button
                   type="button"
                   className="trigger-profiles-library-button"
@@ -8066,6 +8117,19 @@ export function App() {
                 <button type="button" disabled={!triggerProfileDraft} onClick={duplicateTriggerProfile}>
                   Duplicate
                 </button>
+                {triggerProfileDraft?.meta?.libraryFile ? (
+                  <button
+                    type="button"
+                    title="Re-download this profile from the library, discarding your changes"
+                    onClick={() => triggerProfileDraft && setTriggerProfileResetConfirm({
+                      id: triggerProfileDraft.id,
+                      name: triggerProfileDraft.name
+                    })}
+                  >
+                    <RefreshCcw size={14} />
+                    Reset
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   disabled={!triggerProfileDraft || triggerProfileDraft.id === 'default'}
@@ -9506,6 +9570,56 @@ export function App() {
         </div>
       )}
 
+      {triggerProfileResetConfirm && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setTriggerProfileResetConfirm(null)}
+        >
+          <form
+            className="settings-menu bridge-settings-modal remap-profile-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Reset trigger profile"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void confirmResetTriggerProfile();
+            }}
+          >
+            <div className="settings-menu-heading bridge-settings-modal-heading">
+              <div className="modal-heading-copy">
+                <RefreshCcw size={16} />
+                <span>Reset Trigger Profile</span>
+              </div>
+              <button
+                className="modal-close-button"
+                type="button"
+                aria-label="Close reset trigger profile dialog"
+                onClick={() => setTriggerProfileResetConfirm(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="remap-profile-dialog-copy">
+              {`Reset ${triggerProfileResetConfirm.name} to its library defaults? Your changes to this profile will be discarded.`}
+            </p>
+            <div className="remap-profile-dialog-actions">
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => setTriggerProfileResetConfirm(null)}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="primary-action" disabled={triggerProfileResetting}>
+                {triggerProfileResetting ? 'Resetting…' : 'Reset'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {remapProfileDialogMode && (
         <div
           className="modal-backdrop"
@@ -9690,33 +9804,92 @@ export function App() {
                       {`Couldn't refresh — showing cached list from ${new Date(triggerProfileLibraryCatalog.fetchedAtMs).toLocaleString()}`}
                     </p>
                   )}
-                  <ul className="trigger-profiles-library-list">
-                    {triggerProfileLibraryCatalog.entries.map((entry) => (
-                      <li key={entry.file} className="trigger-profiles-library-entry">
-                        <div className="trigger-profiles-library-entry-copy">
-                          <span className="trigger-profiles-library-entry-game">{entry.game}</span>
-                          <span className="trigger-profiles-library-entry-title">
-                            <strong>{entry.name}</strong>
-                            <span className="trigger-profiles-library-entry-author">by {entry.author}</span>
-                          </span>
-                          <p className="trigger-profiles-library-entry-description">{entry.description}</p>
-                          {triggerProfileLibraryInstallErrors[entry.file] ? (
-                            <p className="trigger-profiles-library-entry-error">
-                              {triggerProfileLibraryInstallErrors[entry.file]}
-                            </p>
-                          ) : null}
-                        </div>
-                        <button
-                          type="button"
-                          className="secondary-action trigger-profiles-library-install-button"
-                          disabled={triggerProfileLibraryInstalling !== null}
-                          onClick={() => void installTriggerProfileFromLibrary(entry)}
-                        >
-                          {triggerProfileLibraryInstalling === entry.file ? 'Installing…' : 'Install'}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="trigger-profiles-library-search">
+                    <SearchIcon size={14} aria-hidden="true" />
+                    <input
+                      type="search"
+                      value={triggerProfileLibraryQuery}
+                      onChange={(event) => setTriggerProfileLibraryQuery(event.target.value)}
+                      placeholder="Search a game…"
+                      aria-label="Search the profile library"
+                      autoFocus
+                    />
+                  </div>
+                  {triggerProfileLibraryRows.length === 0 ? (
+                    <div className="trigger-profiles-library-none">
+                      <strong>{`No profile for “${triggerProfileLibraryQuery.trim()}” yet`}</strong>
+                      <p>
+                        Nobody has published one, and the game doesn&apos;t drive the triggers itself.
+                        You can build one in Trigger Lab.
+                      </p>
+                    </div>
+                  ) : (
+                    <ul className="trigger-profiles-library-list">
+                      {triggerProfileLibraryRows.map((row) =>
+                        row.kind === 'native' ? (
+                          <li key={row.key} className="trigger-profiles-library-entry">
+                            <div className="trigger-profiles-library-entry-copy">
+                              <span className="trigger-profiles-library-entry-title">
+                                <strong>{row.game}</strong>
+                              </span>
+                              <p className="trigger-profiles-library-entry-description">
+                                Drives its own triggers. OpenDS5 passes through — nothing to install.
+                              </p>
+                            </div>
+                            <span className="library-pill library-pill-native">Native</span>
+                          </li>
+                        ) : (
+                          <li key={row.key} className="trigger-profiles-library-entry">
+                            <div className="trigger-profiles-library-entry-copy">
+                              <span className="trigger-profiles-library-entry-title">
+                                <strong>{row.entry.game}</strong>
+                                <span className="trigger-profiles-library-entry-author">
+                                  {row.entry.name}
+                                  {row.entry.origin
+                                    ? ` · Ported from ${row.entry.origin.from}`
+                                    : ` · by ${row.entry.author}`}
+                                </span>
+                              </span>
+                              <p className="trigger-profiles-library-entry-description">
+                                {row.entry.description}
+                              </p>
+                              {row.entry.capabilities ? (
+                                <p className="trigger-profiles-library-entry-capabilities">
+                                  {row.entry.capabilities}
+                                </p>
+                              ) : null}
+                              {triggerProfileLibraryInstallErrors[row.entry.file] ? (
+                                <p className="trigger-profiles-library-entry-error">
+                                  {triggerProfileLibraryInstallErrors[row.entry.file]}
+                                </p>
+                              ) : null}
+                            </div>
+                            <span
+                              className={`library-pill ${
+                                row.entry.tier === 'verified'
+                                  ? 'library-pill-verified'
+                                  : 'library-pill-community'
+                              }`}
+                            >
+                              {row.entry.tier === 'verified' ? 'Verified' : 'Community'}
+                            </span>
+                            {installedLibraryFiles.has(row.entry.file) ? (
+                              <span className="trigger-profiles-library-installed">Installed</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="secondary-action trigger-profiles-library-install-button"
+                                disabled={triggerProfileLibraryInstalling !== null}
+                                onClick={() => void installTriggerProfileFromLibrary(row.entry)}
+                              >
+                                {triggerProfileLibraryInstalling === row.entry.file ? 'Installing…' : 'Install'}
+                              </button>
+                            )}
+                          </li>
+                        )
+                      )}
+                    </ul>
+                  )}
                 </>
               )}
             </div>

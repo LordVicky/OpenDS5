@@ -251,6 +251,9 @@ const api = {
   installLibraryProfile: (entry: LibraryEntry): Promise<ImportResult> => (
     ipcRenderer.invoke('bridge:installLibraryProfile', entry)
   ),
+  resetLibraryProfile: (id: string): Promise<ImportResult> => (
+    ipcRenderer.invoke('bridge:resetLibraryProfile', id)
+  ),
   setTriggerProfilesEnabled: (enabled: boolean): Promise<EngineStatus> => (
     ipcRenderer.invoke('bridge:setTriggerProfilesEnabled', enabled)
   ),

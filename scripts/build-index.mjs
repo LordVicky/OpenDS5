@@ -31,30 +31,53 @@ function fail(message) {
   process.exit(1);
 }
 
+// index.json is generated, and native.json is a curated list of games that drive their
+// own triggers -- neither is a profile, so neither goes through the profile validator.
+const NON_PROFILE_FILES = new Set(['index.json', 'native.json']);
+
 const profileFiles = readdirSync(libraryDir)
-  .filter((name) => name.endsWith('.json') && name !== 'index.json')
+  .filter((name) => name.endsWith('.json') && !NON_PROFILE_FILES.has(name))
   .sort();
 
-// Validate every profile through the shared validator.
+// Validate every profile through the shared validator, which also returns each
+// profile's derived capability line. stdout carries the derived JSON; errors go
+// to stderr, so pipe stderr through and capture stdout.
 const validation = spawnSync(
   'npx',
   ['--yes', 'tsx', validatorPath, ...profileFiles.map((name) => join(libraryDir, name))],
-  { cwd: companionDir, stdio: 'inherit' }
+  { cwd: companionDir, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8' }
 );
 if (validation.status !== 0) {
   fail('build-index: one or more profiles failed validation (see errors above).');
 }
 
-// Build the index from each profile's name + meta.
+let derived;
+try {
+  derived = JSON.parse(validation.stdout);
+} catch {
+  fail('build-index: could not parse derived profile data from validate-profile.');
+}
+
+// Build the index from each profile's name + meta, plus the derived capability line.
+// A profile with no tier is community: an unlabelled profile must never publish itself
+// as maintainer-verified.
 const index = profileFiles.map((file) => {
-  const profile = JSON.parse(readFileSync(join(libraryDir, file), 'utf8'));
+  const fullPath = join(libraryDir, file);
+  const profile = JSON.parse(readFileSync(fullPath, 'utf8'));
   const meta = profile.meta ?? {};
+  const capabilities = derived[fullPath]?.capabilities;
+  if (typeof capabilities !== 'string') {
+    fail(`build-index: no derived capabilities for ${file}.`);
+  }
   return {
     file,
     name: profile.name,
     game: meta.game ?? '',
     author: meta.author ?? '',
-    description: meta.description ?? ''
+    description: meta.description ?? '',
+    capabilities,
+    tier: meta.tier === 'verified' ? 'verified' : 'community',
+    ...(meta.origin ? { origin: meta.origin } : {})
   };
 });
 

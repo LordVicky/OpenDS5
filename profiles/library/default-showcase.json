@@ -29,6 +29,7 @@
   "meta": {
     "game": "Any",
     "author": "LordVicky",
-    "description": "Demonstrates multi-zone feedback (L2) and slope (R2)."
+    "description": "Demonstrates multi-zone feedback (L2) and slope (R2).",
+    "tier": "verified"
   }
 }

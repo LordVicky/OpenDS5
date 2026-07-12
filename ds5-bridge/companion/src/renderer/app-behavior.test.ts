@@ -622,15 +622,16 @@ describe('shared trigger effect editor', () => {
     expect(appSource).toContain('TRIGGER_LAB_TESTABLE_MODES');
   });
 
-  it('offers an Import button in the strip actions wired to importTriggerProfiles', () => {
-    const stripStart = appSource.indexOf('trigger-profiles-strip-actions');
-    expect(stripStart).toBeGreaterThanOrEqual(0);
-    const stripEnd = appSource.indexOf('trigger-profiles-auto-toggle', stripStart);
-    const stripRegion = appSource.slice(stripStart, stripEnd);
-    expect(stripRegion).toContain('Import');
-    expect(stripRegion).toContain('importTriggerProfilesFromDisk');
-    // Import lands before New within the strip.
-    expect(stripRegion.indexOf('Import')).toBeLessThan(stripRegion.indexOf('New'));
+  it('pairs Import with Export in the editor header, wired to importTriggerProfiles', () => {
+    const headerStart = appSource.indexOf('trigger-profiles-editor-card');
+    expect(headerStart).toBeGreaterThanOrEqual(0);
+    const headerEnd = appSource.indexOf('trigger-profiles-save-button', headerStart);
+    const headerRegion = appSource.slice(headerStart, headerEnd);
+    expect(headerRegion).toContain('Import');
+    expect(headerRegion).toContain('importTriggerProfilesFromDisk');
+    // Import sits immediately before Export, and both are toolbar-scale, not full-width.
+    expect(headerRegion.indexOf('Import')).toBeLessThan(headerRegion.indexOf('Export'));
+    expect(headerRegion).toContain('trigger-profiles-transfer-button');
     // Handler is wired to the Task 5 IPC.
     expect(appSource).toContain('window.bridge.importTriggerProfiles(');
   });

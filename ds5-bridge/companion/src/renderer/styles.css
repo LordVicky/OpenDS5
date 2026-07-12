@@ -8104,6 +8104,37 @@ button.trigger-lab-chip {
   gap: 8px;
 }
 
+/* The editor header is a three-column grid, so everything on its right-hand side shares a
+   single cell. Without this the buttons become extra grid items and wrap out of view. */
+.trigger-profiles-editor-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* .primary-action, like .secondary-action, is width: 100% for the big test-card actions.
+   In this row that makes Save claim the full width and wrap onto its own line. */
+.trigger-profiles-editor-header-actions .trigger-profiles-save-button {
+  width: auto;
+  min-height: 32px;
+  gap: 6px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+/* Import and Export sit together above the editor. .secondary-action sizes buttons
+   full-width at --action-height for the big test-card actions; these are toolbar-scale
+   controls, so match the strip buttons instead. */
+.trigger-profiles-transfer-button {
+  width: auto;
+  min-height: 32px;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
 .trigger-profiles-strip-actions > .trigger-profiles-transfer-status {
   position: relative;
   display: inline-flex;
@@ -8340,18 +8371,12 @@ button.trigger-lab-chip {
   flex: 1;
 }
 
-.trigger-profiles-library-entry-game {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-}
-
 .trigger-profiles-library-entry-title {
   display: flex;
   align-items: baseline;
   gap: 6px;
   font-size: 0.9rem;
+  flex-wrap: wrap;
 }
 
 .trigger-profiles-library-entry-author {
@@ -8374,8 +8399,116 @@ button.trigger-lab-chip {
 }
 
 .trigger-profiles-library-install-button {
+  /* .secondary-action sets width: 100%, which in this flex row makes the button
+     claim the whole width and collapse the copy column to a single character. */
+  width: auto;
   flex-shrink: 0;
   align-self: center;
+  padding: 0 16px;
+}
+
+.trigger-profiles-library-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  min-height: var(--control-height);
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-control-soft);
+  color: var(--text-dim);
+}
+
+.trigger-profiles-library-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.trigger-profiles-library-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--text-control);
+  font-family: inherit;
+  font-size: 0.88rem;
+}
+
+.trigger-profiles-library-search input::placeholder {
+  color: var(--text-dim);
+}
+
+.trigger-profiles-library-entry-capabilities {
+  margin: 2px 0 0;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.trigger-profiles-library-none {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px dashed var(--surface-border-strong);
+  border-radius: 10px;
+}
+
+.trigger-profiles-library-none strong {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.trigger-profiles-library-none p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* Status pills. Semantic colours, deliberately not the accent: the accent already
+   marks the game name, and status must read as a separate signal. */
+.library-pill {
+  flex-shrink: 0;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.library-pill-verified {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.library-pill-community {
+  color: var(--text-muted);
+  background: transparent;
+  border-color: var(--surface-border-strong);
+}
+
+.trigger-profiles-library-installed {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.library-pill-native {
+  color: var(--success);
+  background: var(--success-bg, transparent);
+  border-color: var(--success);
 }
 
 .trigger-profiles-provenance {

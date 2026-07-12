@@ -118,6 +118,75 @@ describe('TriggerProfileStore importProfile', () => {
     const result = store.importProfile({ nope: true }, 'import');
     expect(result.ok).toBe(false);
   });
+
+  it('records the library file a library install came from', () => {
+    const result = store.importProfile(profile, 'library', 'generic-shooter.json');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.profile.meta?.libraryFile).toBe('generic-shooter.json');
+      expect(result.profile.meta?.source).toBe('library');
+    }
+  });
+
+  it('leaves libraryFile unset for a disk import', () => {
+    const result = store.importProfile(profile, 'import');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.profile.meta?.libraryFile).toBeUndefined();
+  });
+
+  it('rejects a libraryFile that is a path rather than a bare file name', () => {
+    const result = store.importProfile(
+      { ...profile, meta: { libraryFile: '../evil.json' } },
+      'import'
+    );
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('TriggerProfileStore resetToLibrary', () => {
+  const installed = { ...profile, name: 'Generic Shooter' };
+
+  function install() {
+    const result = store.importProfile(installed, 'library', 'generic-shooter.json');
+    if (!result.ok) throw new Error(result.error);
+    return result.profile;
+  }
+
+  it('overwrites the profile in place instead of creating a second copy', () => {
+    const original = install();
+    store.save({ ...original, name: original.name, triggers: { ...original.triggers, l2: { base: null, modifiers: [] } } });
+
+    const result = store.resetToLibrary(original.id, installed);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.profile.id).toBe(original.id);
+      expect(result.profile.name).toBe(original.name);
+      // The edit is gone: the published base effect is back.
+      expect(result.profile.triggers.l2.base).toEqual(installed.triggers.l2.base);
+    }
+    // Crucially, no "Generic Shooter (2)".
+    expect(store.list().filter((p) => p.id !== 'default')).toHaveLength(1);
+  });
+
+  it('keeps the libraryFile so the profile can be reset again', () => {
+    const original = install();
+    const result = store.resetToLibrary(original.id, installed);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.profile.meta?.libraryFile).toBe('generic-shooter.json');
+  });
+
+  it('fails for an unknown id', () => {
+    const result = store.resetToLibrary('nope', installed);
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a garbage payload without touching the stored profile', () => {
+    const original = install();
+    const result = store.resetToLibrary(original.id, { nope: true });
+    expect(result.ok).toBe(false);
+    expect(store.get(original.id)?.name).toBe(original.name);
+  });
 });
 
 describe('readProfileFileForImport', () => {

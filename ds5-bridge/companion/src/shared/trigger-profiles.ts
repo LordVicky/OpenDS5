@@ -30,11 +30,28 @@ export interface ProfileMatch {
   windowTitles: string[];
 }
 
+// A profile with no tier is community: an unlabelled profile must never present
+// itself as maintainer-verified.
+export type ProfileTier = 'verified' | 'community';
+
+// Set when the profile was ported from an existing game mod rather than built in
+// OpenDS5. Independent of tier -- a port can be verified or community.
+export interface ProfileOrigin {
+  kind: 'port';
+  from: string;
+}
+
 export interface TriggerProfileMeta {
   game?: string;
   author?: string;
   description?: string;
   source?: 'library' | 'import';
+  tier?: ProfileTier;
+  origin?: ProfileOrigin;
+  // The library file this profile was installed from. Set on install; it is what lets the
+  // library know the profile is already installed, and lets the editor reset it back to the
+  // published version.
+  libraryFile?: string;
 }
 
 export interface TriggerProfile {
@@ -60,6 +77,8 @@ export const DEFAULT_PROFILE_ID = 'default';
 const PROFILE_KEYS = ['version', 'id', 'name', 'match', 'triggers', 'updatedAtMs', 'meta'];
 const META_STRING_KEYS = ['game', 'author', 'description'] as const;
 const META_MAX_LENGTH = 500;
+// Mirrors the library's own file-name rule; meta.libraryFile becomes part of a fetch URL.
+const LIBRARY_FILE_PATTERN = /^[a-z0-9-]+\.json$/;
 const ZONE_COUNT = 10;
 const INPUT_CONDITIONS: InputConditionType[] = [
   'trigger-held-over',
@@ -248,7 +267,7 @@ type MetaResult = { ok: true; meta: TriggerProfileMeta } | { ok: false; error: s
 
 function validateMeta(raw: unknown): MetaResult {
   if (!isRecord(raw)) return { ok: false, error: 'meta must be an object' };
-  const allowed = [...META_STRING_KEYS, 'source'];
+  const allowed = [...META_STRING_KEYS, 'source', 'tier', 'origin', 'libraryFile'];
   for (const key of Object.keys(raw)) {
     if (!allowed.includes(key)) return { ok: false, error: `meta.${key} is not an allowed meta field` };
   }
@@ -266,6 +285,37 @@ function validateMeta(raw: unknown): MetaResult {
       return { ok: false, error: "meta.source must be 'library' or 'import'" };
     }
     meta.source = raw.source;
+  }
+  if (raw.tier !== undefined) {
+    if (raw.tier !== 'verified' && raw.tier !== 'community') {
+      return { ok: false, error: "meta.tier must be 'verified' or 'community'" };
+    }
+    meta.tier = raw.tier;
+  }
+  if (raw.origin !== undefined) {
+    const origin = raw.origin;
+    if (!isRecord(origin)) return { ok: false, error: 'meta.origin must be an object' };
+    for (const key of Object.keys(origin)) {
+      if (key !== 'kind' && key !== 'from') {
+        return { ok: false, error: `meta.origin.${key} is not an allowed origin field` };
+      }
+    }
+    if (origin.kind !== 'port') return { ok: false, error: "meta.origin.kind must be 'port'" };
+    if (typeof origin.from !== 'string' || origin.from.length === 0) {
+      return { ok: false, error: 'meta.origin.from must be a non-empty string' };
+    }
+    if (origin.from.length > META_MAX_LENGTH) {
+      return { ok: false, error: `meta.origin.from must be at most ${META_MAX_LENGTH} characters` };
+    }
+    meta.origin = { kind: 'port', from: origin.from };
+  }
+  if (raw.libraryFile !== undefined) {
+    // This name is interpolated into the library URL when a profile is reset, so it must be
+    // a bare safe file name -- never a path.
+    if (typeof raw.libraryFile !== 'string' || !LIBRARY_FILE_PATTERN.test(raw.libraryFile)) {
+      return { ok: false, error: 'meta.libraryFile must be a library file name like my-game.json' };
+    }
+    meta.libraryFile = raw.libraryFile;
   }
   return { ok: true, meta };
 }
