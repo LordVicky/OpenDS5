@@ -2035,19 +2035,17 @@ void apply_companion_state(std::vector<VirtualPort> &ports,
     // Target: 0 both, 1 left, 2 right (DS5 Bridge firmware convention).
     if (effect.target != 2) {
       overrides.left_trigger_active = true;
-      vds::encode_companion_trigger_effect(
+      vds::encode_companion_trigger_effect_v2(
           std::span<std::uint8_t, vds::kTriggerEffectSize>(
               overrides.left_trigger),
-          effect.mode, effect.start_percent, effect.wall_percent,
-          effect.force_percent);
+          effect);
     }
     if (effect.target != 1) {
       overrides.right_trigger_active = true;
-      vds::encode_companion_trigger_effect(
+      vds::encode_companion_trigger_effect_v2(
           std::span<std::uint8_t, vds::kTriggerEffectSize>(
               overrides.right_trigger),
-          effect.mode, effect.start_percent, effect.wall_percent,
-          effect.force_percent);
+          effect);
     }
   } else {
     // Persistent effects are stored per trigger; render each independently.
@@ -2055,21 +2053,19 @@ void apply_companion_state(std::vector<VirtualPort> &ports,
         actuation.persistent_trigger_left;
     if (left.active) {
       overrides.left_trigger_active = true;
-      vds::encode_companion_trigger_effect(
+      vds::encode_companion_trigger_effect_v2(
           std::span<std::uint8_t, vds::kTriggerEffectSize>(
               overrides.left_trigger),
-          left.mode, left.start_percent, left.wall_percent,
-          left.force_percent);
+          left);
     }
     const vds::CompanionTriggerEffect &right =
         actuation.persistent_trigger_right;
     if (right.active) {
       overrides.right_trigger_active = true;
-      vds::encode_companion_trigger_effect(
+      vds::encode_companion_trigger_effect_v2(
           std::span<std::uint8_t, vds::kTriggerEffectSize>(
               overrides.right_trigger),
-          right.mode, right.start_percent, right.wall_percent,
-          right.force_percent);
+          right);
     }
   }
 

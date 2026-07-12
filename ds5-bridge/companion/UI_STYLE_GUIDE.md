@@ -1,4 +1,4 @@
-# DS5 Bridge Companion UI Style Guide
+# OpenDS5 Companion UI Style Guide
 
 This file is the layout contract for the Electron companion app. Treat it as part of the implementation, not inspiration. If a new control page needs a different geometry, document the reason here before adding new CSS.
 

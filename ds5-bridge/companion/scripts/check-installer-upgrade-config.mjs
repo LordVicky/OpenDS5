@@ -13,8 +13,8 @@ const nsis = build.nsis ?? {};
 const expected = {
   appId: 'io.github.sundaymoments.ds5bridge',
   nsisGuid: '40464839-1bb3-5f24-b04b-13b55106e88b',
-  productName: 'DS5 Bridge',
-  uninstallDisplayName: 'DS5 Bridge'
+  productName: 'OpenDS5',
+  uninstallDisplayName: 'OpenDS5'
 };
 
 const nsisNamespace = UUID.parse('50e065bc-3134-11e6-9bab-38c9862bdaf3');

@@ -6,12 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TriggerProfileEngine } from './trigger-profile-engine';
 import { TriggerProfileStore } from './trigger-profile-store';
 import { GameWatcher } from './game-watcher';
-import type { AdaptiveTriggerPreviewEffect } from '../shared/protocol';
+import type { AdaptiveTriggerEffectV2Targeted, AdaptiveTriggerPreviewEffect } from '../shared/protocol';
 import type { ControllerInputState } from '../shared/trigger-modifier-eval';
 import type { TriggerProfile } from '../shared/trigger-profiles';
 
 class FakeSink {
   applied: AdaptiveTriggerPreviewEffect[] = [];
+  appliedV2: AdaptiveTriggerEffectV2Targeted[] = [];
   resets = 0;
   callOrder: string[] = [];
   applyGate: Promise<void> | null = null;
@@ -22,6 +23,11 @@ class FakeSink {
       await this.applyGate;
     }
     this.callOrder.push('apply-done');
+  }
+  async applyAdaptiveTriggerEffectV2(effect: AdaptiveTriggerEffectV2Targeted): Promise<void> {
+    this.callOrder.push('apply-v2');
+    this.appliedV2.push(effect);
+    this.callOrder.push('apply-v2-done');
   }
   async resetAdaptiveTriggers(): Promise<void> {
     this.callOrder.push('reset');
@@ -96,6 +102,55 @@ describe('TriggerProfileEngine', () => {
     await flush();
     expect(sink.applied).toHaveLength(1);
     expect(sink.applied[0]).toMatchObject({ mode: 'weapon', target: 'r2', forcePercent: 90 });
+  });
+
+  it('routes a multi-feedback base through the V2 sink and dedupes identical writes', async () => {
+    const store = new TriggerProfileStore(dir);
+    const zones = [0, 0, 0, 0, 60, 60, 60, 60, 0, 0];
+    store.save({
+      version: 1,
+      id: 'multi',
+      name: 'Multi',
+      match: { processNames: [], windowTitles: [] },
+      triggers: {
+        l2: { base: null, modifiers: [] },
+        r2: { base: { mode: 'multi-feedback', zones: [...zones] }, modifiers: [] }
+      },
+      updatedAtMs: 0
+    });
+    engine.refreshProfiles();
+    watcher.pinProfile('multi');
+    await flush();
+    expect(sink.applied).toHaveLength(0);
+    expect(sink.appliedV2).toHaveLength(1);
+    expect(sink.appliedV2[0]).toMatchObject({ mode: 'multi-feedback', target: 'r2', zones });
+    // Re-applying the same profile must not emit a duplicate V2 write.
+    watcher.pinProfile(null);
+    watcher.pinProfile('multi');
+    await flush();
+    const multiWrites = sink.appliedV2.filter((effect) => effect.mode === 'multi-feedback');
+    expect(multiWrites).toHaveLength(1);
+  });
+
+  it('keeps a plain feedback base on the V1 sink call', async () => {
+    const store = new TriggerProfileStore(dir);
+    store.save({
+      version: 1,
+      id: 'ffb',
+      name: 'FFB',
+      match: { processNames: [], windowTitles: [] },
+      triggers: {
+        l2: { base: null, modifiers: [] },
+        r2: { base: { mode: 'feedback', startPercent: 20, forcePercent: 80 }, modifiers: [] }
+      },
+      updatedAtMs: 0
+    });
+    engine.refreshProfiles();
+    watcher.pinProfile('ffb');
+    await flush();
+    expect(sink.appliedV2).toHaveLength(0);
+    expect(sink.applied).toHaveLength(1);
+    expect(sink.applied[0]).toMatchObject({ mode: 'feedback', target: 'r2', startPercent: 20, forcePercent: 80 });
   });
 
   it('applies modifier effect on matching input and dedupes repeats', async () => {
@@ -218,10 +273,10 @@ describe('TriggerProfileEngine', () => {
   describe('setDraftPreview', () => {
     const draftTriggers = {
       l2: {
-        base: { mode: 'feedback' as const, startPercent: 5, wallPercent: 20, forcePercent: 30 },
+        base: { mode: 'feedback' as const, startPercent: 5, forcePercent: 30 },
         modifiers: [{
           when: { source: 'input' as const, condition: 'trigger-full-pull' },
-          effect: { mode: 'vibration' as const, startPercent: 0, wallPercent: 0, forcePercent: 75 }
+          effect: { mode: 'vibration' as const, startPercent: 0, forcePercent: 75 }
         }]
       },
       r2: null
@@ -232,7 +287,7 @@ describe('TriggerProfileEngine', () => {
       await flush();
       await engine.setDraftPreview(draftTriggers);
       expect(sink.applied.filter((effect) => effect.target === 'l2')).toEqual([
-        { mode: 'feedback', target: 'l2', startPercent: 5, wallPercent: 20, forcePercent: 30 }
+        { mode: 'feedback', target: 'l2', startPercent: 5, wallPercent: 0, forcePercent: 30 }
       ]);
       // The active profile's r2 base is relaxed because the draft has no r2 effect.
       expect(sink.applied.at(-1)).toMatchObject({ target: 'r2', forcePercent: 0 });

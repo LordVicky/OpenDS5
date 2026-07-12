@@ -22,6 +22,7 @@ import {
   IconDeviceFloppy as Save,
   IconDeviceGamepad2,
   IconDeviceGamepad3,
+  IconDownload,
   IconFlame,
   IconBrandDeezer,
   IconDeviceAudioTape,
@@ -132,7 +133,14 @@ import type {
   TriggerTestTarget
 } from '../shared/protocol';
 import type { AudioHapticsSession, BridgeSnapshot, UiScalePercent, UiThemePreset } from '../shared/types';
-import { createDefaultProfile } from '../shared/trigger-profiles';
+import {
+  createDefaultProfile,
+  defaultEffectForMode,
+  slugifyTriggerProfileName,
+  uniqueTriggerProfileId
+} from '../shared/trigger-profiles';
+
+export { slugifyTriggerProfileName, uniqueTriggerProfileId };
 import type {
   EngineStatus,
   InputConditionType,
@@ -141,6 +149,9 @@ import type {
   TriggerProfile
 } from '../shared/trigger-profiles';
 import type { GameProcessCandidate } from '../main/game-watcher';
+import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
+import { filterLibrary } from './library-search';
+import { TriggerEffectEditor } from './TriggerEffectEditor';
 
 type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
 type StartupTutorialStep = 'feature-toggle' | 'support' | 'done';
@@ -301,8 +312,6 @@ const TRIGGER_EFFECT_PRESETS: Array<[string, number]> = [
   ['High', 100]
 ];
 const PERCENT_SLIDER_TICKS = Array.from({ length: 11 }, (_, index) => index * 10);
-const TRIGGER_LAB_SLIDER_STEP = 5;
-const TRIGGER_LAB_SLIDER_TICKS = Array.from({ length: 21 }, (_, index) => index * TRIGGER_LAB_SLIDER_STEP);
 const STANDARD_HAPTICS_SLIDER_TICKS = Array.from({ length: 11 }, (_, index) => index * 20);
 const BRIDGE_AUDIO_OUTPUT_RE = /ds5|dualsense|dual sense|wireless controller|bridge/i;
 const BRIDGE_AUDIO_INPUT_RE = /ds5|dualsense|dual sense|wireless controller|bridge/i;
@@ -328,11 +337,9 @@ const MUTE_MODIFIER_OPTIONS: Array<[string, number]> = [
   ['Alt', 0x04],
   ['Win', 0x08]
 ];
-const TRIGGER_TEST_MODE_OPTIONS: Array<[string, TriggerTestMode]> = [
-  ['Feedback', 'feedback'],
-  ['Weapon', 'weapon'],
-  ['Vibration', 'vibration']
-];
+// The daemon's short-test/preview commands (0x0D / 0x1F) only understand the
+// three classic V1 arms; the richer modes preview through profile drafts.
+const TRIGGER_LAB_TESTABLE_MODES: TriggerTestMode[] = ['feedback', 'weapon', 'vibration'];
 const TRIGGER_PROFILE_SLOTS: Array<[TriggerProfileSlotKey, string]> = [
   ['l2', 'L2'],
   ['r2', 'R2']
@@ -876,10 +883,6 @@ function snapTriggerEffectIntensity(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value / TRIGGER_EFFECT_STEP) * TRIGGER_EFFECT_STEP));
 }
 
-function snapTriggerLabPercent(value: number): number {
-  return Math.max(0, Math.min(100, Math.round(value / TRIGGER_LAB_SLIDER_STEP) * TRIGGER_LAB_SLIDER_STEP));
-}
-
 export function parseProcessNamesInput(input: string): string[] {
   return input
     .split(',')
@@ -904,7 +907,7 @@ export function formatEngineStatusLine(status: EngineStatus, activeProfileName: 
 }
 
 function defaultTriggerEffectSpec(): TriggerEffectSpec {
-  return { mode: 'feedback', startPercent: 0, wallPercent: 0, forcePercent: 0 };
+  return defaultEffectForMode('feedback');
 }
 
 function defaultTriggerModifier(): TriggerModifier {
@@ -912,10 +915,6 @@ function defaultTriggerModifier(): TriggerModifier {
     when: { source: 'input', condition: 'trigger-held-over', threshold: 50, ms: 200 },
     effect: defaultTriggerEffectSpec()
   };
-}
-
-export function slugifyTriggerProfileName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 const PROVISIONAL_TRIGGER_PROFILE_ID_PREFIX = 'draft-';
@@ -926,22 +925,6 @@ function makeProvisionalTriggerProfileId(): string {
 
 export function isProvisionalTriggerProfileId(id: string): boolean {
   return id.startsWith(PROVISIONAL_TRIGGER_PROFILE_ID_PREFIX);
-}
-
-export function uniqueTriggerProfileId(name: string, existingIds: readonly string[]): string {
-  const base = slugifyTriggerProfileName(name);
-  const taken = new Set(existingIds);
-  const isTaken = (candidate: string) => candidate === 'default' || candidate === '' || taken.has(candidate);
-  if (!isTaken(base)) {
-    return base;
-  }
-  let suffix = 2;
-  let candidate = `${base}-${suffix}`;
-  while (isTaken(candidate)) {
-    suffix += 1;
-    candidate = `${base}-${suffix}`;
-  }
-  return candidate;
 }
 
 export function mergeTriggerProfiles(
@@ -1105,45 +1088,6 @@ function sliderTickClass(value: number, max: number): string | undefined {
   return undefined;
 }
 
-type TriggerLabMeterProps = {
-  label: string;
-  value: number;
-  disabled?: boolean;
-  onChange: (value: number) => void;
-  onCommit: (value: number) => void;
-};
-
-function TriggerLabMeter({ label, value, disabled = false, onChange, onCommit }: TriggerLabMeterProps) {
-  function commitValue(element: HTMLInputElement) {
-    onCommit(snapTriggerLabPercent(Number(element.value)));
-  }
-
-  return (
-    <div className="range-control trigger-lab-meter">
-      <input
-        type="range"
-        min="0"
-        max="100"
-        step={TRIGGER_LAB_SLIDER_STEP}
-        value={value}
-        disabled={disabled}
-        aria-label={label}
-        style={{ '--range-fill': `${value}%` } as CSSProperties}
-        onChange={(event) => onChange(snapTriggerLabPercent(Number(event.currentTarget.value)))}
-        onBlur={(event) => commitValue(event.currentTarget)}
-        onKeyUp={(event) => commitValue(event.currentTarget)}
-        onPointerCancel={(event) => commitValue(event.currentTarget)}
-        onPointerUp={(event) => commitValue(event.currentTarget)}
-      />
-      <div className="range-ticks" aria-hidden="true">
-        {TRIGGER_LAB_SLIDER_TICKS.map((tick) => (
-          <span key={tick} className={sliderTickClass(tick, 100)} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function BridgeMark() {
   return (
     <svg className="bridge-mark" viewBox="335 88 310 292" aria-hidden="true" focusable="false">
@@ -1169,11 +1113,11 @@ function BridgeMark() {
 function StartupScreen({ ready }: { ready: boolean }) {
   return (
     <main className={`startup-screen ${ready ? 'ready' : ''}`} aria-live="polite">
-      <section className="startup-card" aria-label="Starting DS5 Bridge">
+      <section className="startup-card" aria-label="Starting OpenDS5">
         <div className="startup-brand">
           <BridgeMark />
           <div>
-            <strong>DS5 Bridge</strong>
+            <strong>OpenDS5</strong>
             <span>Starting companion</span>
           </div>
         </div>
@@ -1210,7 +1154,7 @@ function StartupTutorial({
         className="settings-menu bridge-settings-modal startup-tutorial-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={step === 'feature-toggle' ? 'Feature tile tutorial' : 'Support DS5 Bridge'}
+        aria-label={step === 'feature-toggle' ? 'Feature tile tutorial' : 'Support OpenDS5'}
       >
         {step === 'feature-toggle' ? (
           <>
@@ -1261,7 +1205,7 @@ function StartupTutorial({
               <span className="startup-tutorial-step">2 / 2</span>
             </div>
             <div className="startup-tutorial-copy">
-              <h2>Enjoying DS5 Bridge?</h2>
+              <h2>Enjoying OpenDS5?</h2>
               <p>If this app makes your setup better, please consider supporting the work on Ko-fi.</p>
             </div>
             <button
@@ -2762,6 +2706,16 @@ export function App() {
   const [lightbarBrightnessValue, setLightbarBrightnessValue] = useState(100);
   const [triggerEffectIntensityValue, setTriggerEffectIntensityValue] = useState(100);
   const [triggerTarget, setTriggerTarget] = useState<TriggerTestTarget>('both');
+  const [triggerLabEffect, setTriggerLabEffect] = useState<TriggerEffectSpec>(() => defaultEffectForMode('feedback'));
+  const triggerLabSeededRef = useRef(false);
+
+  useEffect(() => {
+    if (triggerLabSeededRef.current) return;
+    const mode = snapshot?.settings.triggerTestMode;
+    if (!mode) return;
+    triggerLabSeededRef.current = true;
+    setTriggerLabEffect(defaultEffectForMode(mode));
+  }, [snapshot]);
   const [audioHapticsOpen, setAudioHapticsOpen] = useState(false);
   const [audioHapticsSessions, setAudioHapticsSessions] = useState<AudioHapticsSession[]>([]);
   const [audioHapticsSessionsLoading, setAudioHapticsSessionsLoading] = useState(false);
@@ -2772,13 +2726,27 @@ export function App() {
   const [triggerProfileDraft, setTriggerProfileDraft] = useState<TriggerProfile | null>(null);
   const [triggerProfileProcessNamesInput, setTriggerProfileProcessNamesInput] = useState('');
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
+  const [triggerProfileResetConfirm, setTriggerProfileResetConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
+  const [triggerProfileResetting, setTriggerProfileResetting] = useState(false);
   const [triggerProfilesLinked, setTriggerProfilesLinked] = useState(false);
   const [triggerProfileModifiersOpen, setTriggerProfileModifiersOpen] = useState<Record<TriggerProfileSlotKey, boolean>>({ l2: false, r2: false });
+  const [triggerProfileTransferStatus, setTriggerProfileTransferStatus] = useState<{
+    tone: string;
+    message: string;
+    failures?: Array<{ file: string; error: string }>;
+  } | null>(null);
+  const triggerProfileTransferStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerStripRef = useRef<HTMLDivElement | null>(null);
   const triggerStripActionsRef = useRef<HTMLDivElement | null>(null);
   const [triggerStripWidth, setTriggerStripWidth] = useState(0);
   const [triggerStripActionsWidth, setTriggerStripActionsWidth] = useState(0);
   const lastAutoMatchedProfileRef = useRef<string | null>(null);
+  const [triggerProfileLibraryOpen, setTriggerProfileLibraryOpen] = useState(false);
+  const [triggerProfileLibraryCatalog, setTriggerProfileLibraryCatalog] = useState<LibraryCatalog | null>(null);
+  const [triggerProfileLibraryLoading, setTriggerProfileLibraryLoading] = useState(false);
+  const [triggerProfileLibraryInstalling, setTriggerProfileLibraryInstalling] = useState<string | null>(null);
+  const [triggerProfileLibraryInstallErrors, setTriggerProfileLibraryInstallErrors] = useState<Record<string, string>>({});
+  const [triggerProfileLibraryQuery, setTriggerProfileLibraryQuery] = useState('');
   const [gameDetectPopoverOpen, setGameDetectPopoverOpen] = useState(false);
   const [gameDetectCandidates, setGameDetectCandidates] = useState<GameProcessCandidate[]>([]);
   const [gameDetectLoading, setGameDetectLoading] = useState(false);
@@ -2920,6 +2888,17 @@ export function App() {
   const remapModifiedCount = useMemo(() => (
     REMAP_ALL_BUTTON_IDS.filter((buttonId) => remapDraft[buttonId] !== buttonId).length
   ), [remapDraft]);
+  const triggerProfileLibraryRows = useMemo(() => (
+    triggerProfileLibraryCatalog
+      ? filterLibrary(triggerProfileLibraryCatalog, triggerProfileLibraryQuery)
+      : []
+  ), [triggerProfileLibraryCatalog, triggerProfileLibraryQuery]);
+  // Library files already installed, so the library can offer Install only for what is not.
+  const installedLibraryFiles = useMemo(() => new Set(
+    triggerProfiles
+      .map((profile) => profile.meta?.libraryFile)
+      .filter((file): file is string => typeof file === 'string')
+  ), [triggerProfiles]);
   const selectedControllerProfile = snapshot?.settings.controllerProfiles.find((profile) => (
     profile.id === snapshot.settings.selectedControllerProfileId
   ));
@@ -3196,6 +3175,9 @@ export function App() {
       if (startupReadyTimerRef.current !== null) {
         window.clearTimeout(startupReadyTimerRef.current);
       }
+      if (triggerProfileTransferStatusTimeout.current !== null) {
+        clearTimeout(triggerProfileTransferStatusTimeout.current);
+      }
       window.removeEventListener('mouseup', finishWindowDrag);
       window.removeEventListener('blur', finishWindowDrag);
     };
@@ -3336,7 +3318,7 @@ export function App() {
   }, [audioHapticsOpen, audioReactiveHapticsSourceKey, connected, controllerConnected]);
 
   useEffect(() => {
-    if (!showBridgeSettings && !showNotificationsMenu) {
+    if (!showBridgeSettings && !showNotificationsMenu && !triggerProfileLibraryOpen) {
       return;
     }
 
@@ -3349,6 +3331,7 @@ export function App() {
       if (event.key === 'Escape') {
         setShowBridgeSettings(false);
         setShowNotificationsMenu(false);
+        setTriggerProfileLibraryOpen(false);
       }
     };
 
@@ -3358,7 +3341,7 @@ export function App() {
       document.removeEventListener('mousedown', closeOnOutsideClick);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [showBridgeSettings, showNotificationsMenu]);
+  }, [showBridgeSettings, showNotificationsMenu, triggerProfileLibraryOpen]);
 
   useEffect(() => {
     setSpeakerOutputAvailable(true);
@@ -3925,7 +3908,9 @@ export function App() {
       ? 'Active'
       : 'Enabled'
     : 'Off';
-  const testTriggersUnavailable = !connected
+  const triggerLabModeTestable = TRIGGER_LAB_TESTABLE_MODES.includes(triggerLabEffect.mode as TriggerTestMode);
+  const testTriggersUnavailable = !triggerLabModeTestable
+    || !connected
     || !adaptiveTriggersSupported
     || !adaptiveTriggersEnabled
     || pendingAction !== null
@@ -4630,6 +4615,16 @@ export function App() {
       ) {
         await window.bridge.setTriggerEffectIntensity(triggerEffectIntensityValue);
       }
+      const effect = triggerLabEffect;
+      if (effect.mode === 'feedback' || effect.mode === 'weapon' || effect.mode === 'vibration') {
+        return window.bridge.previewAdaptiveTriggerEffect({
+          mode: effect.mode,
+          target: triggerTarget,
+          startPercent: effect.startPercent,
+          wallPercent: effect.mode === 'weapon' ? effect.wallPercent : 0,
+          forcePercent: effect.forcePercent
+        });
+      }
       return window.bridge.testAdaptiveTriggers(snapshot?.settings.triggerTestMode ?? 'feedback', triggerTarget);
     }).finally(() => {
       window.setTimeout(() => setTriggerTestLocked(false), TEST_TRIGGER_LOCK_MS);
@@ -4638,6 +4633,19 @@ export function App() {
 
   function setTriggerTestMode(mode: TriggerTestMode) {
     void runAction('trigger-mode', () => window.bridge.setTriggerTestMode(mode));
+  }
+
+  function updateTriggerLabEffect(effect: TriggerEffectSpec) {
+    const previousMode = triggerLabEffect.mode;
+    setTriggerLabEffect(effect);
+    if (
+      effect.mode !== previousMode
+      && TRIGGER_LAB_TESTABLE_MODES.includes(effect.mode as TriggerTestMode)
+      && snapshot
+      && snapshot.settings.triggerTestMode !== effect.mode
+    ) {
+      setTriggerTestMode(effect.mode as TriggerTestMode);
+    }
   }
 
   function resetAdaptiveTriggers() {
@@ -5529,6 +5537,32 @@ export function App() {
     await refreshTriggerProfiles(undefined, deletedId);
   }
 
+  // Re-downloads the library profile and overwrites this one in place, discarding local edits.
+  async function confirmResetTriggerProfile() {
+    if (!triggerProfileResetConfirm) return;
+    const { id, name } = triggerProfileResetConfirm;
+    setTriggerProfileResetting(true);
+    try {
+      const result = await window.bridge.resetLibraryProfile(id);
+      if (!result.ok) {
+        showTriggerProfileTransferStatus('warn', `Couldn't reset "${name}" — ${result.error}`);
+        return;
+      }
+      setTriggerProfileResetConfirm(null);
+      const profiles = await refreshTriggerProfiles(id);
+      const match = profiles.find((profile) => profile.id === id);
+      if (match) loadTriggerProfileDraft(match);
+      showTriggerProfileTransferStatus('good', `Reset "${name}" to its library defaults`);
+    } catch (err) {
+      showTriggerProfileTransferStatus(
+        'warn',
+        `Couldn't reset "${name}" — ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setTriggerProfileResetting(false);
+    }
+  }
+
   async function saveTriggerProfileDraft() {
     if (!triggerProfileDraft) return;
     const processNames = parseProcessNamesInput(triggerProfileProcessNamesInput);
@@ -5548,6 +5582,115 @@ export function App() {
     };
     const saved = await window.bridge.saveTriggerProfile(profile);
     await refreshTriggerProfiles(saved.id, isProvisional ? previousId : undefined);
+  }
+
+  function showTriggerProfileTransferStatus(
+    tone: string,
+    message: string,
+    failures?: Array<{ file: string; error: string }>
+  ) {
+    if (triggerProfileTransferStatusTimeout.current) {
+      clearTimeout(triggerProfileTransferStatusTimeout.current);
+    }
+    setTriggerProfileTransferStatus({ tone, message, failures });
+    triggerProfileTransferStatusTimeout.current = setTimeout(() => {
+      setTriggerProfileTransferStatus(null);
+      triggerProfileTransferStatusTimeout.current = null;
+    }, failures && failures.length > 0 ? 12000 : 5000);
+  }
+
+  async function exportTriggerProfileDraft() {
+    if (!triggerProfileDraft) return;
+    if (isProvisionalTriggerProfileId(triggerProfileDraft.id)) {
+      showTriggerProfileTransferStatus('warn', 'Save the profile before exporting');
+      return;
+    }
+    const result = await window.bridge.exportTriggerProfile(triggerProfileDraft.id);
+    if (result.saved) {
+      showTriggerProfileTransferStatus('good', `Exported "${triggerProfileDraft.name}"`);
+    }
+  }
+
+  async function importTriggerProfilesFromDisk() {
+    const results = await window.bridge.importTriggerProfiles();
+    if (results.length === 0) return;
+    const imported = results.filter((entry) => entry.ok);
+    const failures = results
+      .filter((entry) => !entry.ok)
+      .map((entry) => ({
+        file: entry.file.split(/[\\/]/).pop() ?? entry.file,
+        error: entry.error ?? 'Unknown error'
+      }));
+    const profiles = await refreshTriggerProfiles();
+    const firstImportedName = imported[0]?.name;
+    if (firstImportedName) {
+      const match = profiles.find((profile) => profile.name === firstImportedName);
+      if (match) loadTriggerProfileDraft(match);
+    }
+    if (imported.length === 0) {
+      showTriggerProfileTransferStatus(
+        'bad',
+        `Import failed for ${failures.length} file${failures.length === 1 ? '' : 's'}`,
+        failures
+      );
+    } else {
+      const base = `Imported ${imported.length} profile${imported.length === 1 ? '' : 's'}`;
+      showTriggerProfileTransferStatus(
+        failures.length > 0 ? 'warn' : 'good',
+        failures.length > 0 ? `${base} (${failures.length} failed)` : base,
+        failures.length > 0 ? failures : undefined
+      );
+    }
+  }
+
+  async function openTriggerProfileLibrary() {
+    setTriggerProfileLibraryOpen(true);
+    setTriggerProfileLibraryInstallErrors({});
+    setTriggerProfileLibraryQuery('');
+    setTriggerProfileLibraryLoading(true);
+    try {
+      const catalog = await window.bridge.getProfileLibraryCatalog();
+      setTriggerProfileLibraryCatalog(catalog);
+    } catch (err) {
+      setTriggerProfileLibraryCatalog({
+        entries: [],
+        nativeGames: [],
+        fetchedAtMs: 0,
+        fromCache: false,
+        error: err instanceof Error ? err.message : String(err)
+      });
+    } finally {
+      setTriggerProfileLibraryLoading(false);
+    }
+  }
+
+  async function installTriggerProfileFromLibrary(entry: LibraryEntry) {
+    setTriggerProfileLibraryInstalling(entry.file);
+    setTriggerProfileLibraryInstallErrors((errors) => {
+      const next = { ...errors };
+      delete next[entry.file];
+      return next;
+    });
+    try {
+      const result = await window.bridge.installLibraryProfile(entry);
+      if (!result.ok) {
+        setTriggerProfileLibraryInstallErrors((errors) => ({ ...errors, [entry.file]: result.error }));
+        return;
+      }
+      const installedName = result.profile.name;
+      const profiles = await refreshTriggerProfiles();
+      const match = profiles.find((profile) => profile.name === installedName);
+      if (match) loadTriggerProfileDraft(match);
+      setTriggerProfileLibraryOpen(false);
+      showTriggerProfileTransferStatus('good', `Installed "${installedName}" from the library`);
+    } catch (err) {
+      setTriggerProfileLibraryInstallErrors((errors) => ({
+        ...errors,
+        [entry.file]: err instanceof Error ? err.message : String(err)
+      }));
+    } finally {
+      setTriggerProfileLibraryInstalling(null);
+    }
   }
 
   async function toggleTriggerProfilesEnabled() {
@@ -5763,10 +5906,10 @@ export function App() {
           }
         }}
       >
-        <span className="bridge-wordmark" aria-label="DS5 Bridge">
+        <span className="bridge-wordmark" aria-label="OpenDS5">
           <BridgeMark />
-          <span className="bridge-wordmark-ds">DS5</span>
-          <span className="bridge-wordmark-name">Bridge</span>
+          <span className="bridge-wordmark-ds">Open</span>
+          <span className="bridge-wordmark-name">DS5</span>
         </span>
         <div className="topbar-right">
           <div className="bridge-tools">
@@ -7311,7 +7454,7 @@ export function App() {
                     ))}
                   </div>
                 </section>
-                <section className="feature-card test-card">
+                <section className="feature-card test-card trigger-test-card">
                   <div className="feature-card-title">
                     <span className="feature-icon"><IconTestPipe size={20} /></span>
                     <div className="title-copy">
@@ -7320,21 +7463,24 @@ export function App() {
                     </div>
                   </div>
                   <div className="test-options">
-                    <div className="select-row wide-select trigger-test-mode-control">
-                      <CustomSelect
-                        value={snapshot.settings.triggerTestMode}
-                        disabled={
-                          !connected
-                          || !adaptiveTriggersSupported
-                          || !snapshot.settings.adaptiveTriggersEnabled
-                          || adaptiveTriggerOutputActive
-                          || pendingAction !== null
-                        }
-                        options={TRIGGER_TEST_MODE_OPTIONS}
-                        ariaLabel="Trigger test type"
-                        onChange={setTriggerTestMode}
-                      />
-                    </div>
+                    <TriggerEffectEditor
+                      label="Trigger test"
+                      value={triggerLabEffect}
+                      disabled={
+                        !connected
+                        || !adaptiveTriggersSupported
+                        || !snapshot.settings.adaptiveTriggersEnabled
+                        || adaptiveTriggerOutputActive
+                        || pendingAction !== null
+                      }
+                      onChange={updateTriggerLabEffect}
+                    />
+                    {!triggerLabModeTestable && (
+                      <p className="trigger-lab-test-note">
+                        Test playback covers Feedback, Weapon, and Vibration. Preview this effect by
+                        assigning it in a game trigger profile.
+                      </p>
+                    )}
                     <div className="target-row">
                       <div className="segmented-row compact">
                         {TRIGGER_TARGET_OPTIONS.map(([label, value]) => (
@@ -7455,32 +7601,58 @@ export function App() {
                     <div className="title-copy">
                       <h3>Editor</h3>
                       <p>Edit the selected profile's match rules and trigger effects.</p>
+                      {triggerProfileDraft.meta?.source ? (
+                        <p className="trigger-profiles-provenance">
+                          {triggerProfileDraft.meta.source === 'library' ? 'From library' : 'Imported'}
+                        </p>
+                      ) : null}
                     </div>
-                    <div className="trigger-profiles-status-group trigger-profiles-editor-match-source">
-                      <span className="overview-status-heading">
-                        <IconDeviceGamepad2 size={14} />
-                        Match Source
-                      </span>
-                      <span className="status-badge">
-                        <strong>
-                          {!triggerProfileEngineStatus
-                            ? '—'
-                            : triggerProfileEngineStatus.matchedBy === 'pin'
-                              ? 'Pinned'
-                              : triggerProfileEngineStatus.matchedBy === 'process'
-                                ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
-                                : 'Default fallback'}
-                        </strong>
-                      </span>
+                    {/* .feature-card-title is a three-column grid, so the header's actions live in
+                        one cell -- loose buttons overflow the template onto an implicit row. */}
+                    <div className="trigger-profiles-editor-header-actions">
+                      <div className="trigger-profiles-status-group trigger-profiles-editor-match-source">
+                        <span className="overview-status-heading">
+                          <IconDeviceGamepad2 size={14} />
+                          Match Source
+                        </span>
+                        <span className="status-badge">
+                          <strong>
+                            {!triggerProfileEngineStatus
+                              ? '—'
+                              : triggerProfileEngineStatus.matchedBy === 'pin'
+                                ? 'Pinned'
+                                : triggerProfileEngineStatus.matchedBy === 'process'
+                                  ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
+                                  : 'Default fallback'}
+                          </strong>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="secondary-action trigger-profiles-transfer-button"
+                        onClick={() => void importTriggerProfilesFromDisk()}
+                      >
+                        <IconDownload size={14} />
+                        Import
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-action trigger-profiles-transfer-button"
+                        disabled={!triggerProfileDraft}
+                        onClick={() => void exportTriggerProfileDraft()}
+                      >
+                        <IconUpload size={14} />
+                        Export
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-action trigger-profiles-save-button"
+                        onClick={() => void saveTriggerProfileDraft()}
+                      >
+                        <Save size={14} />
+                        Save
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="primary-action trigger-profiles-save-button"
-                      onClick={() => void saveTriggerProfileDraft()}
-                    >
-                      <Save size={14} />
-                      Save
-                    </button>
                   </div>
 
                   <div className="trigger-profiles-editor-body">
@@ -7545,41 +7717,14 @@ export function App() {
                             </button>
                           </div>
                           {slotConfig.base ? (
-                            <>
-                              <div className="trigger-lab-mode-grid">
-                                {TRIGGER_TEST_MODE_OPTIONS.map(([modeLabel, mode]) => (
-                                  <button
-                                    key={mode}
-                                    type="button"
-                                    className={`trigger-lab-mode-button ${slotConfig.base?.mode === mode ? 'active' : ''}`}
-                                    onClick={() => updateTriggerProfileSlot(slot, (config) => ({
-                                      ...config,
-                                      base: config.base ? { ...config.base, mode } : config.base
-                                    }), { mirrorBase: triggerProfilesLinked })}
-                                  >
-                                    {modeLabel}
-                                  </button>
-                                ))}
-                              </div>
-                              {(['startPercent', 'wallPercent', 'forcePercent'] as const).map((key) => (
-                                <div key={key} className="trigger-lab-meter-row">
-                                  <span>{key === 'startPercent' ? 'Start' : key === 'wallPercent' ? 'Wall' : 'Force'}</span>
-                                  <TriggerLabMeter
-                                    label={`${sideLabel} ${key}`}
-                                    value={slotConfig.base ? slotConfig.base[key] : 0}
-                                    onChange={(value) => updateTriggerProfileSlot(slot, (config) => ({
-                                      ...config,
-                                      base: config.base ? { ...config.base, [key]: value } : config.base
-                                    }), { mirrorBase: triggerProfilesLinked })}
-                                    onCommit={(value) => updateTriggerProfileSlot(slot, (config) => ({
-                                      ...config,
-                                      base: config.base ? { ...config.base, [key]: value } : config.base
-                                    }), { mirrorBase: triggerProfilesLinked })}
-                                  />
-                                  <strong>{slotConfig.base ? slotConfig.base[key] : 0}%</strong>
-                                </div>
-                              ))}
-                            </>
+                            <TriggerEffectEditor
+                              label={sideLabel}
+                              value={slotConfig.base}
+                              onChange={(effect) => updateTriggerProfileSlot(slot, (config) => ({
+                                ...config,
+                                base: config.base ? effect : config.base
+                              }), { mirrorBase: triggerProfilesLinked })}
+                            />
                           ) : (
                             <p className="trigger-profiles-slot-off-note">
                               No base effect — game trigger output passes through.
@@ -7716,45 +7861,17 @@ export function App() {
                                 </button>
                               </div>
                               <div className="trigger-profiles-effect-sliders">
-                                <CustomSelect
-                                  value={modifier.effect.mode}
-                                  options={TRIGGER_TEST_MODE_OPTIONS}
-                                  ariaLabel={`${label} modifier ${modifierIndex + 1} effect mode`}
-                                  onChange={(mode) => updateTriggerProfileSlot(slot, (config) => ({
+                                <TriggerEffectEditor
+                                  compact
+                                  label={`${label} modifier ${modifierIndex + 1}`}
+                                  value={modifier.effect}
+                                  onChange={(effect) => updateTriggerProfileSlot(slot, (config) => ({
                                     ...config,
                                     modifiers: config.modifiers.map((entry, index) => (
-                                      index === modifierIndex
-                                        ? { ...entry, effect: { ...entry.effect, mode } }
-                                        : entry
+                                      index === modifierIndex ? { ...entry, effect } : entry
                                     ))
                                   }))}
                                 />
-                                {(['startPercent', 'wallPercent', 'forcePercent'] as const).map((key) => (
-                                  <label key={key} className="trigger-profiles-effect-slider">
-                                    <span>{key === 'startPercent' ? 'Start' : key === 'wallPercent' ? 'Wall' : 'Force'}</span>
-                                    <TriggerLabMeter
-                                      label={`${label} modifier ${modifierIndex + 1} ${key}`}
-                                      value={modifier.effect[key]}
-                                      onChange={(value) => updateTriggerProfileSlot(slot, (config) => ({
-                                        ...config,
-                                        modifiers: config.modifiers.map((entry, index) => (
-                                          index === modifierIndex
-                                            ? { ...entry, effect: { ...entry.effect, [key]: value } }
-                                            : entry
-                                        ))
-                                      }))}
-                                      onCommit={(value) => updateTriggerProfileSlot(slot, (config) => ({
-                                        ...config,
-                                        modifiers: config.modifiers.map((entry, index) => (
-                                          index === modifierIndex
-                                            ? { ...entry, effect: { ...entry.effect, [key]: value } }
-                                            : entry
-                                        ))
-                                      }))}
-                                    />
-                                    <strong>{modifier.effect[key]}%</strong>
-                                  </label>
-                                ))}
                               </div>
                             </div>
                           ))}
@@ -7969,6 +8086,30 @@ export function App() {
                 );
               })()}
               <div className="trigger-profiles-strip-actions" ref={triggerStripActionsRef}>
+                {triggerProfileTransferStatus ? (
+                  <span className="trigger-profiles-transfer-status">
+                    <span className={`status-badge ${triggerProfileTransferStatus.tone}`}>
+                      {triggerProfileTransferStatus.message}
+                    </span>
+                    {triggerProfileTransferStatus.failures && triggerProfileTransferStatus.failures.length > 0 ? (
+                      <span className="trigger-profiles-transfer-errors">
+                        {triggerProfileTransferStatus.failures.map((failure, index) => (
+                          <span key={`${failure.file}-${index}`} className="trigger-profiles-transfer-error">
+                            <strong>{failure.file}</strong> — {failure.error}
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  className="trigger-profiles-library-button"
+                  onClick={() => void openTriggerProfileLibrary()}
+                >
+                  <IconBooks size={14} />
+                  Library
+                </button>
                 <button type="button" onClick={createTriggerProfile}>
                   <Plus size={14} />
                   New
@@ -7976,6 +8117,19 @@ export function App() {
                 <button type="button" disabled={!triggerProfileDraft} onClick={duplicateTriggerProfile}>
                   Duplicate
                 </button>
+                {triggerProfileDraft?.meta?.libraryFile ? (
+                  <button
+                    type="button"
+                    title="Re-download this profile from the library, discarding your changes"
+                    onClick={() => triggerProfileDraft && setTriggerProfileResetConfirm({
+                      id: triggerProfileDraft.id,
+                      name: triggerProfileDraft.name
+                    })}
+                  >
+                    <RefreshCcw size={14} />
+                    Reset
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   disabled={!triggerProfileDraft || triggerProfileDraft.id === 'default'}
@@ -9416,6 +9570,56 @@ export function App() {
         </div>
       )}
 
+      {triggerProfileResetConfirm && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setTriggerProfileResetConfirm(null)}
+        >
+          <form
+            className="settings-menu bridge-settings-modal remap-profile-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Reset trigger profile"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void confirmResetTriggerProfile();
+            }}
+          >
+            <div className="settings-menu-heading bridge-settings-modal-heading">
+              <div className="modal-heading-copy">
+                <RefreshCcw size={16} />
+                <span>Reset Trigger Profile</span>
+              </div>
+              <button
+                className="modal-close-button"
+                type="button"
+                aria-label="Close reset trigger profile dialog"
+                onClick={() => setTriggerProfileResetConfirm(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="remap-profile-dialog-copy">
+              {`Reset ${triggerProfileResetConfirm.name} to its library defaults? Your changes to this profile will be discarded.`}
+            </p>
+            <div className="remap-profile-dialog-actions">
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => setTriggerProfileResetConfirm(null)}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="primary-action" disabled={triggerProfileResetting}>
+                {triggerProfileResetting ? 'Resetting…' : 'Reset'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {remapProfileDialogMode && (
         <div
           className="modal-backdrop"
@@ -9549,6 +9753,147 @@ export function App() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {triggerProfileLibraryOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setTriggerProfileLibraryOpen(false)}
+        >
+          <div
+            className="settings-menu trigger-profiles-library-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Profile library"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="settings-menu-heading trigger-profiles-library-heading">
+              <div className="modal-heading-copy">
+                <IconBooks size={16} />
+                <span>Profile Library</span>
+              </div>
+              <button
+                className="modal-close-button"
+                type="button"
+                aria-label="Close profile library"
+                onClick={() => setTriggerProfileLibraryOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="trigger-profiles-library-body">
+              {triggerProfileLibraryLoading ? (
+                <p className="trigger-profiles-library-empty">Loading library…</p>
+              ) : !triggerProfileLibraryCatalog ? null : triggerProfileLibraryCatalog.entries.length === 0 ? (
+                <div className="trigger-profiles-library-error">
+                  <p>
+                    {triggerProfileLibraryCatalog.error
+                      ? `Couldn't load the profile library — ${triggerProfileLibraryCatalog.error}`
+                      : 'The profile library has no profiles yet.'}
+                  </p>
+                  {triggerProfileLibraryCatalog.error ? (
+                    <p>Browse profiles manually at https://github.com/LordVicky/OpenDS5</p>
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  {triggerProfileLibraryCatalog.fromCache && (
+                    <p className="trigger-profiles-library-stale">
+                      {`Couldn't refresh — showing cached list from ${new Date(triggerProfileLibraryCatalog.fetchedAtMs).toLocaleString()}`}
+                    </p>
+                  )}
+                  <div className="trigger-profiles-library-search">
+                    <SearchIcon size={14} aria-hidden="true" />
+                    <input
+                      type="search"
+                      value={triggerProfileLibraryQuery}
+                      onChange={(event) => setTriggerProfileLibraryQuery(event.target.value)}
+                      placeholder="Search a game…"
+                      aria-label="Search the profile library"
+                      autoFocus
+                    />
+                  </div>
+                  {triggerProfileLibraryRows.length === 0 ? (
+                    <div className="trigger-profiles-library-none">
+                      <strong>{`No profile for “${triggerProfileLibraryQuery.trim()}” yet`}</strong>
+                      <p>
+                        Nobody has published one, and the game doesn&apos;t drive the triggers itself.
+                        You can build one in Trigger Lab.
+                      </p>
+                    </div>
+                  ) : (
+                    <ul className="trigger-profiles-library-list">
+                      {triggerProfileLibraryRows.map((row) =>
+                        row.kind === 'native' ? (
+                          <li key={row.key} className="trigger-profiles-library-entry">
+                            <div className="trigger-profiles-library-entry-copy">
+                              <span className="trigger-profiles-library-entry-title">
+                                <strong>{row.game}</strong>
+                              </span>
+                              <p className="trigger-profiles-library-entry-description">
+                                Drives its own triggers. OpenDS5 passes through — nothing to install.
+                              </p>
+                            </div>
+                            <span className="library-pill library-pill-native">Native</span>
+                          </li>
+                        ) : (
+                          <li key={row.key} className="trigger-profiles-library-entry">
+                            <div className="trigger-profiles-library-entry-copy">
+                              <span className="trigger-profiles-library-entry-title">
+                                <strong>{row.entry.game}</strong>
+                                <span className="trigger-profiles-library-entry-author">
+                                  {row.entry.name}
+                                  {row.entry.origin
+                                    ? ` · Ported from ${row.entry.origin.from}`
+                                    : ` · by ${row.entry.author}`}
+                                </span>
+                              </span>
+                              <p className="trigger-profiles-library-entry-description">
+                                {row.entry.description}
+                              </p>
+                              {row.entry.capabilities ? (
+                                <p className="trigger-profiles-library-entry-capabilities">
+                                  {row.entry.capabilities}
+                                </p>
+                              ) : null}
+                              {triggerProfileLibraryInstallErrors[row.entry.file] ? (
+                                <p className="trigger-profiles-library-entry-error">
+                                  {triggerProfileLibraryInstallErrors[row.entry.file]}
+                                </p>
+                              ) : null}
+                            </div>
+                            <span
+                              className={`library-pill ${
+                                row.entry.tier === 'verified'
+                                  ? 'library-pill-verified'
+                                  : 'library-pill-community'
+                              }`}
+                            >
+                              {row.entry.tier === 'verified' ? 'Verified' : 'Community'}
+                            </span>
+                            {installedLibraryFiles.has(row.entry.file) ? (
+                              <span className="trigger-profiles-library-installed">Installed</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="secondary-action trigger-profiles-library-install-button"
+                                disabled={triggerProfileLibraryInstalling !== null}
+                                onClick={() => void installTriggerProfileFromLibrary(row.entry)}
+                              >
+                                {triggerProfileLibraryInstalling === row.entry.file ? 'Installing…' : 'Install'}
+                              </button>
+                            )}
+                          </li>
+                        )
+                      )}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

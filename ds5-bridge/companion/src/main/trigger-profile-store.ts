@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   createDefaultProfile,
   DEFAULT_PROFILE_ID,
+  uniqueTriggerProfileId,
   validateTriggerProfile,
   type TriggerProfile
 } from '../shared/trigger-profiles';
@@ -13,6 +14,33 @@ export interface TriggerEngineState {
 }
 
 const ENGINE_STATE_FILE = 'engine-state.json';
+
+export const MAX_PROFILE_FILE_BYTES = 262144;
+
+export type ImportResult =
+  | { ok: true; profile: TriggerProfile }
+  | { ok: false; error: string };
+
+export type ReadForImportResult =
+  | { ok: true; parsed: unknown }
+  | { ok: false; error: string };
+
+/**
+ * Reads a profile file for import, enforcing the size guard and JSON parsing.
+ * fs-only and Electron-free so it can be unit-tested directly.
+ */
+export function readProfileFileForImport(filePath: string): ReadForImportResult {
+  try {
+    const size = statSync(filePath).size;
+    if (size > MAX_PROFILE_FILE_BYTES) {
+      return { ok: false, error: `File exceeds ${MAX_PROFILE_FILE_BYTES} bytes` };
+    }
+    const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
+    return { ok: true, parsed };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Failed to read file' };
+  }
+}
 
 export class TriggerProfileStore {
   constructor(private readonly directory: string) {
@@ -81,6 +109,60 @@ export class TriggerProfileStore {
     }
     writeFileSync(this.profilePath(stamped.id), `${JSON.stringify(result.profile, null, 2)}\n`, 'utf8');
     return result.profile;
+  }
+
+  /**
+   * Always-copy import: validates the incoming profile, assigns a fresh id and
+   * a collision-free display name, and stamps meta.source. `libraryFile` records which
+   * library entry a library install came from, so the library can tell it is already
+   * installed and the editor can reset it back to the published version.
+   */
+  importProfile(parsed: unknown, source: 'library' | 'import', libraryFile?: string): ImportResult {
+    const result = validateTriggerProfile(parsed);
+    if (!result.ok) return { ok: false, error: result.error };
+    const existing = this.list();
+    const existingIds = existing.map((entry) => entry.id);
+    const existingNames = new Set(existing.map((entry) => entry.name));
+    const name = this.uniqueName(result.profile.name, existingNames);
+    const id = uniqueTriggerProfileId(name, existingIds);
+    const copy: TriggerProfile = {
+      ...result.profile,
+      id,
+      name,
+      meta: { ...result.profile.meta, source, ...(libraryFile ? { libraryFile } : {}) }
+    };
+    return { ok: true, profile: this.save(copy) };
+  }
+
+  /**
+   * Overwrite an installed profile with a freshly-fetched copy of the library profile it came
+   * from, keeping its id and display name. This is a reset, not an install: routing it through
+   * importProfile would take the uniqueName path and leave the edited profile in place
+   * alongside a new "Name (2)".
+   */
+  resetToLibrary(id: string, parsed: unknown): ImportResult {
+    const current = this.get(id);
+    if (!current) return { ok: false, error: `No profile with id ${id}` };
+    const result = validateTriggerProfile(parsed);
+    if (!result.ok) return { ok: false, error: result.error };
+    const restored: TriggerProfile = {
+      ...result.profile,
+      id: current.id,
+      name: current.name,
+      meta: {
+        ...result.profile.meta,
+        source: 'library',
+        ...(current.meta?.libraryFile ? { libraryFile: current.meta.libraryFile } : {})
+      }
+    };
+    return { ok: true, profile: this.save(restored) };
+  }
+
+  private uniqueName(name: string, taken: Set<string>): string {
+    if (!taken.has(name)) return name;
+    let suffix = 2;
+    while (taken.has(`${name} (${suffix})`)) suffix += 1;
+    return `${name} (${suffix})`;
   }
 
   delete(id: string): boolean {

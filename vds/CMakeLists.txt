@@ -174,6 +174,9 @@ else()
             vds_udev)
 endif()
 
+add_executable(trigger_effect_v2_test tests/trigger_effect_v2_test.cc)
+target_link_libraries(trigger_effect_v2_test PRIVATE vds_protocol)
+
 if(WIN32)
   set(VDS_RUNTIME_INSTALL_DIR ".")
   set(VDS_INSTALLED_VDSD "${CMAKE_INSTALL_PREFIX}/vdsd.exe")

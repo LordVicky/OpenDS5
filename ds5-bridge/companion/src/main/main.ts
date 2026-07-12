@@ -4,6 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BridgeService } from './bridge-service';
+import { resolveInstallerPath, runSystemInstall, shouldRunSystemInstall } from './install-system-cli';
+import { isSetupNeeded, SetupService } from './setup-service';
+import { openSetupWindow, shouldShowSetupWizard } from './setup-window';
 import {
   PICO_UNIVERSAL_FLASH_NUKE_FILE,
   PICO_UNIVERSAL_FLASH_NUKE_SHA256_FILE,
@@ -13,11 +16,14 @@ import {
 } from './pico-firmware-updater';
 import { SettingsStore } from './settings-store';
 import { growBoundsToMinimum, loadWindowState, resolveWindowBounds, saveWindowState } from './window-state';
-import { TriggerProfileStore } from './trigger-profile-store';
+import { deriveLegacyUserDataPath, migrateLegacyUserData } from './user-data-migration';
+import { readProfileFileForImport, TriggerProfileStore } from './trigger-profile-store';
+import { ProfileLibrary, type LibraryEntry } from './profile-library';
 import { GameWatcher, listCandidateGameProcesses } from './game-watcher';
 import { EvdevInputReader } from './evdev-input-reader';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
 import type {
+  AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
   BridgePresetId,
   ChordAssignment,
@@ -41,7 +47,7 @@ import type {
   UiThemePreset
 } from '../shared/types';
 
-const APP_NAME = 'DS5 Bridge';
+const APP_NAME = 'OpenDS5';
 const WINDOWS_APP_USER_MODEL_ID = 'io.github.sundaymoments.ds5bridge';
 const WINDOWS_TOAST_ACTIVATOR_CLSID = '{A8B3700D-4BB5-4E22-BF57-0C43B7C2FDF6}';
 const APP_MARK_PNG = path.join('assets', 'controllers', 'ds5-bridge_mark.png');
@@ -61,6 +67,17 @@ let bridgeService: BridgeService | null = null;
 let triggerProfileEngine: TriggerProfileEngine | null = null;
 let isQuitting = false;
 let shutdownComplete = false;
+// One-time DS5 Bridge -> OpenDS5 rebrand migration: carry legacy userData
+// artifacts (settings, trigger profiles, library cache, window state) into
+// the new productName-derived location. Must run BEFORE
+// app.requestSingleInstanceLock(), which creates and populates the new
+// userData dir with Singleton* housekeeping entries.
+try {
+  const userDataPathForMigration = app.getPath('userData');
+  migrateLegacyUserData(deriveLegacyUserDataPath(userDataPathForMigration), userDataPathForMigration, fs);
+} catch (error) {
+  console.error('[main] legacy userData migration failed', error);
+}
 const hasSingleInstanceLock = ALLOW_PARALLEL_AUTOMATION_INSTANCE || app.requestSingleInstanceLock();
 const audioHapticsIconCache = new Map<string, Promise<string | null> | string | null>();
 const TRAY_BATTERY_ICON_SIZE = 32;
@@ -419,7 +436,7 @@ function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {
     minWidth,
     minHeight,
     show: false,
-    title: 'DS5 Bridge',
+    title: 'OpenDS5',
     frame: false,
     resizable: true,
     maximizable: true,
@@ -978,7 +995,7 @@ async function confirmPicoFlashNuke(): Promise<boolean> {
     type: 'warning',
     title: 'Nuke Pico flash?',
     message: 'Nuke Pico flash?',
-    detail: 'This will copy the bundled Pico Universal Flash Nuke UF2 to the mounted Pico bootloader drive and erase the Pico flash.\n\nThe bridge will not work again until you flash the DS5 Bridge firmware back onto the Pico. Use this only when recovering from a bad or stuck firmware install.',
+    detail: 'This will copy the bundled Pico Universal Flash Nuke UF2 to the mounted Pico bootloader drive and erase the Pico flash.\n\nThe bridge will not work again until you flash the OpenDS5 firmware back onto the Pico. Use this only when recovering from a bad or stuck firmware install.',
     buttons: ['Nuke Pico', 'Cancel'],
     defaultId: 1,
     cancelId: 1,
@@ -1038,7 +1055,8 @@ async function runPicoFirmwareIpcAction(
 function registerIpc(
   service: BridgeService,
   triggerProfileStore: TriggerProfileStore,
-  triggerProfileEngine: TriggerProfileEngine
+  triggerProfileEngine: TriggerProfileEngine,
+  profileLibrary: ProfileLibrary
 ): void {
   ipcMain.handle('bridge:listTriggerProfiles', () => triggerProfileStore.list());
   ipcMain.handle('bridge:saveTriggerProfile', (_event, profile: TriggerProfile) => {
@@ -1068,6 +1086,78 @@ function registerIpc(
       pinnedProfileId: status.matchedBy === 'pin' ? status.activeProfileId : null
     });
     return status;
+  });
+  ipcMain.handle('bridge:exportTriggerProfile', async (_event, id: string) => {
+    const profile = triggerProfileStore.get(id);
+    if (!profile) return { saved: false };
+    const options: Electron.SaveDialogOptions = {
+      title: 'Export Trigger Profile',
+      defaultPath: `${profile.name.replace(/[^a-zA-Z0-9_-]+/g, '-')}.json`,
+      filters: [{ name: 'Trigger Profiles', extensions: ['json'] }]
+    };
+    const result = mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showSaveDialog(mainWindow, options)
+      : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return { saved: false };
+    fs.writeFileSync(result.filePath, `${JSON.stringify(profile, null, 2)}\n`, 'utf8');
+    return { saved: true, path: result.filePath };
+  });
+  ipcMain.handle('bridge:importTriggerProfiles', async () => {
+    const options: Electron.OpenDialogOptions = {
+      title: 'Import Trigger Profiles',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Trigger Profiles', extensions: ['json'] }]
+    };
+    const dialogResult = mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+    if (dialogResult.canceled) return [];
+    const results: Array<{ file: string; ok: boolean; error?: string; name?: string }> = [];
+    let importedAny = false;
+    for (const filePath of dialogResult.filePaths) {
+      const read = readProfileFileForImport(filePath);
+      if (!read.ok) {
+        results.push({ file: filePath, ok: false, error: read.error });
+        continue;
+      }
+      const imported = triggerProfileStore.importProfile(read.parsed, 'import');
+      if (imported.ok) {
+        importedAny = true;
+        results.push({ file: filePath, ok: true, name: imported.profile.name });
+      } else {
+        results.push({ file: filePath, ok: false, error: imported.error });
+      }
+    }
+    if (importedAny) triggerProfileEngine.refreshProfiles();
+    return results;
+  });
+  ipcMain.handle('bridge:getProfileLibraryCatalog', () => profileLibrary.getCatalog());
+  ipcMain.handle('bridge:installLibraryProfile', async (_event, entry: LibraryEntry) => {
+    try {
+      const parsed = await profileLibrary.fetchProfile(entry);
+      const imported = triggerProfileStore.importProfile(parsed, 'library', entry.file);
+      if (imported.ok) triggerProfileEngine.refreshProfiles();
+      return imported;
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  // Re-fetch the library profile this one was installed from and overwrite it in place,
+  // discarding local edits. Only meaningful for profiles that carry a libraryFile.
+  ipcMain.handle('bridge:resetLibraryProfile', async (_event, id: string) => {
+    try {
+      const current = triggerProfileStore.get(id);
+      const libraryFile = current?.meta?.libraryFile;
+      if (!current || !libraryFile) {
+        return { ok: false, error: 'This profile did not come from the library.' };
+      }
+      const parsed = await profileLibrary.fetchProfile({ file: libraryFile } as LibraryEntry);
+      const restored = triggerProfileStore.resetToLibrary(id, parsed);
+      if (restored.ok) triggerProfileEngine.refreshProfiles();
+      return restored;
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
   ipcMain.handle('bridge:getTriggerProfileEngineStatus', () => triggerProfileEngine.getStatus());
   ipcMain.handle('bridge:previewTriggerProfileDraft', async (_event, triggers: DraftPreviewTriggers | null) => {
@@ -1225,6 +1315,10 @@ function registerIpc(
     await triggerProfileEngine.suspend();
     return service.testAdaptiveTriggers(value, target);
   });
+  ipcMain.handle('bridge:previewAdaptiveTriggerEffect', async (_event, effect: AdaptiveTriggerPreviewEffect) => {
+    await triggerProfileEngine.suspend();
+    return service.previewAdaptiveTriggerEffect(effect);
+  });
   ipcMain.handle('bridge:resetAdaptiveTriggers', async () => {
     const result = await service.resetAdaptiveTriggers();
     await triggerProfileEngine.resume();
@@ -1285,6 +1379,51 @@ function registerIpc(
   });
 }
 
+if (shouldRunSystemInstall(process.argv)) {
+  const extraArgs = process.argv.slice(process.argv.indexOf('--install-system') + 1);
+  app.exit(runSystemInstall(process.resourcesPath, app.getVersion(), extraArgs));
+}
+
+function resolveInstallerScriptPath(): string {
+  const packaged = resolveInstallerPath(process.resourcesPath);
+  if (fs.existsSync(packaged)) {
+    return packaged;
+  }
+  // dev run from the repo checkout: ds5-bridge/companion/dist/main/main -> repo root
+  return path.join(__dirname, '..', '..', '..', '..', '..', 'installer', 'opends5-install');
+}
+
+function runSetupWizardIfNeeded(settingsStore: SettingsStore): Promise<void> {
+  const needed = process.platform === 'linux' ? isSetupNeeded() : false;
+  if (
+    !shouldShowSetupWizard({
+      platform: process.platform,
+      needed,
+      skipped: settingsStore.get().setupSkipped
+    })
+  ) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const service = new SetupService(resolveInstallerScriptPath(), app.getVersion());
+    openSetupWindow({
+      service,
+      indexPath: path.join(__dirname, '..', '..', 'renderer', 'index.html'),
+      preloadPath: path.join(__dirname, '..', 'preload.js'),
+      icon: createRuntimeIcon(),
+      onSkip: () => {
+        settingsStore.update({ setupSkipped: true });
+        resolve();
+      },
+      onFinish: () => {
+        settingsStore.update({ setupSkipped: false });
+        resolve();
+      },
+      onDismiss: () => resolve()
+    });
+  });
+}
+
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) {
     return;
@@ -1298,6 +1437,9 @@ app.whenReady().then(async () => {
   bridgeService = new BridgeService(settingsStore);
   const triggerProfileStore = new TriggerProfileStore(
     path.join(app.getPath('userData'), 'trigger-profiles')
+  );
+  const profileLibrary = new ProfileLibrary(
+    path.join(app.getPath('userData'), 'profile-library')
   );
   triggerProfileEngine = new TriggerProfileEngine({
     sink: bridgeService,
@@ -1321,7 +1463,12 @@ app.whenReady().then(async () => {
       window.webContents.send('bridge:triggerProfileEngineStatus', status);
     }
   });
-  registerIpc(bridgeService, triggerProfileStore, triggerProfileEngine);
+  registerIpc(bridgeService, triggerProfileStore, triggerProfileEngine, profileLibrary);
+
+  // Linux first launch: run the system setup wizard to completion (or skip)
+  // before the main window exists, so the app never starts against a
+  // half-installed driver stack.
+  await runSetupWizardIfNeeded(settingsStore);
 
   mainWindow = createWindow(settingsStore.get().uiScalePercent);
   mainWindow.on('maximize', sendWindowMaximizedState);

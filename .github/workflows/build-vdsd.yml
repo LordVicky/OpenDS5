@@ -1,0 +1,22 @@
+name: build-vdsd
+on:
+  push:
+    branches: [dev, main]
+    paths: ['vds/**', 'scripts/collect-vds-bin.sh', '.github/workflows/build-vdsd.yml']
+  workflow_dispatch:
+jobs:
+  vdsd:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ pkg-config \
+            libbluetooth-dev libdbus-1-dev libopus-dev libudev-dev
+      - name: build bundle
+        run: bash scripts/collect-vds-bin.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vds-bin
+          path: vds-bin/

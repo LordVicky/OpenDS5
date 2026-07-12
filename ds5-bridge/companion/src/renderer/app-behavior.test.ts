@@ -52,6 +52,29 @@ describe('renderer behavior guards', () => {
     expect(appSource).toContain('paired directly to Windows over Bluetooth may need to be paired again');
   });
 
+  it('provides an in-app profile library browser with cache fallback', () => {
+    expect(appSource).toContain('trigger-profiles-library-button');
+    expect(appSource).toContain('getProfileLibraryCatalog');
+    const installFunction = extractFunction('installTriggerProfileFromLibrary');
+    expect(installFunction).toContain('installLibraryProfile');
+    expect(installFunction).toContain('refreshTriggerProfiles');
+    expect(installFunction).toContain('showTriggerProfileTransferStatus');
+    expect(appSource).toContain("Couldn't refresh — showing cached list from");
+    expect(appSource).toContain('https://github.com/LordVicky/OpenDS5');
+    expect(appSource).toContain('From library');
+    expect(appSource).not.toContain('dangerouslySetInnerHTML');
+    expect(stylesSource).toContain('.trigger-profiles-library');
+
+    const escapeStart = appSource.indexOf('const closeOnEscape =');
+    expect(escapeStart).toBeGreaterThanOrEqual(0);
+    const escapeEnd = appSource.indexOf('};', escapeStart);
+    const escapeHandler = appSource.slice(escapeStart, escapeEnd);
+    expect(escapeHandler).toContain('setTriggerProfileLibraryOpen(false)');
+    expect(appSource).toContain(
+      '}, [showBridgeSettings, showNotificationsMenu, triggerProfileLibraryOpen]);'
+    );
+  });
+
   it('does not block haptic testing just because audio is active', () => {
     const start = appSource.indexOf('const testHapticsUnavailable =');
     expect(start).toBeGreaterThanOrEqual(0);
@@ -550,5 +573,101 @@ describe('triggerStripMaxChips', () => {
     expect(triggerStripMaxChips(390)).toBe(2);
     expect(triggerStripMaxChips(510)).toBe(3);
     expect(triggerStripMaxChips(1110)).toBe(8);
+  });
+});
+
+describe('shared trigger effect editor', () => {
+  const editorPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'TriggerEffectEditor.tsx');
+  const editorSource = readFileSync(editorPath, 'utf8');
+
+  it('exposes all seven effect modes with the agreed labels', () => {
+    for (const label of ['Off', 'Feedback', 'Weapon', 'Vibration', 'Multi Feedback', 'Slope', 'Multi Vibration']) {
+      expect(editorSource).toContain(`'${label}'`);
+    }
+    for (const mode of ['off', 'feedback', 'weapon', 'vibration', 'multi-feedback', 'slope', 'multi-vibration']) {
+      expect(editorSource).toContain(`'${mode}'`);
+    }
+  });
+
+  it('resets to the mode default effect when switching modes', () => {
+    expect(editorSource).toContain('defaultEffectForMode(');
+  });
+
+  it('renders a ten-zone strip and a 1-255 frequency field for the multi modes', () => {
+    expect(editorSource).toContain('trigger-zone-strip');
+    expect(editorSource).toContain('frequencyHz');
+    expect(editorSource).toContain('max={255}');
+    expect(stylesSource).toContain('.trigger-zone-strip');
+    expect(stylesSource).toContain('.trigger-zone-value');
+  });
+
+  it('is used by the profile editor slot cards (base + modifiers) and the Trigger Lab card', () => {
+    const slotStart = appSource.indexOf('trigger-profiles-slot-card');
+    expect(slotStart).toBeGreaterThanOrEqual(0);
+    const slotEnd = appSource.indexOf('Identity &amp; Matching', slotStart);
+    const slotRegion = appSource.slice(slotStart, slotEnd);
+    expect(slotRegion).toContain('<TriggerEffectEditor');
+    const modifiersStart = slotRegion.indexOf('trigger-profiles-modifiers');
+    expect(slotRegion.slice(modifiersStart)).toContain('<TriggerEffectEditor');
+
+    const labStart = appSource.indexOf('feature-card test-card');
+    expect(labStart).toBeGreaterThanOrEqual(0);
+    const labEnd = appSource.indexOf('trigger-action-row', labStart);
+    const labRegion = appSource.slice(labStart, labEnd);
+    expect(labRegion).toContain('<TriggerEffectEditor');
+  });
+
+  it('keeps Trigger Lab test playback on the daemon-supported classic modes', () => {
+    expect(appSource).toContain('previewAdaptiveTriggerEffect');
+    expect(appSource).toContain('TRIGGER_LAB_TESTABLE_MODES');
+  });
+
+  it('pairs Import with Export in the editor header, wired to importTriggerProfiles', () => {
+    const headerStart = appSource.indexOf('trigger-profiles-editor-card');
+    expect(headerStart).toBeGreaterThanOrEqual(0);
+    const headerEnd = appSource.indexOf('trigger-profiles-save-button', headerStart);
+    const headerRegion = appSource.slice(headerStart, headerEnd);
+    expect(headerRegion).toContain('Import');
+    expect(headerRegion).toContain('importTriggerProfilesFromDisk');
+    // Import sits immediately before Export, and both are toolbar-scale, not full-width.
+    expect(headerRegion.indexOf('Import')).toBeLessThan(headerRegion.indexOf('Export'));
+    expect(headerRegion).toContain('trigger-profiles-transfer-button');
+    // Handler is wired to the Task 5 IPC.
+    expect(appSource).toContain('window.bridge.importTriggerProfiles(');
+  });
+
+  it('offers an Export button in the editor header wired to exportTriggerProfile', () => {
+    const headerStart = appSource.indexOf('trigger-profiles-editor-card');
+    expect(headerStart).toBeGreaterThanOrEqual(0);
+    const headerEnd = appSource.indexOf('trigger-profiles-save-button', headerStart);
+    const headerRegion = appSource.slice(headerStart, headerEnd);
+    expect(headerRegion).toContain('Export');
+    expect(headerRegion).toContain('exportTriggerProfileDraft');
+    expect(appSource).toContain('window.bridge.exportTriggerProfile(');
+    // Export is disabled without a draft.
+    const exportStart = headerRegion.indexOf('Export');
+    const exportButton = headerRegion.slice(headerRegion.lastIndexOf('<button', exportStart), exportStart);
+    expect(exportButton).toContain('!triggerProfileDraft');
+  });
+
+  it('surfaces per-file import errors and guards unsaved exports', () => {
+    // Import handler carries per-file failure details (file + error) into the status state.
+    const importFunction = extractFunction('importTriggerProfilesFromDisk');
+    expect(importFunction).toContain('failures');
+    expect(importFunction).toContain('entry.error');
+    // Failures render as visible text in the transfer status area.
+    expect(appSource).toContain('trigger-profiles-transfer-errors');
+    expect(appSource).toContain('triggerProfileTransferStatus.failures');
+    expect(appSource).toContain('{failure.file}');
+    expect(appSource).toContain('{failure.error}');
+    expect(stylesSource).toContain('.trigger-profiles-transfer-errors');
+    // Exporting an unsaved (provisional) draft gives feedback instead of silence.
+    const exportFunction = extractFunction('exportTriggerProfileDraft');
+    expect(exportFunction).toContain('isProvisionalTriggerProfileId');
+    expect(exportFunction).toContain('Save the profile before exporting');
+    // The transfer status timer is cleared on unmount with the other timer refs.
+    const cleanupStart = appSource.indexOf("window.removeEventListener('mouseup', finishWindowDrag)");
+    const cleanupRegion = appSource.slice(cleanupStart - 2000, cleanupStart);
+    expect(cleanupRegion).toContain('triggerProfileTransferStatusTimeout.current');
   });
 });

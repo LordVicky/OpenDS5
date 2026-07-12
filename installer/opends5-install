@@ -1,0 +1,586 @@
+#!/usr/bin/env bash
+# OpenDS5 system installer: prepares the host for the vds_hcd kernel module.
+# Spec: docs/superpowers/specs/2026-07-11-system-installer-design.md
+set -euo pipefail
+
+# --- injectable environment (tests override these) ---
+OS_RELEASE="${OPENDS5_OS_RELEASE:-/etc/os-release}"
+KERNEL_RELEASE="${OPENDS5_UNAME_R:-$(uname -r)}"
+SYSROOT="${OPENDS5_SYSROOT:-}"           # prefix for /sys, /run, /usr probes
+DRY_RUN="${OPENDS5_DRY_RUN:-0}"
+ASSUME_YES=0
+JSON_PROGRESS=0
+
+module_version() { # dkms_conf_path -> version
+  sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' "$1"
+}
+
+user_log_dir() { echo "${OPENDS5_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/opends5}"; }
+root_log_dir() { echo "${OPENDS5_LOG_DIR:-/var/log/opends5}"; }
+log_path() { echo "$(user_log_dir)/install.log"; }
+
+log_header() { # target_file
+  {
+    printf '=== opends5-install run %s ===\n' "$(date -Is)"
+    printf 'version=%s platform=%s kernel=%s flavor=%s sb=%s lockdown=%s\n' \
+      "$MODULE_VER" "$(detect_platform)" "$KERNEL_RELEASE" \
+      "$(detect_kernel_flavor)" "$(detect_secureboot)" "$(detect_lockdown)"
+  } >> "$1"
+}
+
+os_release_val() { # key -> value (unquoted), empty if absent
+  sed -n "s/^$1=//p" "$OS_RELEASE" 2>/dev/null | tr -d '"' | head -n1
+}
+
+detect_platform() {
+  local id like
+  id="$(os_release_val ID)"
+  like="$(os_release_val ID_LIKE)"
+  if [ "$id" = "nixos" ]; then echo nixos; return; fi
+  case " $id $like " in
+    *" fedora "*)
+      if [ -e "${SYSROOT}/run/ostree-booted" ]; then echo fedora-immutable; else echo fedora; fi ;;
+    *" arch "*)   echo arch ;;
+    *" debian "*|*" ubuntu "*) echo debian ;;
+    *" suse "*|*" opensuse "*) echo suse ;;
+    *) echo unsupported ;;
+  esac
+}
+
+detect_kernel_flavor() {
+  case "$KERNEL_RELEASE" in
+    *cachyos*)  echo cachyos ;;
+    *zen*)      echo zen ;;
+    *hardened*) echo hardened ;;
+    *-rt*)      echo rt ;;
+    *lts*)      echo lts ;;
+    *)          echo generic ;;
+  esac
+}
+
+headers_package() { # platform flavor
+  local platform="$1" flavor="$2"
+  case "$platform" in
+    arch)
+      case "$flavor" in
+        generic) echo linux-headers ;;
+        *)       echo "linux-${flavor}-headers" ;;
+      esac ;;
+    fedora|fedora-immutable)
+      case "$flavor" in
+        cachyos) echo kernel-cachyos-devel ;;
+        *)       echo kernel-devel ;;
+      esac ;;
+    debian) echo "linux-headers-${KERNEL_RELEASE}" ;;
+    suse)   echo kernel-default-devel ;;
+    *)      echo "" ;;
+  esac
+}
+
+detect_clang_lto() {
+  local cfg="${SYSROOT}/usr/lib/modules/${KERNEL_RELEASE}/build/.config"
+  if grep -qs '^CONFIG_LTO_CLANG=y' "$cfg"; then echo 1; else echo 0; fi
+}
+
+detect_lockdown() {
+  local f="${SYSROOT}/sys/kernel/security/lockdown"
+  [ -r "$f" ] || { echo none; return; }
+  sed -n 's/.*\[\(.*\)\].*/\1/p' "$f"
+}
+
+detect_secureboot() {
+  if [ -n "${OPENDS5_SB_STATE:-}" ]; then
+    if [ "$OPENDS5_SB_STATE" = "enabled" ]; then echo 1; else echo 0; fi
+    return
+  fi
+  if command -v mokutil >/dev/null 2>&1 && mokutil --sb-state 2>/dev/null | grep -q 'SecureBoot enabled'; then
+    echo 1
+  else
+    echo 0
+  fi
+}
+
+detect_sig_enforced() {
+  # Fedora-lineage kernels enforce module signatures whenever Secure Boot is
+  # on, even with lockdown reporting "none" — treat SB-on as enforced.
+  if [ "$(detect_secureboot)" = "1" ]; then echo 1; return; fi
+  if [ "$(detect_lockdown)" != "none" ]; then echo 1; return; fi
+  local cfg="${SYSROOT}/usr/lib/modules/${KERNEL_RELEASE}/build/.config"
+  if grep -qs '^CONFIG_MODULE_SIG_FORCE=y' "$cfg"; then echo 1; else echo 0; fi
+}
+
+PLAN_DESC=()
+PLAN_CMD=()
+PLAN_FATAL=""
+PLAN_NIXOS=0
+MODULE_SRC=""
+MODULE_VER=""
+
+plan_add() { PLAN_DESC+=("$1"); PLAN_CMD+=("$2"); }
+
+resolve_module_source() {
+  local script_dir cand
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  for cand in "${APPDIR:-/nonexistent}/resources/vds-module" \
+              "$script_dir/../vds-module" \
+              "$script_dir/../vds/module"; do
+    if [ -f "$cand/dkms.conf" ]; then
+      MODULE_SRC="$cand"
+      MODULE_VER="$(module_version "$cand/dkms.conf")"
+      break
+    fi
+  done
+  if [ -z "$MODULE_SRC" ]; then
+    echo "error: vds module source not found (looked in AppImage resources and repo)" >&2
+    exit 1
+  fi
+  # In-tree dkms.conf carries an "unknown" placeholder; resolve the real version
+  # from the caller (AppImage passes the app version), then generate-version.sh.
+  if [ -z "$MODULE_VER" ] || [ "$MODULE_VER" = "unknown" ]; then
+    MODULE_VER="${OPENDS5_MODULE_VERSION:-}"
+  fi
+  if [ -z "$MODULE_VER" ] || [ "$MODULE_VER" = "unknown" ]; then
+    if [ -x "$MODULE_SRC/../generate-version.sh" ]; then
+      MODULE_VER="$("$MODULE_SRC/../generate-version.sh" 2>/dev/null || true)"
+    fi
+  fi
+  [ -n "$MODULE_VER" ] && [ "$MODULE_VER" != "unknown" ] || MODULE_VER="0.0.0"
+}
+
+plan_source_staging() {
+  local dest="/usr/src/vds_hcd-${MODULE_VER}"
+  # Kbuild compiles with -I$(src)/include; the shared headers live in the
+  # sibling vds/include/ in the repo (already inside MODULE_SRC when bundled).
+  local inc=""
+  if [ -d "${MODULE_SRC}/../include/uapi" ]; then
+    inc=" && cp -a '${MODULE_SRC}/../include/.' '${dest}/include/'"
+  fi
+  plan_add "Stage module source to ${dest}" \
+    "rm -rf '${dest}' && mkdir -p '${dest}/include' && cp -a '${MODULE_SRC}/.' '${dest}/'${inc} && \
+     find '${dest}' \\( -name '*.o' -o -name '*.ko*' -o -name '*.mod*' -o -name modules.order -o -name Module.symvers \\) -delete && \
+     sed -i 's/^PACKAGE_VERSION=.*/PACKAGE_VERSION=\"${MODULE_VER}\"/' '${dest}/dkms.conf'"
+}
+
+plan_dkms() {
+  local mk=""
+  [ "$(detect_clang_lto)" = "1" ] && mk=" LLVM=1"
+  # Remove every registered vds_hcd, not just MODULE_VER: an upgrade changes the
+  # version, so removing only the incoming one would strand the old registration
+  # and leave two DKMS entries fighting over the same /extra/vds_hcd.ko.
+  plan_add "Register and build vds_hcd with DKMS" \
+    "dkms status vds_hcd 2>/dev/null | sed -n 's|^vds_hcd[/,] *\\([^,:]*\\).*|\\1|p' | sort -u | while read -r v; do [ -n \"\$v\" ] && dkms remove \"vds_hcd/\$v\" --all >/dev/null 2>&1 || true; done; dkms add vds_hcd/${MODULE_VER} && dkms install vds_hcd/${MODULE_VER}${mk}"
+  plan_add "Enable autoload on boot" \
+    "printf 'vds_hcd\n' > /etc/modules-load.d/vds.conf"
+}
+
+USERSPACE_SRC=""
+
+resolve_userspace_source() {
+  local script_dir cand
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # An explicit override wins outright: if it names a directory without a
+  # bundle, the userspace phase is off (no silent fallback to the repo).
+  if [ -n "${OPENDS5_USERSPACE_DIR:-}" ]; then
+    if [ -f "${OPENDS5_USERSPACE_DIR}/vdsd" ] && [ -f "${OPENDS5_USERSPACE_DIR}/vdsd.service.in" ]; then
+      USERSPACE_SRC="$OPENDS5_USERSPACE_DIR"
+    fi
+    return
+  fi
+  for cand in "${APPDIR:-/nonexistent}/resources/vds-bin" "$script_dir/../vds-bin"; do
+    if [ -f "$cand/vdsd" ] && [ -f "$cand/vdsd.service.in" ]; then
+      USERSPACE_SRC="$cand"; return
+    fi
+  done
+}
+
+STAGE_DIR=""
+ICON_SRC=""
+
+cleanup_stage() { [ -n "$STAGE_DIR" ] && rm -rf "$STAGE_DIR"; }
+
+resolve_icon_source() {
+  local cand
+  for cand in "${APPDIR:-/nonexistent}/resources/assets/controllers/ds5-bridge_app-icon-tile.png" \
+              "${APPDIR:-/nonexistent}/resources/assets/controllers/ds5-bridge_mark.png"; do
+    if [ -f "$cand" ]; then ICON_SRC="$cand"; return; fi
+  done
+}
+
+# AppImage FUSE mounts (/tmp/.mount_*) are readable only by the user that
+# mounted them — the escalated half of the run cannot see inside. Copy the
+# bundled sources out to a root-readable staging dir while still unprivileged.
+needs_root_staging() {
+  case "${MODULE_SRC}:${USERSPACE_SRC}:${ICON_SRC}" in
+    /tmp/.mount_*|*:/tmp/.mount_*) echo 1; return ;;
+  esac
+  if [ -n "${APPDIR:-}" ]; then echo 1; else echo 0; fi
+}
+
+stage_sources_for_root() {
+  [ "$(needs_root_staging)" = "1" ] || return 0
+  STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/opends5-stage.XXXXXX")"
+  chmod 0755 "$STAGE_DIR"
+  trap cleanup_stage EXIT
+  if [ -n "$MODULE_SRC" ]; then
+    cp -a "$MODULE_SRC" "$STAGE_DIR/vds-module"
+    chmod -R a+rX "$STAGE_DIR/vds-module"
+    MODULE_SRC="$STAGE_DIR/vds-module"
+  fi
+  if [ -n "$USERSPACE_SRC" ]; then
+    cp -a "$USERSPACE_SRC" "$STAGE_DIR/vds-bin"
+    chmod -R a+rX "$STAGE_DIR/vds-bin"
+    USERSPACE_SRC="$STAGE_DIR/vds-bin"
+  fi
+  if [ -n "$ICON_SRC" ]; then
+    cp -a "$ICON_SRC" "$STAGE_DIR/opends5-icon.png"
+    chmod 0644 "$STAGE_DIR/opends5-icon.png"
+    ICON_SRC="$STAGE_DIR/opends5-icon.png"
+  fi
+}
+
+detect_kernel_satisfied() {
+  if [ -d "${SYSROOT}/sys/module/vds_hcd" ]; then echo 1; else echo 0; fi
+}
+
+plan_userspace() {
+  [ -n "$USERSPACE_SRC" ] || return 0
+  local user home
+  user="$(id -un)"
+  home="$HOME"
+  plan_add "Install vdsd and vdsctl to /usr/local/bin" \
+    "install -m 0755 '${USERSPACE_SRC}/vdsd' '${USERSPACE_SRC}/vdsctl' /usr/local/bin/"
+  plan_add "Install systemd unit and udev rules" \
+    "sed 's|@VDS_SYSTEMD_VDSD@|/usr/local/bin/vdsd|' '${USERSPACE_SRC}/vdsd.service.in' > /etc/systemd/system/vdsd.service && \
+     install -m 0644 '${USERSPACE_SRC}/99-vds-dualsense-udev.rules' /etc/udev/rules.d/ && \
+     udevadm control --reload-rules && { udevadm trigger --subsystem-match=input || true; }"
+  plan_add "Create vds group and add ${user}" \
+    "groupadd -f vds && usermod -aG vds '${user}'"
+  plan_add "Install wireplumber config for ${user}" \
+    "mkdir -p '${home}/.config/wireplumber/wireplumber.conf.d' && \
+     install -m 0644 '${USERSPACE_SRC}/99-vds-dualsense-wireplumber.conf' '${home}/.config/wireplumber/wireplumber.conf.d/' && \
+     chown -R '${user}:' '${home}/.config/wireplumber'"
+  plan_add "Reload systemd" "systemctl daemon-reload"
+}
+
+# When run from an AppImage, install it to ~/Applications and give the user a
+# real launcher, so they never have to place the file or write a .desktop by hand.
+plan_desktop_entry() {
+  local src="${APPIMAGE:-}"
+  [ -n "$src" ] && [ -f "$src" ] || return 0
+  local user home apps dest desktop icon_dir icon_src icon_dest
+  user="$(id -un)"
+  home="$HOME"
+  apps="$home/Applications"
+  dest="$apps/OpenDS5.AppImage"
+  desktop="$home/.local/share/applications/opends5.desktop"
+  icon_dir="$home/.local/share/icons/hicolor/256x256/apps"
+  icon_dest="$icon_dir/opends5.png"
+  # Staged out of the AppImage mount already (root cannot read inside it).
+  icon_src="$ICON_SRC"
+
+  plan_add "Install OpenDS5 to ${apps} and add it to your applications menu" \
+    "mkdir -p '${apps}' '${icon_dir}' '$(dirname "$desktop")' && \
+     if [ '${src}' != '${dest}' ]; then install -m 0755 '${src}' '${dest}'; fi && \
+     ${icon_src:+install -m 0644 '${icon_src}' '${icon_dest}' && } \
+     printf '%s\n' \
+       '[Desktop Entry]' \
+       'Type=Application' \
+       'Name=OpenDS5' \
+       'GenericName=DualSense Bridge' \
+       'Comment=DualSense haptics, triggers and remapping over Bluetooth' \
+       'Exec=${dest}' \
+       'Icon=${icon_src:+${icon_dest}}' \
+       'Terminal=false' \
+       'Categories=Game;' \
+       'StartupWMClass=OpenDS5' \
+       > '${desktop}' && \
+     chmod 0644 '${desktop}' && \
+     chown '${user}:' '${dest}' '${desktop}' ${icon_src:+'${icon_dest}'} && \
+     { update-desktop-database '$(dirname "$desktop")' >/dev/null 2>&1 || true; }"
+}
+
+plan_kernel_and_userspace() { # [pkg_install_desc pkg_install_cmd]
+  if [ "$(detect_kernel_satisfied)" = "1" ] && [ -n "$USERSPACE_SRC" ]; then
+    plan_add "Kernel module already loaded; skipping module build" "true"
+  else
+    [ -n "${1:-}" ] && plan_add "$1" "$2"
+    plan_secureboot; plan_source_staging; plan_dkms
+  fi
+  plan_userspace
+  plan_desktop_entry
+}
+
+build_plan() {
+  local platform flavor hdrs
+  platform="$(detect_platform)"
+  flavor="$(detect_kernel_flavor)"
+  hdrs="$(headers_package "$platform" "$flavor")"
+  if [ "${OPENDS5_TEST_ONLY_INJECTED:-0}" = "1" ]; then
+    plan_add "test-injected failure" "${OPENDS5_TEST_INJECT_FAIL:-true}"
+    return
+  fi
+  case "$platform" in
+    fedora)
+      plan_kernel_and_userspace "Install DKMS and kernel headers (dnf)" "dnf install -y dkms ${hdrs}" ;;
+    fedora-immutable)
+      plan_add "Layer dkms + headers (rpm-ostree; REBOOT REQUIRED before module build)" \
+        "rpm-ostree install --idempotent dkms ${hdrs}"
+      plan_add "After reboot, re-run this installer to build the module" \
+        "echo 'reboot, then run: opends5-install'"
+      plan_kernel_and_userspace ;;
+    arch)
+      plan_kernel_and_userspace "Install DKMS and kernel headers (pacman)" "pacman -S --needed --noconfirm dkms ${hdrs}" ;;
+    debian)
+      plan_kernel_and_userspace "Install DKMS and kernel headers (apt)" "apt-get install -y dkms ${hdrs}" ;;
+    suse)
+      plan_kernel_and_userspace "Install DKMS and kernel headers (zypper)" "zypper --non-interactive install dkms ${hdrs}" ;;
+    nixos)
+      PLAN_NIXOS=1
+      plan_add "Generate NixOS module snippet ./opends5-vds.nix (no system changes)" "generate_nixos_snippet" ;;
+    *)
+      PLAN_FATAL="This distribution is unsupported by the automatic installer.
+See docs/PORTING.md for manual installation instructions." ;;
+  esac
+  if [ -n "${OPENDS5_TEST_INJECT_FAIL:-}" ]; then
+    plan_add "test-injected failure" "$OPENDS5_TEST_INJECT_FAIL"
+  fi
+}
+
+plan_secureboot() {
+  [ "$(detect_secureboot)" = "1" ] || return 0
+  # DKMS signs with its own default key (/var/lib/dkms/mok.key), which on many
+  # systems is already enrolled in MOK. Use it instead of a custom key, and
+  # remove the signing override an earlier OpenDS5 installer version wrote.
+  local key=/var/lib/dkms/mok.key cert=/var/lib/dkms/mok.pub
+  plan_add "Ensure DKMS signing key exists and is enrolled in MOK (Secure Boot)" \
+    "rm -f /etc/dkms/framework.conf.d/opends5.conf; \
+     if [ ! -f '${key}' ]; then \
+       openssl req -new -x509 -newkey rsa:2048 -nodes -days 36500 \
+         -subj '/CN=DKMS module signing key/' \
+         -keyout '${key}' -outform DER -out '${cert}'; \
+       chmod 0600 '${key}'; \
+     fi; \
+     if mokutil --test-key '${cert}' 2>/dev/null | grep -qi 'already enrolled'; then \
+       echo 'DKMS signing key already enrolled in MOK'; \
+     else \
+       echo 'Enrolling DKMS signing key: choose a one-time password now;'; \
+       echo 'on next reboot pick Enroll MOK in the blue MOK Manager screen.'; \
+       mokutil --import '${cert}'; \
+     fi"
+}
+
+as_root() {
+  if [ -n "${OPENDS5_ROOT_CMD:-}" ]; then "$OPENDS5_ROOT_CMD" "$@"; return; fi
+  if [ "$(id -u)" -eq 0 ]; then "$@"; return; fi
+  if command -v pkexec >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    pkexec "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+# Emit one root-executed runner script for the whole plan, so the user
+# authenticates exactly once. Fail-closed: the first failing step rolls back
+# the DKMS registration inside the same script and exits 4.
+build_runner() { # path
+  {
+    printf '#!/usr/bin/env bash\nset -u\n'
+    printf 'mkdir -p %q\n' "$(root_log_dir)"
+    printf 'RLOG=%q\n' "$(root_log_dir)/install.log"
+    printf 'log() { printf "%%s\\n" "$*" >> "$RLOG"; }\n'
+    printf 'fail() {\n'
+    printf '  echo "FAILED: $1" >&2\n'
+    printf '  echo "  Retry manually with: sudo bash -c \\"$2\\"" >&2\n'
+    printf '  echo "  Full log: $RLOG" >&2\n'
+    printf '  echo "  Troubleshooting: https://github.com/LordVicky/OpenDS5/blob/main/docs/INSTALLER.md" >&2\n'
+    printf '  log "FAILED: $1"\n'
+    printf '  echo "Rolling back partial DKMS registration..." >&2\n'
+    printf '  dkms remove vds_hcd/%s --all >/dev/null 2>&1 || true\n' "$MODULE_VER"
+    printf '  exit 4\n}\n'
+    printf 'fail_quiet() { log "FAILED: $1"; dkms remove vds_hcd/%s --all >/dev/null 2>&1 || true; exit 4; }\n' "$MODULE_VER"
+    printf 'log "=== opends5-install run $(date -Is) ==="\n'
+    printf 'log %q\n' "version=$MODULE_VER platform=$(detect_platform) kernel=$KERNEL_RELEASE flavor=$(detect_kernel_flavor) sb=$(detect_secureboot) lockdown=$(detect_lockdown)"
+    local i
+    for i in "${!PLAN_CMD[@]}"; do
+      if [ "$JSON_PROGRESS" = "1" ]; then
+        printf 'echo %q\n' "{\"event\":\"step\",\"index\":$i,\"status\":\"start\"}"
+      else
+        printf 'echo %q\n' "==> ${PLAN_DESC[$i]}"
+      fi
+      printf 'log %q\n' "STEP $((i + 1)): ${PLAN_DESC[$i]}"
+      printf 'log %q\n' "CMD: ${PLAN_CMD[$i]}"
+      printf '( %s ) >>"$RLOG" 2>&1; rc=$?\n' "${PLAN_CMD[$i]}"
+      printf 'log "exit=$rc"\n'
+      if [ "$JSON_PROGRESS" = "1" ]; then
+        printf 'if [ "$rc" -eq 0 ]; then echo %q; else echo %q; fail_quiet %q; fi\n' \
+          "{\"event\":\"step\",\"index\":$i,\"status\":\"ok\"}" \
+          "{\"event\":\"step\",\"index\":$i,\"status\":\"fail\",\"exit\":4}" \
+          "${PLAN_DESC[$i]}"
+      else
+        printf '[ "$rc" -eq 0 ] || fail %q %q\n' "${PLAN_DESC[$i]}" "${PLAN_CMD[$i]}"
+      fi
+    done
+    if [ "${OPENDS5_SKIP_VERIFY:-0}" != "1" ]; then
+      local say=""
+      [ "$JSON_PROGRESS" = "1" ] && say=": " # suppress human chatter in JSON mode
+      printf '%secho "==> Loading module"\nlog "STEP: modprobe vds_hcd"\n' "$say"
+      if [ "$(detect_secureboot)" = "1" ]; then
+        # A freshly imported MOK key only becomes trusted after the reboot
+        # enrollment; a signature rejection here is expected in that case.
+        printf 'modprobe vds_hcd >>"$RLOG" 2>&1 || { %secho "Module built and signed, but the kernel rejected the key. If you just enrolled the MOK key: reboot, complete Enroll MOK, and the module will load automatically."; log "modprobe rejected (MOK pending)"; exit 6; }\n' "$say"
+      else
+        printf 'modprobe vds_hcd >>"$RLOG" 2>&1 || fail "Load vds_hcd" "modprobe vds_hcd"\n'
+      fi
+      # Start the daemon when it is already installed (daemon install itself
+      # is out of scope for this installer until the userspace phase lands).
+      printf 'if systemctl list-unit-files vdsd.service >/dev/null 2>&1 && systemctl cat vdsd.service >/dev/null 2>&1; then\n'
+      printf '  %secho "==> Starting vdsd.service"\n  log "STEP: enable vdsd.service"\n' "$say"
+      printf '  systemctl enable --now vdsd.service >>"$RLOG" 2>&1 || fail "Start vdsd.service" "systemctl enable --now vdsd.service"\n'
+      printf 'else\n'
+      printf '  %secho "vdsd.service not installed yet; skipping daemon start"\n' "$say"
+      printf 'fi\n'
+    fi
+  } > "$1"
+}
+
+confirm_and_execute() {
+  if [ "$ASSUME_YES" != "1" ]; then
+    printf 'Proceed? [Y/n] '
+    read -r reply
+    case "$reply" in n|N|no|NO) echo "Aborted."; exit 0 ;; esac
+  fi
+  if [ "$PLAN_NIXOS" = "1" ]; then
+    # NixOS flow is entirely unprivileged.
+    echo "==> ${PLAN_DESC[0]}"
+    generate_nixos_snippet
+    return 0
+  fi
+  mkdir -p "$(user_log_dir)"
+  log_header "$(log_path)"
+  print_plan >> "$(log_path)" 2>/dev/null || true
+  local runner rc=0
+  runner="$(mktemp)"
+  build_runner "$runner"
+  as_root bash "$runner" || rc=$?
+  rm -f "$runner"
+  if [ "$rc" -ne 0 ]; then
+    [ "$JSON_PROGRESS" = "1" ] && printf '{"event":"done","exit":%d}\n' "$rc"
+    exit "$rc"
+  fi
+  if [ "${OPENDS5_SKIP_VERIFY:-0}" != "1" ]; then verify_install; fi
+  if [ "$JSON_PROGRESS" = "1" ]; then
+    printf '{"event":"done","exit":0}\n'
+  elif [ "${OPENDS5_SKIP_VERIFY:-0}" = "1" ]; then
+    echo "Done (verify skipped)."
+  fi
+}
+
+verify_install() {
+  [ "$JSON_PROGRESS" = "1" ] || echo "==> Verifying"
+  if ls /dev/vds* >/dev/null 2>&1; then
+    [ "$JSON_PROGRESS" = "1" ] || echo "Success: vds_hcd loaded, /dev/vds* present."
+  else
+    echo "Module loaded but /dev/vds* not found; check 'dmesg | grep vds_hcd'." >&2
+    [ "$JSON_PROGRESS" = "1" ] && printf '{"event":"done","exit":5}\n'
+    exit 5
+  fi
+}
+generate_nixos_snippet() {
+  rm -rf ./opends5-vds-src
+  cp -a "$MODULE_SRC" ./opends5-vds-src
+  if [ -d "$MODULE_SRC/../include/uapi" ]; then
+    mkdir -p ./opends5-vds-src/include
+    cp -a "$MODULE_SRC/../include/." ./opends5-vds-src/include/
+  fi
+  find ./opends5-vds-src \( -name '*.o' -o -name '*.ko*' -o -name '*.mod*' \) -delete
+  cat > ./opends5-vds.nix <<EOF
+# OpenDS5 vds_hcd kernel module for NixOS.
+# Import from configuration.nix:  imports = [ ./opends5-vds.nix ];
+{ config, pkgs, ... }:
+let
+  kernel = config.boot.kernelPackages.kernel;
+  vds_hcd = pkgs.stdenv.mkDerivation {
+    pname = "vds_hcd";
+    version = "${MODULE_VER}";
+    src = ./opends5-vds-src;
+    hardeningDisable = [ "pic" ];
+    nativeBuildInputs = kernel.moduleBuildDependencies;
+    makeFlags = [
+      "KERNELRELEASE=\${kernel.modDirVersion}"
+      "KDIR=\${kernel.dev}/lib/modules/\${kernel.modDirVersion}/build"
+      "INSTALL_MOD_PATH=\$(out)"
+    ];
+    installPhase = ''
+      install -D vds_hcd.ko \$out/lib/modules/\${kernel.modDirVersion}/extra/vds_hcd.ko
+    '';
+  };
+in
+{
+  boot.extraModulePackages = [ vds_hcd ];
+  boot.kernelModules = [ "vds_hcd" ];
+}
+EOF
+  cat <<'EOF'
+Wrote ./opends5-vds.nix and ./opends5-vds-src/.
+NixOS cannot be modified imperatively; to install:
+  1. Move both into your configuration directory.
+  2. Add  imports = [ ./opends5-vds.nix ];  to configuration.nix.
+  3. Run: sudo nixos-rebuild switch
+EOF
+}
+
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+emit_plan_json() {
+  local steps="" i
+  for i in "${!PLAN_DESC[@]}"; do
+    steps="${steps}${steps:+,}\"$(json_escape "${PLAN_DESC[$i]}")\""
+  done
+  printf '{"event":"plan","total":%d,"steps":[%s],"log":"%s"}\n' \
+    "${#PLAN_DESC[@]}" "$steps" "$(json_escape "$(root_log_dir)/install.log")"
+}
+
+print_plan() {
+  local i
+  echo "The following steps will be performed:"
+  for i in "${!PLAN_DESC[@]}"; do
+    printf '  %d. %s\n' "$((i + 1))" "${PLAN_DESC[$i]}"
+  done
+}
+
+main() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --yes) ASSUME_YES=1 ;;
+      --dry-run) DRY_RUN=1 ;;
+      --json-progress) JSON_PROGRESS=1 ;;
+      -h|--help) usage; exit 0 ;;
+      *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+  done
+  resolve_module_source
+  resolve_userspace_source
+  resolve_icon_source
+  # Dry runs change nothing, so they report the real bundle paths.
+  [ "$DRY_RUN" = "1" ] || stage_sources_for_root
+  build_plan
+  if [ -n "$PLAN_FATAL" ]; then echo "unsupported: $PLAN_FATAL" >&2; exit 3; fi
+  if [ "$JSON_PROGRESS" = "1" ]; then emit_plan_json; else print_plan; fi
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '%s\n' "${PLAN_CMD[@]}"
+    exit 0
+  fi
+  confirm_and_execute
+}
+
+usage() {
+  cat <<'EOF'
+Usage: opends5-install [--yes] [--dry-run]
+Prepares this system for the vds_hcd kernel module.
+EOF
+}
+
+if [ "${OPENDS5_INSTALL_SOURCED:-0}" != "1" ]; then
+  main "$@"
+fi

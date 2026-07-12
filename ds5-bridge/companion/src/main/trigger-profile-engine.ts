@@ -1,12 +1,14 @@
 import { EventEmitter } from 'node:events';
-import type { AdaptiveTriggerPreviewEffect } from '../shared/protocol';
+import type { AdaptiveTriggerEffectV2Targeted, AdaptiveTriggerPreviewEffect } from '../shared/protocol';
 import { ModifierEvaluator, type ControllerInputState } from '../shared/trigger-modifier-eval';
 import {
+  effectSpecEquals,
   type EngineStatus,
   type TriggerEffectSpec,
   type TriggerProfile,
   type TriggerSlotConfig
 } from '../shared/trigger-profiles';
+import type { TriggerTestTarget } from '../shared/protocol';
 import type { ActiveProfileChange, GameWatcher } from './game-watcher';
 import type { EvdevInputReader } from './evdev-input-reader';
 import type { TriggerProfileStore } from './trigger-profile-store';
@@ -20,6 +22,7 @@ export interface DraftPreviewTriggers {
 
 export interface TriggerEffectSink {
   applyAdaptiveTriggerEffect(effect: AdaptiveTriggerPreviewEffect): Promise<unknown>;
+  applyAdaptiveTriggerEffectV2(effect: AdaptiveTriggerEffectV2Targeted): Promise<unknown>;
   resetAdaptiveTriggers(): Promise<unknown>;
 }
 
@@ -32,14 +35,42 @@ type EngineOptions = {
 
 type TriggerName = 'l2' | 'r2';
 
-function effectEquals(a: TriggerEffectSpec | null, b: TriggerEffectSpec | null): boolean {
-  if (a === null || b === null) return a === b;
-  return (
-    a.mode === b.mode &&
-    a.startPercent === b.startPercent &&
-    a.wallPercent === b.wallPercent &&
-    a.forcePercent === b.forcePercent
-  );
+type ClassicV1Effect = Extract<TriggerEffectSpec, { mode: 'feedback' | 'weapon' | 'vibration' }>;
+
+/**
+ * Adapts a classic V1-compatible effect to the V1 sink payload. Only the three
+ * classic arms are handled — feedback/vibration have no wall, so it is zeroed.
+ * A vibration carrying a frequencyHz and every new M2 arm (off, multi-feedback,
+ * slope, multi-vibration) is routed through the V2 sink call instead (see
+ * writeDesired), because the V1 command cannot encode them.
+ */
+function toPreviewEffect(effect: ClassicV1Effect, target: TriggerTestTarget): AdaptiveTriggerPreviewEffect {
+  switch (effect.mode) {
+    case 'feedback':
+      return { mode: 'feedback', target, startPercent: effect.startPercent, wallPercent: 0, forcePercent: effect.forcePercent };
+    case 'weapon':
+      return { mode: 'weapon', target, startPercent: effect.startPercent, wallPercent: effect.wallPercent, forcePercent: effect.forcePercent };
+    case 'vibration':
+      return { mode: 'vibration', target, startPercent: effect.startPercent, wallPercent: 0, forcePercent: effect.forcePercent };
+  }
+}
+
+/**
+ * Effects the V1 command can encode faithfully keep using it so old daemons keep
+ * working: feedback, weapon, and vibration WITHOUT a frequencyHz. Everything else
+ * (off, multi-feedback, slope, multi-vibration, and vibration WITH frequencyHz)
+ * must go through the V2 command.
+ */
+function needsV2(effect: TriggerEffectSpec): boolean {
+  switch (effect.mode) {
+    case 'feedback':
+    case 'weapon':
+      return false;
+    case 'vibration':
+      return effect.frequencyHz !== undefined;
+    default:
+      return true;
+  }
 }
 
 export class TriggerProfileEngine extends EventEmitter {
@@ -249,7 +280,7 @@ export class TriggerProfileEngine extends EventEmitter {
     }
     for (const trigger of ['l2', 'r2'] as const) {
       const effect = desired[trigger];
-      if (effectEquals(effect, this.lastApplied[trigger])) continue;
+      if (effectSpecEquals(effect, this.lastApplied[trigger])) continue;
       if (effect === null) {
         // One trigger dropped to no-effect while the other still has one:
         // re-send a zero-force feedback effect to relax it.
@@ -260,8 +291,10 @@ export class TriggerProfileEngine extends EventEmitter {
           wallPercent: 0,
           forcePercent: 0
         });
+      } else if (needsV2(effect)) {
+        await this.sink.applyAdaptiveTriggerEffectV2({ ...effect, target: trigger });
       } else {
-        await this.sink.applyAdaptiveTriggerEffect({ ...effect, target: trigger });
+        await this.sink.applyAdaptiveTriggerEffect(toPreviewEffect(effect as ClassicV1Effect, trigger));
       }
       this.lastApplied[trigger] = effect;
     }

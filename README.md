@@ -1,6 +1,6 @@
-# Virtual DS5 Bridge
+# OpenDS5
 
-Bring the **DS5 Bridge** feature set (audio, haptics, Trigger Lab, lighting,
+Bring the **OpenDS5** feature set (audio, haptics, Trigger Lab, lighting,
 button remapping, personas, chords) to **Linux** — with no Pico 2 W hardware —
 by using **vds** (virtual DualSense) as the transport layer instead of the
 Pico dongle.
@@ -31,6 +31,19 @@ The Pico 2 W firmware, board files, and Windows installer tooling from
 DS5_Bridge were intentionally **not** imported — the vds transport replaces
 that hardware path.
 
+## System setup
+
+Just run the AppImage. On first launch a **setup wizard** detects your distro,
+shows exactly what it will install, and — after a single password prompt —
+installs the `vds_hcd` kernel module (DKMS, headers, Secure Boot signing) and
+the `vdsd` userspace stack (daemon, systemd service, udev rules). Supported:
+Fedora, Arch/CachyOS, Debian/Ubuntu, openSUSE, Bazzite/Silverblue, and NixOS
+(declarative snippet).
+
+Prefer the terminal? `./OpenDS5.AppImage --install-system` does the same thing.
+See [docs/INSTALLER.md](docs/INSTALLER.md) for the per-platform details, exit
+codes, and log locations.
+
 ## Trigger Profiles
 
 Adaptive trigger profiles let the companion app automatically apply
@@ -38,7 +51,7 @@ per-game DualSense trigger effects (weapon/vibration modes, start/wall/force
 percentages) for games that have no native DualSense support — the app
 detects the running process, matches it to a saved profile, and pushes the
 effect to the controller through the same bridge transport used for the rest
-of DS5 Bridge's features.
+of OpenDS5's features.
 
 - **Where profiles live:** `<userData>/trigger-profiles/*.json` (one file
   per profile; see `TriggerProfileStore` in
@@ -48,8 +61,48 @@ of DS5 Bridge's features.
   node, which requires read access to that device — typically membership in
   the `input` group. Without that access, static base effects (the profile's
   default weapon/vibration curve) still apply; reactive modifiers do not.
-- **Planned:** audio-reactive trigger modifiers are a planned M2 addition —
-  not implemented yet.
+### Effect modes (M2)
+
+The effect editor exposes the full DualSense adaptive-trigger surface. A base
+effect and each reactive modifier can use any of these modes:
+
+| Mode | Fields | Feel |
+| --- | --- | --- |
+| `off` | — | Trigger goes fully limp; no resistance. |
+| `feedback` | `startPercent`, `forcePercent` | Constant wall of resistance from the start point onward. |
+| `weapon` | `startPercent`, `wallPercent`, `forcePercent` | Resistance that builds to a hard wall, then releases past it — like a gun trigger's break. |
+| `vibration` | `startPercent`, `forcePercent`, `frequencyHz` (optional) | Buzzing/rumbling resistance past the start point. |
+| `multi-feedback` | `zones` (10 values, 0–100) | Independent resistance strength across 10 positions along the pull — a custom resistance curve. |
+| `slope` | `startPercent`, `endPercent`, `startForcePercent`, `endForcePercent` | A resistance ramp that rises (or falls) linearly between two points. |
+| `multi-vibration` | `frequencyHz`, `zones` (10 values, 0–100) | Per-zone vibration amplitude across the pull at a shared frequency. |
+
+`off`, `multi-feedback`, `slope`, `multi-vibration`, and `vibration` with an
+explicit `frequencyHz` use the V2 trigger command; the other modes use the
+classic V1 command.
+
+### Import / export & the profile library
+
+- **Import / Export buttons** in the Trigger Profiles UI read and write profile
+  JSON files. Import always creates a *fresh copy*: the profile is re-validated,
+  given a new id and a collision-free display name, and stamped with
+  `meta.source` recording where it came from (`import` or `library`).
+- **Profile library:** curated per-game profiles live on the dedicated
+  [`Profiles-Library` branch](https://github.com/LordVicky/OpenDS5/tree/Profiles-Library)
+  under `profiles/library/`, so new game support ships without an app release.
+  To add a game, open a PR **against the `Profiles-Library` branch** that adds
+  your profile JSON to `profiles/library/` and run `node scripts/build-index.mjs`
+  to regenerate the library index (CI verifies the index is in sync). The in-app
+  library browser fetches that branch's index and installs profiles as fresh
+  copies. Maintainer note: update the library branch via PRs or cherry-picks —
+  don't merge `dev` into it wholesale (the code branches no longer carry
+  `profiles/library/`, so a merge would delete the library).
+
+### Full-surface modes need a current vdsd
+
+The full-surface modes (`multi-feedback`, `slope`, `multi-vibration`, and V2
+`vibration` with a frequency) depend on the V2 trigger command in the virtual
+DualSense daemon. If those effects do nothing on your controller, your `vdsd`
+is likely stale — update it with `./update-vdsd.sh` and retry.
 
 ## License
 

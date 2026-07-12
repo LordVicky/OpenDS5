@@ -1,10 +1,10 @@
 {
   "name": "ds5-bridge-companion",
-  "version": "1.6.3",
+  "version": "1.7.0",
   "private": true,
   "description": "Windows companion app for the Pico DS5 Bridge companion firmware.",
   "author": "SundayMoments",
-  "productName": "DS5 Bridge",
+  "productName": "OpenDS5",
   "license": "AGPL-3.0-only",
   "main": "dist/main/main/main.js",
   "scripts": {
@@ -27,7 +27,10 @@
   },
   "build": {
     "appId": "io.github.sundaymoments.ds5bridge",
-    "artifactName": "DS5-Bridge-Companion-Setup-${version}.${ext}",
+    "artifactName": "OpenDS5-Companion-Setup-${version}.${ext}",
+    "toolsets": {
+      "appimage": "1.0.2"
+    },
     "directories": {
       "output": "artifacts/installer"
     },
@@ -44,6 +47,33 @@
       "node_modules/pkg-prebuilds/package.json"
     ],
     "extraResources": [
+      {
+        "from": "../../installer",
+        "to": "installer",
+        "filter": [
+          "opends5-install"
+        ]
+      },
+      {
+        "from": "../../vds/module",
+        "to": "vds-module",
+        "filter": [
+          "**/*",
+          "!*.o",
+          "!*.ko*",
+          "!*.mod*",
+          "!modules.order",
+          "!Module.symvers"
+        ]
+      },
+      {
+        "from": "../../vds/include",
+        "to": "vds-module/include"
+      },
+      {
+        "from": "../../vds-bin",
+        "to": "vds-bin"
+      },
       {
         "from": "../assets/controllers",
         "to": "assets/controllers",
@@ -104,8 +134,8 @@
       "deleteAppDataOnUninstall": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "DS5 Bridge",
-      "uninstallDisplayName": "DS5 Bridge"
+      "shortcutName": "OpenDS5",
+      "uninstallDisplayName": "OpenDS5"
     },
     "linux": {
       "target": [

@@ -17,6 +17,7 @@ import { TriggerProfileEngine } from './trigger-profile-engine';
 import { TriggerProfileStore } from './trigger-profile-store';
 import { GameWatcher } from './game-watcher';
 import { COMMAND_ID, REPORT_ID } from '../shared/protocol';
+import type { AdaptiveTriggerEffectV2Targeted, AdaptiveTriggerPreviewEffect } from '../shared/protocol';
 import type { ControllerInputState } from '../shared/trigger-modifier-eval';
 import type { TriggerProfile } from '../shared/trigger-profiles';
 
@@ -194,5 +195,143 @@ describe('trigger profiles end-to-end', () => {
       .map(decodeCommandReport)
       .filter((command) => command.commandId === COMMAND_ID.RESET_ADAPTIVE_TRIGGERS);
     expect(resetCommands.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// Full-surface (V2) flow. The classic tests above decode raw command bytes off
+// the mock transport; that decode collapses the payload to three bytes and
+// cannot represent a 10-zone array. So here we capture the union objects the
+// engine hands the sink directly. Byte-level V2 encoding is already covered in
+// bridge-service.test.ts -- we assert the AdaptiveTriggerEffectV2Targeted
+// objects (exact zones array + target per trigger) at the sink boundary.
+class MockV2Sink {
+  applied: AdaptiveTriggerPreviewEffect[] = [];
+  appliedV2: AdaptiveTriggerEffectV2Targeted[] = [];
+  resets = 0;
+  async applyAdaptiveTriggerEffect(effect: AdaptiveTriggerPreviewEffect): Promise<void> {
+    this.applied.push(effect);
+  }
+  async applyAdaptiveTriggerEffectV2(effect: AdaptiveTriggerEffectV2Targeted): Promise<void> {
+    this.appliedV2.push(effect);
+  }
+  async resetAdaptiveTriggers(): Promise<void> {
+    this.resets += 1;
+  }
+}
+
+// L2 base is multi-feedback (10 zones, full-surface -> V2 only); R2 base is
+// slope (four-field ramp -> V2 only). Both fail the V1 encoding, so each must
+// arrive as exactly one applyAdaptiveTriggerEffectV2 call with its target.
+const fullSurfaceProfile: TriggerProfile = {
+  version: 1,
+  id: 'full-surface',
+  name: 'Full Surface',
+  match: { processNames: ['fullgame.exe'], windowTitles: [] },
+  triggers: {
+    l2: {
+      base: { mode: 'multi-feedback', zones: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90] },
+      modifiers: []
+    },
+    r2: {
+      base: { mode: 'slope', startPercent: 20, endPercent: 80, startForcePercent: 30, endForcePercent: 90 },
+      modifiers: []
+    }
+  },
+  meta: { source: 'library' },
+  updatedAtMs: 0
+};
+
+const expectedL2V2: AdaptiveTriggerEffectV2Targeted = {
+  mode: 'multi-feedback',
+  zones: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90],
+  target: 'l2'
+};
+const expectedR2V2: AdaptiveTriggerEffectV2Targeted = {
+  mode: 'slope',
+  startPercent: 20,
+  endPercent: 80,
+  startForcePercent: 30,
+  endForcePercent: 90,
+  target: 'r2'
+};
+
+describe('trigger profiles full-surface (V2) end-to-end', () => {
+  let dir: string;
+  let sink: MockV2Sink;
+  let reader: FakeReader;
+  let watcher: GameWatcher;
+  let engine: TriggerProfileEngine;
+  let processes: string[];
+
+  function buildEngine(store: TriggerProfileStore): void {
+    sink = new MockV2Sink();
+    processes = [];
+    reader = new FakeReader();
+    watcher = new GameWatcher({ listProcesses: () => processes, pollIntervalMs: 5, debounceMs: 0 });
+    engine = new TriggerProfileEngine({
+      sink: sink as never,
+      store,
+      watcher,
+      reader: reader as never
+    });
+    engine.refreshProfiles();
+  }
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), 'trigger-profiles-v2-e2e-'));
+  });
+
+  afterEach(async () => {
+    await engine.setEnabled(false);
+    watcher.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('threads multi-feedback + slope bases to one V2 union call per trigger', async () => {
+    const store = new TriggerProfileStore(dir);
+    store.save(fullSurfaceProfile);
+    buildEngine(store);
+
+    await engine.setEnabled(true);
+    processes = ['fullgame.exe'];
+    await flush();
+
+    expect(engine.getStatus().activeProfileId).toBe('full-surface');
+    expect(sink.appliedV2).toHaveLength(2);
+    expect(sink.appliedV2).toContainEqual(expectedL2V2);
+    expect(sink.appliedV2).toContainEqual(expectedR2V2);
+    // Full-surface modes never fall through to the V1 command.
+    expect(sink.applied).toHaveLength(0);
+  });
+
+  it('imports the same profile as a fresh copy and drives the identical V2 flow', async () => {
+    // Fresh empty store so exactly one profile matches -- activation is
+    // unambiguous and ties copy-semantics to observed behavior.
+    const store = new TriggerProfileStore(dir);
+    // Source id deliberately differs from the name slug so the regenerated id
+    // is observably a fresh derivation, not a copy of the incoming id.
+    const source: TriggerProfile = { ...fullSurfaceProfile, id: 'incoming-raw-id' };
+    const imported = store.importProfile(source, 'import');
+    expect(imported.ok).toBe(true);
+    if (!imported.ok) return;
+
+    // Copy semantics: fresh id derived from the name (not the incoming id),
+    // name preserved (no collision in an empty store), and meta.source
+    // re-stamped to the import origin.
+    expect(imported.profile.id).not.toBe('incoming-raw-id');
+    expect(imported.profile.id).toBe('full-surface');
+    expect(imported.profile.name).toBe('Full Surface');
+    expect(imported.profile.meta?.source).toBe('import');
+    expect(imported.profile.triggers).toEqual(fullSurfaceProfile.triggers);
+
+    buildEngine(store);
+    await engine.setEnabled(true);
+    processes = ['fullgame.exe'];
+    await flush();
+
+    expect(engine.getStatus().activeProfileId).toBe(imported.profile.id);
+    expect(sink.appliedV2).toHaveLength(2);
+    expect(sink.appliedV2).toContainEqual(expectedL2V2);
+    expect(sink.appliedV2).toContainEqual(expectedR2V2);
   });
 });

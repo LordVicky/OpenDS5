@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
   BridgePresetId,
   ChordAssignment,
@@ -21,7 +22,24 @@ import type {
   WindowsDeviceCleanupResult
 } from './shared/types';
 import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/trigger-profiles';
+import type { LibraryCatalog, LibraryEntry } from './main/profile-library';
+import type { ImportResult } from './main/trigger-profile-store';
 import type { GameProcessCandidate } from './main/game-watcher';
+import type { SetupProgressEvent } from './main/setup-service';
+
+// The preload runs sandboxed: only `require('electron')` is available, so the
+// setup channel names are inlined rather than imported from ./main/setup-ipc.
+// setup-ipc.test.ts pins these literals to SETUP_CHANNELS so they cannot drift.
+const SETUP_CHANNELS = {
+  getPlan: 'setup:get-plan',
+  install: 'setup:install',
+  progress: 'setup:progress',
+  skip: 'setup:skip',
+  finish: 'setup:finish',
+  openLog: 'setup:open-log',
+  copyDiagnostics: 'setup:copy-diagnostics',
+  reopen: 'setup:reopen'
+} as const;
 
 const api = {
   getStatus: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:getStatus'),
@@ -162,6 +180,9 @@ const api = {
   testAdaptiveTriggers: (mode?: TriggerTestMode, target?: TriggerTestTarget): Promise<BridgeSnapshot> => (
     ipcRenderer.invoke('bridge:testAdaptiveTriggers', mode, target)
   ),
+  previewAdaptiveTriggerEffect: (effect: AdaptiveTriggerPreviewEffect): Promise<BridgeSnapshot> => (
+    ipcRenderer.invoke('bridge:previewAdaptiveTriggerEffect', effect)
+  ),
   resetAdaptiveTriggers: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:resetAdaptiveTriggers'),
   restoreDefaults: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:restoreDefaults'),
   setButtonRemap: (buttonId: RemapButtonId, targetId: RemapButtonId): Promise<BridgeSnapshot> => (
@@ -218,6 +239,21 @@ const api = {
     ipcRenderer.invoke('bridge:saveTriggerProfile', profile)
   ),
   deleteTriggerProfile: (id: string): Promise<boolean> => ipcRenderer.invoke('bridge:deleteTriggerProfile', id),
+  exportTriggerProfile: (id: string): Promise<{ saved: boolean; path?: string }> => (
+    ipcRenderer.invoke('bridge:exportTriggerProfile', id)
+  ),
+  importTriggerProfiles: (): Promise<Array<{ file: string; ok: boolean; error?: string; name?: string }>> => (
+    ipcRenderer.invoke('bridge:importTriggerProfiles')
+  ),
+  getProfileLibraryCatalog: (): Promise<LibraryCatalog> => (
+    ipcRenderer.invoke('bridge:getProfileLibraryCatalog')
+  ),
+  installLibraryProfile: (entry: LibraryEntry): Promise<ImportResult> => (
+    ipcRenderer.invoke('bridge:installLibraryProfile', entry)
+  ),
+  resetLibraryProfile: (id: string): Promise<ImportResult> => (
+    ipcRenderer.invoke('bridge:resetLibraryProfile', id)
+  ),
   setTriggerProfilesEnabled: (enabled: boolean): Promise<EngineStatus> => (
     ipcRenderer.invoke('bridge:setTriggerProfilesEnabled', enabled)
   ),
@@ -244,4 +280,23 @@ const api = {
 
 contextBridge.exposeInMainWorld('bridge', api);
 
+const setupApi = {
+  getPlan: (): Promise<{ steps: string[] } | { unsupported: string }> =>
+    ipcRenderer.invoke(SETUP_CHANNELS.getPlan),
+  install: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.install),
+  onProgress: (cb: (e: SetupProgressEvent) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: SetupProgressEvent) =>
+      cb(payload);
+    ipcRenderer.on(SETUP_CHANNELS.progress, listener);
+    return () => ipcRenderer.removeListener(SETUP_CHANNELS.progress, listener);
+  },
+  skip: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.skip),
+  finish: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.finish),
+  openLog: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.openLog),
+  copyDiagnostics: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.copyDiagnostics),
+  reopen: (): Promise<void> => ipcRenderer.invoke(SETUP_CHANNELS.reopen),
+};
+contextBridge.exposeInMainWorld('setup', setupApi);
+
 export type BridgeApi = typeof api;
+export type SetupApi = typeof setupApi;

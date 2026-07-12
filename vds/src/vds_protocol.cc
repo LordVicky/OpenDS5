@@ -20,6 +20,7 @@
 #include <opus/opus.h>
 
 #include "uapi/vds.h"
+#include "vds_companion.hh"
 #include "vds_protocol.hh"
 
 namespace vds {
@@ -378,6 +379,7 @@ namespace {
 
 constexpr std::uint8_t kTriggerEffectOff = 0x05;
 constexpr std::uint8_t kTriggerEffectFeedback = 0x21;
+constexpr std::uint8_t kTriggerEffectSlope = 0x22;
 constexpr std::uint8_t kTriggerEffectWeapon = 0x25;
 constexpr std::uint8_t kTriggerEffectVibration = 0x26;
 
@@ -443,7 +445,10 @@ std::uint8_t scale_strength_code(std::uint8_t code, std::uint16_t percent) {
   return scaled == 0 ? 0 : static_cast<std::uint8_t>(scaled - 1);
 }
 
-void scale_trigger_effect(std::uint8_t *trigger, std::uint16_t percent) {
+} // namespace
+
+void scale_trigger_effect(std::span<std::uint8_t, kTriggerEffectSize> trigger,
+                          std::uint16_t percent) {
   if (percent == 100) {
     return;
   }
@@ -451,8 +456,7 @@ void scale_trigger_effect(std::uint8_t *trigger, std::uint16_t percent) {
   case kTriggerEffectFeedback:
   case kTriggerEffectVibration: {
     if (percent == 0) {
-      trigger[0] = kTriggerEffectOff;
-      std::fill(trigger + 1, trigger + kTriggerEffectSize, 0);
+      set_trigger_off(trigger);
       return;
     }
     const std::uint16_t active_zones =
@@ -478,16 +482,32 @@ void scale_trigger_effect(std::uint8_t *trigger, std::uint16_t percent) {
   }
   case kTriggerEffectWeapon:
     if (percent == 0) {
-      trigger[0] = kTriggerEffectOff;
-      std::fill(trigger + 1, trigger + kTriggerEffectSize, 0);
+      set_trigger_off(trigger);
       return;
     }
     trigger[3] = scale_strength_code(trigger[3] & 0x07, percent);
     return;
+  case kTriggerEffectSlope: {
+    if (percent == 0) {
+      set_trigger_off(trigger);
+      return;
+    }
+    // trigger[3] packs two 3-bit strength codes (stored as strength-1):
+    // bits 0-2 start strength, bits 3-5 end strength.
+    const std::uint8_t start_code =
+        scale_strength_code(trigger[3] & 0x07, percent);
+    const std::uint8_t end_code =
+        scale_strength_code((trigger[3] >> 3) & 0x07, percent);
+    trigger[3] = static_cast<std::uint8_t>((start_code & 0x07) |
+                                           ((end_code & 0x07) << 3));
+    return;
+  }
   default:
     return;
   }
 }
+
+namespace {
 
 std::uint8_t scale_byte(std::uint8_t value, std::uint16_t percent) {
   const unsigned scaled = (static_cast<unsigned>(value) * percent) / 100;
@@ -525,6 +545,106 @@ void encode_companion_trigger_effect(
   } else {
     set_trigger_zones(trigger, kTriggerEffectFeedback, start_position,
                       strength);
+  }
+}
+
+namespace {
+
+// Packs per-zone strengths (percent 0-100 each) into the DualSense
+// multi-position zone layout shared by feedback (0x21) and vibration (0x26).
+// Returns false when every zone is inactive.
+bool set_trigger_multi_zones(std::span<std::uint8_t, kTriggerEffectSize> trigger,
+                             std::uint8_t effect,
+                             const std::array<std::uint8_t, 10> &zone_percents) {
+  std::uint16_t active_zones = 0;
+  std::uint32_t code_zones = 0;
+  for (std::uint8_t zone = 0; zone < 10; ++zone) {
+    const std::uint8_t strength =
+        trigger_strength_from_percent(zone_percents[zone]);
+    if (strength == 0) {
+      continue;
+    }
+    active_zones |= static_cast<std::uint16_t>(1u << zone);
+    code_zones |= static_cast<std::uint32_t>((strength - 1) & 0x07)
+                  << (3 * zone);
+  }
+  if (active_zones == 0) {
+    return false;
+  }
+  std::fill(trigger.begin(), trigger.end(), 0);
+  trigger[0] = effect;
+  trigger[1] = static_cast<std::uint8_t>(active_zones & 0xff);
+  trigger[2] = static_cast<std::uint8_t>((active_zones >> 8) & 0xff);
+  trigger[3] = static_cast<std::uint8_t>(code_zones & 0xff);
+  trigger[4] = static_cast<std::uint8_t>((code_zones >> 8) & 0xff);
+  trigger[5] = static_cast<std::uint8_t>((code_zones >> 16) & 0xff);
+  trigger[6] = static_cast<std::uint8_t>((code_zones >> 24) & 0xff);
+  return true;
+}
+
+} // namespace
+
+void encode_companion_trigger_effect_v2(
+    std::span<std::uint8_t, kTriggerEffectSize> trigger,
+    const CompanionTriggerEffect &effect) {
+  switch (effect.mode) {
+  case 4: // multi-feedback
+    if (!set_trigger_multi_zones(trigger, kTriggerEffectFeedback,
+                                 effect.zone_percents)) {
+      set_trigger_off(trigger);
+    }
+    return;
+  case 5: { // slope
+    const std::uint8_t start_strength =
+        trigger_strength_from_percent(effect.force_percent);
+    const std::uint8_t end_strength =
+        trigger_strength_from_percent(effect.end_force_percent);
+    if (start_strength == 0 && end_strength == 0) {
+      set_trigger_off(trigger);
+      return;
+    }
+    std::uint8_t start_position =
+        trigger_position_from_percent(effect.start_percent);
+    std::uint8_t end_position =
+        trigger_position_from_percent(effect.end_percent);
+    start_position = std::min<std::uint8_t>(start_position, 8);
+    end_position = std::clamp<std::uint8_t>(
+        end_position, static_cast<std::uint8_t>(start_position + 1), 9);
+    const std::uint16_t zones = static_cast<std::uint16_t>(
+        (1u << start_position) | (1u << end_position));
+    std::fill(trigger.begin(), trigger.end(), 0);
+    trigger[0] = kTriggerEffectSlope;
+    trigger[1] = static_cast<std::uint8_t>(zones & 0xff);
+    trigger[2] = static_cast<std::uint8_t>((zones >> 8) & 0xff);
+    // Strength code pair: bits 0-2 start strength, bits 3-5 end strength
+    // (codes store strength-1, matching the zone packing convention).
+    const std::uint8_t start_code =
+        start_strength == 0 ? 0 : static_cast<std::uint8_t>(start_strength - 1);
+    const std::uint8_t end_code =
+        end_strength == 0 ? 0 : static_cast<std::uint8_t>(end_strength - 1);
+    trigger[3] =
+        static_cast<std::uint8_t>((start_code & 0x07) | ((end_code & 0x07) << 3));
+    return;
+  }
+  case 6: // multi-vibration
+    if (!set_trigger_multi_zones(trigger, kTriggerEffectVibration,
+                                 effect.zone_percents)) {
+      set_trigger_off(trigger);
+      return;
+    }
+    trigger[9] = effect.frequency_hz == 0 ? 1 : effect.frequency_hz;
+    return;
+  case 3: // off
+    set_trigger_off(trigger);
+    return;
+  default: // V1 modes: 0 feedback, 1 weapon, 2 vibration.
+    encode_companion_trigger_effect(trigger, effect.mode, effect.start_percent,
+                                    effect.wall_percent, effect.force_percent);
+    if (effect.mode == 2 && effect.frequency_hz != 0 &&
+        trigger[0] == kTriggerEffectVibration) {
+      trigger[9] = effect.frequency_hz;
+    }
+    return;
   }
 }
 
@@ -597,7 +717,9 @@ void DsOutputState::recompute_effective_state() {
     std::copy(companion_.right_trigger.begin(), companion_.right_trigger.end(),
               effective_state_.begin() + right_ffb);
   } else {
-    scale_trigger_effect(effective_state_.data() + right_ffb,
+    scale_trigger_effect(std::span<std::uint8_t, kTriggerEffectSize>(
+                             effective_state_.data() + right_ffb,
+                             kTriggerEffectSize),
                          companion_.trigger_intensity_percent);
   }
   if (companion_.left_trigger_active) {
@@ -605,7 +727,9 @@ void DsOutputState::recompute_effective_state() {
     std::copy(companion_.left_trigger.begin(), companion_.left_trigger.end(),
               effective_state_.begin() + left_ffb);
   } else {
-    scale_trigger_effect(effective_state_.data() + left_ffb,
+    scale_trigger_effect(std::span<std::uint8_t, kTriggerEffectSize>(
+                             effective_state_.data() + left_ffb,
+                             kTriggerEffectSize),
                          companion_.trigger_intensity_percent);
   }
 
