@@ -28,6 +28,9 @@
   "build": {
     "appId": "io.github.sundaymoments.ds5bridge",
     "artifactName": "OpenDS5-Companion-Setup-${version}.${ext}",
+    "toolsets": {
+      "appimage": "1.0.2"
+    },
     "directories": {
       "output": "artifacts/installer"
     },
