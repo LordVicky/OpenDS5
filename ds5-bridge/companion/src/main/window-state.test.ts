@@ -3,6 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  DEFAULT_WINDOW_HEIGHT,
+  DEFAULT_WINDOW_WIDTH,
+  defaultWindowSize,
   growBoundsToMinimum,
   loadWindowState,
   resolveWindowBounds,
@@ -85,5 +88,39 @@ describe('load/saveWindowState', () => {
     expect(loadWindowState(dir)).toBeNull();
     fs.writeFileSync(path.join(dir, 'window-state.json'), JSON.stringify({ x: 'nope' }));
     expect(loadWindowState(dir)).toBeNull();
+  });
+});
+
+describe('defaultWindowSize', () => {
+  const bigScreen = { width: 3840, height: 2160 };
+  const minWidth = 1120;
+  const minHeight = 630;
+
+  it('opens larger than the resize floor, so the window does not start at its minimum', () => {
+    const size = defaultWindowSize(100, bigScreen, minWidth, minHeight);
+    expect(size).toEqual({ width: DEFAULT_WINDOW_WIDTH, height: DEFAULT_WINDOW_HEIGHT });
+    expect(size.width).toBeGreaterThan(minWidth);
+    expect(size.height).toBeGreaterThan(minHeight);
+  });
+
+  it('scales with the UI scale', () => {
+    expect(defaultWindowSize(150, bigScreen, minWidth, minHeight)).toEqual({
+      width: Math.round(DEFAULT_WINDOW_WIDTH * 1.5),
+      height: Math.round(DEFAULT_WINDOW_HEIGHT * 1.5)
+    });
+  });
+
+  it('never opens larger than the display', () => {
+    const small = { width: 1280, height: 720 };
+    const size = defaultWindowSize(100, small, minWidth, minHeight);
+    expect(size.width).toBeLessThanOrEqual(small.width);
+    expect(size.height).toBeLessThanOrEqual(small.height);
+  });
+
+  it('never opens smaller than the resize floor, even on a tiny display', () => {
+    const tiny = { width: 800, height: 480 };
+    const size = defaultWindowSize(100, tiny, minWidth, minHeight);
+    expect(size.width).toBe(minWidth);
+    expect(size.height).toBe(minHeight);
   });
 });

@@ -18,6 +18,28 @@ function clampRectToWorkArea(bounds: Rect, workArea: Rect, minWidth: number, min
   return { x, y, width: Math.round(width), height: Math.round(height) };
 }
 
+// What a first launch opens at, before any bounds have been saved. The window used to open at
+// its own minimum size, so it always started as small as it was allowed to be.
+export const DEFAULT_WINDOW_WIDTH = 1360;
+export const DEFAULT_WINDOW_HEIGHT = 860;
+
+/**
+ * The size a first launch opens at: the default scaled by the UI scale, never smaller than the
+ * resize floor and never larger than the display it lands on.
+ */
+export function defaultWindowSize(
+  uiScalePercent: number,
+  workArea: { width: number; height: number },
+  minWidth: number,
+  minHeight: number
+): { width: number; height: number } {
+  const scale = uiScalePercent / 100;
+  return {
+    width: Math.max(minWidth, Math.min(Math.round(DEFAULT_WINDOW_WIDTH * scale), workArea.width)),
+    height: Math.max(minHeight, Math.min(Math.round(DEFAULT_WINDOW_HEIGHT * scale), workArea.height))
+  };
+}
+
 export function resolveWindowBounds(
   saved: WindowState | null,
   workArea: Rect,

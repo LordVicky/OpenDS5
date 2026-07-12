@@ -44,29 +44,11 @@ try {
       failures.push(`${label}: modal overflowed by ${overflow.horizontal}px horizontal and ${overflow.vertical}px vertical`);
     }
   };
-  const assertNaturalImageRatio = async (locator, label) => {
-    const ratio = await locator.evaluate((element) => {
-      const image = element;
-      const rect = image.getBoundingClientRect();
-      return {
-        natural: image.naturalWidth / image.naturalHeight,
-        rendered: rect.width / rect.height
-      };
-    });
-
-    if (Math.abs(ratio.natural - ratio.rendered) > 0.02) {
-      failures.push(`${label}: rendered ratio ${ratio.rendered.toFixed(2)} differs from natural ratio ${ratio.natural.toFixed(2)}`);
-    }
-  };
-
+  // One step now: the Ko-fi ask and its countdown were removed from the startup tutorial.
   const startupTutorial = page.getByRole('dialog', { name: 'Feature tile tutorial' });
   if (await startupTutorial.count()) {
     await assertNoModalOverflow(startupTutorial, 'Feature tile tutorial');
     await page.getByLabel('Toggle example effect').click();
-    await page.getByRole('button', { name: /Next/ }).click();
-    const supportTutorial = page.getByRole('dialog', { name: 'Support OpenDS5' });
-    await assertNoModalOverflow(supportTutorial, 'Support tutorial');
-    await assertNaturalImageRatio(supportTutorial.locator('.startup-tutorial-kofi-button img'), 'Support tutorial Ko-fi badge');
     await page.getByRole('button', { name: 'Continue' }).click({ timeout: 7000 });
     await page.waitForTimeout(150);
   }

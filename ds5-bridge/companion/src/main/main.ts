@@ -15,7 +15,7 @@ import {
   nukePicoFlash as copyPicoFlashNuke
 } from './pico-firmware-updater';
 import { SettingsStore } from './settings-store';
-import { growBoundsToMinimum, loadWindowState, resolveWindowBounds, saveWindowState } from './window-state';
+import { defaultWindowSize, growBoundsToMinimum, loadWindowState, resolveWindowBounds, saveWindowState } from './window-state';
 import { deriveLegacyUserDataPath, migrateLegacyUserData } from './user-data-migration';
 import { readProfileFileForImport, TriggerProfileStore } from './trigger-profile-store';
 import { ProfileLibrary, type LibraryEntry } from './profile-library';
@@ -56,6 +56,8 @@ const APP_TRAY_ICON_PNG = path.join('assets', 'controllers', 'opends5_mark.png')
 const APP_ICON_ICO = path.join('assets', 'controllers', 'opends5_app-icon.ico');
 const PICO_UNIVERSAL_FLASH_NUKE_RELATIVE_PATH = path.join('firmware', PICO_UNIVERSAL_FLASH_NUKE_FILE);
 const PICO_UNIVERSAL_FLASH_NUKE_SHA256_RELATIVE_PATH = path.join('firmware', PICO_UNIVERSAL_FLASH_NUKE_SHA256_FILE);
+// The floor the window may be resized to. The size a first launch opens at lives in
+// window-state.ts as defaultWindowSize().
 const BASE_WINDOW_WIDTH = 1120;
 const BASE_WINDOW_HEIGHT = 630;
 const START_IN_TRAY_ARG = '--start-in-tray';
@@ -163,6 +165,7 @@ function scaledWindowSize(uiScalePercent: UiScalePercent): { width: number; heig
     height: Math.round(BASE_WINDOW_HEIGHT * scale)
   };
 }
+
 
 function applyWindowScale(window: BrowserWindow, uiScalePercent: UiScalePercent, recenter: boolean): void {
   const { width: minWidth, height: minHeight } = scaledWindowSize(uiScalePercent);
@@ -434,10 +437,11 @@ function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {
   const savedState = loadWindowState(app.getPath('userData'));
   const workArea = screen.getPrimaryDisplay().workArea;
   const restoredBounds = resolveWindowBounds(savedState, workArea, minWidth, minHeight);
+  const defaultSize = defaultWindowSize(uiScalePercent, workArea, minWidth, minHeight);
   const rendererIndexPath = path.join(__dirname, '..', '..', 'renderer', 'index.html');
   const window = new BrowserWindow({
-    width: restoredBounds?.width ?? minWidth,
-    height: restoredBounds?.height ?? minHeight,
+    width: restoredBounds?.width ?? defaultSize.width,
+    height: restoredBounds?.height ?? defaultSize.height,
     ...(restoredBounds ? { x: restoredBounds.x, y: restoredBounds.y } : {}),
     minWidth,
     minHeight,

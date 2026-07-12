@@ -732,16 +732,6 @@ button {
   min-width: 0;
 }
 
-/* The app icon, not the transparent mark: the startup screen is themed, and a bare white
-   controller would disappear against the light theme's pale card. The icon is a circle with
-   its own dark ground, so it reads on every theme. */
-.startup-mark {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 auto;
-  display: block;
-}
-
 .startup-brand div {
   min-width: 0;
   display: grid;
@@ -1473,13 +1463,6 @@ button {
   overflow: hidden;
 }
 
-.startup-tutorial-step {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1;
-}
-
 .startup-tutorial-copy {
   display: grid;
   gap: 8px;
@@ -1570,35 +1553,6 @@ button {
   font-weight: 800;
   opacity: 0.76;
   text-transform: uppercase;
-}
-
-.startup-tutorial-kofi-button {
-  width: 100%;
-  height: 118px;
-  margin-top: 14px;
-  border: 1px solid var(--surface-border-strong);
-  border-radius: var(--card-radius);
-  padding: 10px;
-  display: grid;
-  place-items: center;
-  background: var(--surface-control-soft);
-  transition:
-    border-color 140ms ease,
-    background 140ms ease,
-    transform 140ms ease;
-}
-
-.startup-tutorial-kofi-button:hover,
-.startup-tutorial-kofi-button:focus-visible {
-  border-color: var(--accent-border-strong);
-  background: var(--surface-control-hover);
-  transform: translateY(-1px);
-}
-
-.startup-tutorial-kofi-button img {
-  display: block;
-  width: min(420px, 100%);
-  height: auto;
 }
 
 .startup-tutorial-actions {
