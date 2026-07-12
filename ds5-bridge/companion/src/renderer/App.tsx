@@ -3129,18 +3129,13 @@ export function App() {
     return () => observer.disconnect();
   }, [mainUiMounted]);
 
-  // When the engine auto-matches a running game, follow it in the editor so the
-  // viewport shows the profile that is actually driving the triggers. Only on
-  // the transition to a newly matched profile, so manual selection still wins.
+  // The editor always shows the profile that is actually driving the triggers, however it became
+  // active: a matched game, a pin, or the default fallback. Following only process matches left
+  // the editor on a profile the controller was not using -- e.g. auto mode falls back to Default
+  // while the strip still highlights the last profile opened.
   useEffect(() => {
     const status = triggerProfileEngineStatus;
-    if (!status) return;
-    if (status.matchedBy !== 'process' || !status.activeProfileId) {
-      // Not auto-matched right now (pinned, fallback, or no game): clear the
-      // marker so the next process match re-follows even for the same game.
-      lastAutoMatchedProfileRef.current = null;
-      return;
-    }
+    if (!status?.activeProfileId) return;
     if (lastAutoMatchedProfileRef.current === status.activeProfileId) return;
     const profile = triggerProfiles.find((entry) => entry.id === status.activeProfileId);
     if (!profile) return;

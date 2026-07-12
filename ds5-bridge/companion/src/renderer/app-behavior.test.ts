@@ -621,6 +621,18 @@ describe('shared trigger effect editor', () => {
     expect(labRegion).toContain('<TriggerEffectEditor');
   });
 
+  it('keeps the editor on whichever profile is actually driving the triggers', () => {
+    // The follow effect used to fire only on a process match, so in auto mode the engine fell
+    // back to Default while the strip still highlighted the last profile opened -- the editor
+    // showed a profile the controller was not using.
+    const start = appSource.indexOf('const status = triggerProfileEngineStatus;');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const effect = appSource.slice(start, appSource.indexOf('}, [triggerProfileEngineStatus, triggerProfiles]);', start));
+    expect(effect).not.toContain("matchedBy !== 'process'");
+    expect(effect).toContain('status?.activeProfileId');
+    expect(effect).toContain('loadTriggerProfileDraft(profile)');
+  });
+
   it('applies a manually selected profile by pinning it, which turns auto matching off', () => {
     // Selecting a profile only loaded it into the editor. A profile becomes active by matching a
     // running game or by being pinned, so a profile with no processNames (the Showcase profile
