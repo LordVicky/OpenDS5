@@ -412,11 +412,6 @@ const AUDIO_REACTIVE_HAPTICS_FIELD_TOOLTIPS = {
   attack: 'Controls how quickly the haptics ramp when a sound rises or spikes.',
   release: 'Controls how quickly the haptics fade when a sound drops.'
 } as const;
-const TRIGGER_TARGET_OPTIONS: Array<[string, TriggerTestTarget]> = [
-  ['L2', 'l2'],
-  ['R2', 'r2'],
-  ['Both Triggers', 'both']
-];
 const IDLE_DISCONNECT_TIMEOUT_OPTIONS: Array<[string, number]> = [
   ['5 min', 5],
   ['15 min', 15],
@@ -2635,17 +2630,6 @@ export function App() {
   const [customSwatchPrimed, setCustomSwatchPrimed] = useState(false);
   const [lightbarBrightnessValue, setLightbarBrightnessValue] = useState(100);
   const [triggerEffectIntensityValue, setTriggerEffectIntensityValue] = useState(100);
-  const [triggerTarget, setTriggerTarget] = useState<TriggerTestTarget>('both');
-  const [triggerLabEffect, setTriggerLabEffect] = useState<TriggerEffectSpec>(() => defaultEffectForMode('feedback'));
-  const triggerLabSeededRef = useRef(false);
-
-  useEffect(() => {
-    if (triggerLabSeededRef.current) return;
-    const mode = snapshot?.settings.triggerTestMode;
-    if (!mode) return;
-    triggerLabSeededRef.current = true;
-    setTriggerLabEffect(defaultEffectForMode(mode));
-  }, [snapshot]);
   const [audioHapticsOpen, setAudioHapticsOpen] = useState(false);
   const [audioHapticsSessions, setAudioHapticsSessions] = useState<AudioHapticsSession[]>([]);
   const [audioHapticsSessionsLoading, setAudioHapticsSessionsLoading] = useState(false);
@@ -2718,7 +2702,6 @@ export function App() {
   const [speakerTestError, setSpeakerTestError] = useState<string | null>(null);
   const [micTestLocked, setMicTestLocked] = useState(false);
   const [micTestError, setMicTestError] = useState<string | null>(null);
-  const [triggerTestLocked, setTriggerTestLocked] = useState(false);
   const [hapticsCommitPending, setHapticsCommitPending] = useState(false);
   const [classicRumbleCommitPending, setClassicRumbleCommitPending] = useState(false);
   const [classicRumbleV1CommitPending, setClassicRumbleV1CommitPending] = useState(false);
@@ -3823,33 +3806,6 @@ export function App() {
       ? 'Active'
       : 'Enabled'
     : 'Off';
-  const triggerLabModeTestable = TRIGGER_LAB_TESTABLE_MODES.includes(triggerLabEffect.mode as TriggerTestMode);
-  const testTriggersUnavailable = !triggerLabModeTestable
-    || !connected
-    || !adaptiveTriggersSupported
-    || !adaptiveTriggersEnabled
-    || pendingAction !== null
-    || triggerTestLocked
-    || adaptiveTriggerOutputActive
-    || Boolean(snapshot?.status?.testAdaptiveTriggersBusy);
-  const triggerStatusReady = connected
-    && adaptiveTriggersSupported
-    && adaptiveTriggersEnabled
-    && !triggerTestLocked
-    && !adaptiveTriggerOutputActive
-    && !snapshot?.status?.testAdaptiveTriggersBusy;
-  const triggerStatusLabel = triggerTestLocked || snapshot?.status?.testAdaptiveTriggersBusy
-    ? 'Testing'
-    : triggerStatusReady
-      ? 'Ready'
-      : connected && adaptiveTriggerOutputActive
-        ? 'Game Triggers Active'
-        : 'Unavailable';
-  const triggerStatusTone = triggerTestLocked || snapshot?.status?.testAdaptiveTriggersBusy || triggerStatusReady
-    ? 'good'
-    : connected && adaptiveTriggerOutputActive
-      ? 'warn'
-      : 'idle';
   const lightbarStateActive = connected && lightbarSupported && lightbarEnabled;
   const lightbarStateLabel = lightbarStateActive
     ? 'Active'
@@ -4518,49 +4474,6 @@ export function App() {
         setMicTestLocked(false);
       }
     })();
-  }
-
-  function runTestAdaptiveTriggers() {
-    setTriggerTestLocked(true);
-    void runAction('triggers', async () => {
-      if (
-        snapshot
-        && triggerEffectIntensityValue !== snapshot.settings.triggerEffectIntensityPercent
-        && !isPreservingPowerSavingCap(snapshot.settings.triggerEffectIntensityPercent, triggerEffectIntensityValue)
-      ) {
-        await window.bridge.setTriggerEffectIntensity(triggerEffectIntensityValue);
-      }
-      const effect = triggerLabEffect;
-      if (effect.mode === 'feedback' || effect.mode === 'weapon' || effect.mode === 'vibration') {
-        return window.bridge.previewAdaptiveTriggerEffect({
-          mode: effect.mode,
-          target: triggerTarget,
-          startPercent: effect.startPercent,
-          wallPercent: effect.mode === 'weapon' ? effect.wallPercent : 0,
-          forcePercent: effect.forcePercent
-        });
-      }
-      return window.bridge.testAdaptiveTriggers(snapshot?.settings.triggerTestMode ?? 'feedback', triggerTarget);
-    }).finally(() => {
-      window.setTimeout(() => setTriggerTestLocked(false), TEST_TRIGGER_LOCK_MS);
-    });
-  }
-
-  function setTriggerTestMode(mode: TriggerTestMode) {
-    void runAction('trigger-mode', () => window.bridge.setTriggerTestMode(mode));
-  }
-
-  function updateTriggerLabEffect(effect: TriggerEffectSpec) {
-    const previousMode = triggerLabEffect.mode;
-    setTriggerLabEffect(effect);
-    if (
-      effect.mode !== previousMode
-      && TRIGGER_LAB_TESTABLE_MODES.includes(effect.mode as TriggerTestMode)
-      && snapshot
-      && snapshot.settings.triggerTestMode !== effect.mode
-    ) {
-      setTriggerTestMode(effect.mode as TriggerTestMode);
-    }
   }
 
   function resetAdaptiveTriggers() {
@@ -7277,9 +7190,21 @@ export function App() {
               <div className="feature-heading">
                 <div>
                   <h2>Adaptive Triggers</h2>
-                  <p>Set trigger effect intensity and test mode</p>
+                  <p>Set the strength of adaptive trigger effects</p>
                 </div>
                 <div className="triggers-heading-controls">
+                  {/* Rarely needed, but it is the way out when a game quits without releasing
+                      the triggers and leaves an effect held on them. */}
+                  <button
+                    className="secondary-action triggers-reset-button"
+                    type="button"
+                    title="Clear any effect currently held on the triggers"
+                    disabled={!connected || !adaptiveTriggersSupported || adaptiveTriggerOutputActive || pendingAction !== null}
+                    onClick={resetAdaptiveTriggers}
+                  >
+                    <RefreshCcw size={14} />
+                    Reset
+                  </button>
                   <div className="inline-switch">
                     <span>Enabled</span>
                     <button
@@ -7366,75 +7291,6 @@ export function App() {
                         {label}
                       </button>
                     ))}
-                  </div>
-                </section>
-                <section className="feature-card test-card trigger-test-card">
-                  <div className="feature-card-title">
-                    <span className="feature-icon"><IconTestPipe size={20} /></span>
-                    <div className="title-copy">
-                      <h3>Testing</h3>
-                      <p>Choose a trigger effect and run a short test</p>
-                    </div>
-                  </div>
-                  <div className="test-options">
-                    <TriggerEffectEditor
-                      label="Trigger test"
-                      value={triggerLabEffect}
-                      disabled={
-                        !connected
-                        || !adaptiveTriggersSupported
-                        || !snapshot.settings.adaptiveTriggersEnabled
-                        || adaptiveTriggerOutputActive
-                        || pendingAction !== null
-                      }
-                      onChange={updateTriggerLabEffect}
-                    />
-                    {!triggerLabModeTestable && (
-                      <p className="trigger-lab-test-note">
-                        Test playback covers Feedback, Weapon, and Vibration. Preview this effect by
-                        assigning it in a game trigger profile.
-                      </p>
-                    )}
-                    <div className="target-row">
-                      <div className="segmented-row compact">
-                        {TRIGGER_TARGET_OPTIONS.map(([label, value]) => (
-                          <button
-                            key={value}
-                            type="button"
-                            className={triggerTarget === value ? 'active' : ''}
-                            disabled={!connected || !adaptiveTriggersSupported || adaptiveTriggerOutputActive}
-                            onClick={() => setTriggerTarget(value)}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="trigger-action-row">
-                    <button className="primary-action" type="button" disabled={testTriggersUnavailable} onClick={runTestAdaptiveTriggers}>
-                      <Play size={15} />
-                      {connected && adaptiveTriggerOutputActive
-                        ? 'Game Triggers Active'
-                        : connected && (triggerTestLocked || snapshot.status?.testAdaptiveTriggersBusy)
-                          ? 'Testing'
-                          : 'Test Triggers'}
-                    </button>
-                    <button
-                      className="secondary-action"
-                      type="button"
-                      disabled={!connected || !adaptiveTriggersSupported || adaptiveTriggerOutputActive || pendingAction !== null}
-                      onClick={resetAdaptiveTriggers}
-                    >
-                      <RefreshCcw size={14} />
-                      Reset Triggers
-                    </button>
-                  </div>
-                  <div className={`feature-status test-status ${triggerStatusTone}`}>
-                    <span className="status-badge">
-                      <span className={`dot ${triggerStatusTone}`} />
-                      <strong>{triggerStatusLabel}</strong>
-                    </span>
                   </div>
                 </section>
               </div>

@@ -20,6 +20,10 @@ import type { TriggerProfile } from '../shared/trigger-profiles';
 
 const appSource = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'App.tsx'), 'utf8');
 const stylesSource = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'styles.css'), 'utf8');
+const sharedSource = readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'shared', 'trigger-profiles.ts'),
+  'utf8'
+);
 
 function extractFunction(name: string): string {
   const start = appSource.indexOf(`function ${name}`);
@@ -617,9 +621,33 @@ describe('shared trigger effect editor', () => {
     expect(labRegion).toContain('<TriggerEffectEditor');
   });
 
-  it('keeps Trigger Lab test playback on the daemon-supported classic modes', () => {
-    expect(appSource).toContain('previewAdaptiveTriggerEffect');
-    expect(appSource).toContain('TRIGGER_LAB_TESTABLE_MODES');
+  it('drops the adaptive-trigger test card, keeping only enable and intensity', () => {
+    // The Triggers page is enable/disable plus intensity now. No effect picker, no target
+    // selector, no test playback.
+    expect(appSource).not.toContain('trigger-test-card');
+    expect(appSource).not.toContain('runTestAdaptiveTriggers');
+    expect(appSource).not.toContain('TRIGGER_TARGET_OPTIONS');
+    expect(appSource).not.toContain('previewAdaptiveTriggerEffect');
+  });
+
+  it('keeps Reset Triggers, beside the enable toggle', () => {
+    // Rare, but it is the way out when a game leaves an effect held on the triggers.
+    expect(appSource).toContain('function resetAdaptiveTriggers()');
+    expect(appSource).toContain('window.bridge.resetAdaptiveTriggers()');
+    const start = appSource.indexOf('triggers-heading-controls');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const heading = appSource.slice(start, appSource.indexOf('</div>', appSource.indexOf('inline-switch', start)));
+    expect(heading).toContain('triggers-reset-button');
+    expect(heading).toContain('resetAdaptiveTriggers');
+  });
+
+  it('keeps every trigger effect available to game trigger profiles', () => {
+    // Removing the test card must not narrow what a profile can do: the profile editor still
+    // offers the full effect set.
+    for (const mode of ['feedback', 'weapon', 'vibration', 'multi-feedback', 'slope', 'multi-vibration']) {
+      expect(sharedSource).toContain(`'${mode}'`);
+    }
+    expect(appSource).toContain('<TriggerEffectEditor');
   });
 
   it('pairs Import with Export in the editor header, wired to importTriggerProfiles', () => {

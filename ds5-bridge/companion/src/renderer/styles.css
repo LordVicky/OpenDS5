@@ -3256,6 +3256,18 @@ button.overview-shortcut-chip {
   box-shadow: var(--shadow-panel);
 }
 
+/* .secondary-action is width: 100% at --action-height for the large test-card actions, and it is
+   declared later in this file -- so this needs the extra specificity to win, or Reset claims the
+   whole heading row. */
+.triggers-heading-controls .triggers-reset-button {
+  width: auto;
+  flex: 0 0 auto;
+  min-height: 32px;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
 .triggers-heading-controls .inline-switch {
   position: relative;
   min-height: 36px;
@@ -4910,16 +4922,6 @@ button.feature-icon {
 .test-card .feature-card-title {
   align-self: start;
   margin-bottom: 0;
-}
-
-/* The triggers test card hosts the full 7-mode effect editor, which is far
- * taller than the fixed 76px options row the other test cards use. */
-.trigger-test-card {
-  grid-template-rows: var(--feature-card-header-height) auto var(--action-height) var(--action-height) minmax(40px, auto);
-}
-
-.trigger-test-card .test-options {
-  align-self: start;
 }
 
 .test-options {
@@ -8237,13 +8239,6 @@ button.trigger-lab-chip {
   font-weight: 760;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
-}
-
-.trigger-lab-test-note {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-muted);
 }
 
 .trigger-profiles-library-modal {
