@@ -78,10 +78,10 @@
         "from": "../assets/controllers",
         "to": "assets/controllers",
         "filter": [
-          "ds5-bridge_app-icon-tile.ico",
-          "ds5-bridge_app-icon-tile.png",
-          "ds5-bridge_mark.ico",
-          "ds5-bridge_mark.png"
+          "opends5_app-icon.ico",
+          "opends5_app-icon.png",
+          "opends5_mark.ico",
+          "opends5_mark.png"
         ]
       }
     ],
@@ -91,7 +91,7 @@
     ],
     "npmRebuild": false,
     "win": {
-      "icon": "../assets/controllers/ds5-bridge_app-icon-tile.ico",
+      "icon": "../assets/controllers/opends5_app-icon.ico",
       "signAndEditExecutable": false,
       "target": [
         {
@@ -146,7 +146,7 @@
           ]
         }
       ],
-      "icon": "../assets/controllers/ds5-bridge_app-icon-tile.png",
+      "icon": "../assets/controllers/opends5_app-icon.png",
       "category": "Game",
       "executableName": "ds5-bridge",
       "extraResources": [

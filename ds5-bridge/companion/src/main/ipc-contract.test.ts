@@ -85,13 +85,15 @@ describe('IPC contract', () => {
   });
 
   it('loads the high-resolution tray mark icon without forcing a 16px resize', () => {
-    expect(mainSource).toContain("const APP_TRAY_ICON_ICO = path.join('assets', 'controllers', 'ds5-bridge_mark.ico');");
-    expect(mainSource).toContain("const APP_TRAY_ICON_PNG = path.join('assets', 'controllers', 'ds5-bridge_mark.png');");
+    expect(mainSource).toContain("const APP_TRAY_ICON_ICO = path.join('assets', 'controllers', 'opends5_mark.ico');");
+    expect(mainSource).toContain("const APP_TRAY_ICON_PNG = path.join('assets', 'controllers', 'opends5_mark.png');");
     expect(mainSource).toContain('const icon = createImageAsset(APP_TRAY_ICON_ICO);');
     expect(mainSource).toContain('const pngIcon = createImageAsset(APP_TRAY_ICON_PNG);');
     expect(mainSource).not.toContain('return icon.resize({ width: 16');
-    expect(packageSource).toContain('"ds5-bridge_mark.ico"');
-    expect(packageWinSource).toContain("'ds5-bridge_mark.ico'");
+    // The tray mark must also be staged into the package, or the tray falls back to an
+    // empty image at runtime.
+    expect(packageSource).toContain('"opends5_mark.ico"');
+    expect(packageWinSource).toContain("'opends5_mark.ico'");
   });
 
   it('exposes the battery percentage tray icon preference', () => {

@@ -1,4 +1,6 @@
-# OpenDS5
+<p align="center">
+  <img src="ds5-bridge/assets/brand/opends5-wordmark.png" alt="OpenDS5" width="640">
+</p>
 
 Bring the **OpenDS5** feature set (audio, haptics, Trigger Lab, lighting,
 button remapping, personas, chords) to **Linux** — with no Pico 2 W hardware —

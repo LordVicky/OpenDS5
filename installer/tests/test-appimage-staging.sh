@@ -15,7 +15,7 @@ printf 'ExecStart=@VDS_SYSTEMD_VDSD@\n' > "$appdir/resources/vds-bin/vdsd.servic
 : > "$appdir/resources/vds-bin/99-vds-dualsense-wireplumber.conf"
 printf 'PACKAGE_VERSION="1.6.3"\n' > "$appdir/resources/vds-module/dkms.conf"
 # the launcher icon lives in the mount too — it must be staged like everything else
-: > "$appdir/resources/assets/controllers/ds5-bridge_app-icon-tile.png"
+: > "$appdir/resources/assets/controllers/opends5_app-icon.png"
 appimg="$tmp/Downloads/OpenDS5.AppImage"
 mkdir -p "$tmp/Downloads"
 : > "$appimg"

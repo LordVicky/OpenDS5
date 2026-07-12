@@ -58,7 +58,7 @@ exports.default = async function afterPack(context) {
   const isWindows = context.electronPlatformName === 'win32';
   const exePath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`);
   const repoDir = path.resolve(__dirname, '..', '..');
-  const appIcon = path.join(repoDir, 'assets', 'controllers', 'ds5-bridge_app-icon-tile.ico');
+  const appIcon = path.join(repoDir, 'assets', 'controllers', 'opends5_app-icon.ico');
 
   fs.copyFileSync(path.join(repoDir, 'LICENSE'), path.join(context.appOutDir, 'LICENSE'));
   fs.copyFileSync(path.join(repoDir, 'NOTICE'), path.join(context.appOutDir, 'NOTICE'));

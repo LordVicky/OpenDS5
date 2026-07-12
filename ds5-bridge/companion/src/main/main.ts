@@ -50,10 +50,10 @@ import type {
 const APP_NAME = 'OpenDS5';
 const WINDOWS_APP_USER_MODEL_ID = 'io.github.sundaymoments.ds5bridge';
 const WINDOWS_TOAST_ACTIVATOR_CLSID = '{A8B3700D-4BB5-4E22-BF57-0C43B7C2FDF6}';
-const APP_MARK_PNG = path.join('assets', 'controllers', 'ds5-bridge_mark.png');
-const APP_TRAY_ICON_ICO = path.join('assets', 'controllers', 'ds5-bridge_mark.ico');
-const APP_TRAY_ICON_PNG = path.join('assets', 'controllers', 'ds5-bridge_mark.png');
-const APP_ICON_ICO = path.join('assets', 'controllers', 'ds5-bridge_app-icon-tile.ico');
+const APP_MARK_PNG = path.join('assets', 'controllers', 'opends5_mark.png');
+const APP_TRAY_ICON_ICO = path.join('assets', 'controllers', 'opends5_mark.ico');
+const APP_TRAY_ICON_PNG = path.join('assets', 'controllers', 'opends5_mark.png');
+const APP_ICON_ICO = path.join('assets', 'controllers', 'opends5_app-icon.ico');
 const PICO_UNIVERSAL_FLASH_NUKE_RELATIVE_PATH = path.join('firmware', PICO_UNIVERSAL_FLASH_NUKE_FILE);
 const PICO_UNIVERSAL_FLASH_NUKE_SHA256_RELATIVE_PATH = path.join('firmware', PICO_UNIVERSAL_FLASH_NUKE_SHA256_FILE);
 const BASE_WINDOW_WIDTH = 1120;

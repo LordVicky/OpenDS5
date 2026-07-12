@@ -11,7 +11,7 @@ mkdir -p "$tmp/Downloads"
 chmod +x "$appimg"
 appdir="$tmp/.mount_fake"
 mkdir -p "$appdir/resources/assets/controllers" "$appdir/resources/vds-module"
-: > "$appdir/resources/assets/controllers/ds5-bridge_app-icon-tile.png"
+: > "$appdir/resources/assets/controllers/opends5_app-icon.png"
 printf 'PACKAGE_VERSION="1.6.3"\n' > "$appdir/resources/vds-module/dkms.conf"
 
 plan() { # extra env...
