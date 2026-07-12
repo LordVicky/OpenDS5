@@ -3507,6 +3507,12 @@ button.overview-shortcut-chip {
   height: auto;
 }
 
+/* One Intensity card now that the test card is gone, so it takes the full width rather than
+   sitting in the left column of a two-column grid. */
+.triggers-page .feature-card-grid {
+  grid-template-columns: 1fr;
+}
+
 .system-page .feature-card-grid {
   align-items: stretch;
   height: auto;

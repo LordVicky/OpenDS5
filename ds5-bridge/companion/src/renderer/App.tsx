@@ -1235,7 +1235,8 @@ function FeatureTipsPanel({
       title: 'Custom Color',
       text: 'Double-click the final color swatch to choose a custom lightbar color.'
     });
-  } else {
+  } else if (tab !== 'triggers') {
+    // The triggers tab has no tests any more -- it is enable/disable plus intensity.
     tips.push({
       key: 'tests',
       icon: <Play size={16} />,
