@@ -10149,14 +10149,29 @@ export function App() {
                 <button
                   type="button"
                   className="settings-menu-link-row"
+                  onClick={() => void window.bridge.openExternal('https://github.com/LordVicky/OpenDS5')}
+                >
+                  <span className="settings-menu-link-icon" aria-hidden="true">
+                    <IconBrandGithub size={18} />
+                  </span>
+                  <span className="settings-menu-link-copy">
+                    <strong>OpenDS5</strong>
+                    <span>LordVicky/OpenDS5 · AGPL-3.0</span>
+                  </span>
+                </button>
+                {/* Upstream attribution. The companion app is an AGPL-3.0 derivative of
+                    SundayMoments/DS5_Bridge, so the credit stays. */}
+                <button
+                  type="button"
+                  className="settings-menu-link-row"
                   onClick={() => void window.bridge.openExternal('https://github.com/SundayMoments')}
                 >
                   <span className="settings-menu-link-icon" aria-hidden="true">
                     <IconBrandGithub size={18} />
                   </span>
                   <span className="settings-menu-link-copy">
-                    <strong>GitHub</strong>
-                    <span>SundayMoments</span>
+                    <strong>Based on DS5 Bridge</strong>
+                    <span>by SundayMoments</span>
                   </span>
                 </button>
               </div>

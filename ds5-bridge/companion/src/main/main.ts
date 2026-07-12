@@ -420,6 +420,9 @@ function isAppFileUrl(url: string, appIndexPath: string): boolean {
 
 function isAllowedExternalUrl(url: string): boolean {
   return /^https:\/\/ko-fi\.com\/lordvicky\/?$/i.test(url)
+    || /^https:\/\/github\.com\/LordVicky\/OpenDS5\/?$/i.test(url)
+    // Upstream attribution: the companion app is an AGPL-3.0 derivative of
+    // SundayMoments/DS5_Bridge, so the credit stays.
     || /^https:\/\/github\.com\/SundayMoments\/?$/i.test(url);
 }
 
