@@ -2,10 +2,11 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { MAX_PROFILE_FILE_BYTES } from './trigger-profile-store';
 
-// The library lives on the dedicated Profiles-Library branch so new game
-// profiles go live without touching the release branches.
+// The library is served from the public OpenDS5-Profiles mirror: raw.githubusercontent.com
+// only serves public repos anonymously, and this repo is private. Profiles are authored and
+// validated here, then published there by scripts/publish-library.mjs.
 export const LIBRARY_INDEX_URL =
-  'https://raw.githubusercontent.com/LordVicky/OpenDS5/Profiles-Library/profiles/library/index.json';
+  'https://raw.githubusercontent.com/LordVicky/OpenDS5-Profiles/main/profiles/library/index.json';
 export const MAX_INDEX_BYTES = 1048576;
 
 const FETCH_TIMEOUT_MS = 10000;
