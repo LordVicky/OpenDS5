@@ -621,6 +621,16 @@ describe('shared trigger effect editor', () => {
     expect(labRegion).toContain('<TriggerEffectEditor');
   });
 
+  it('applies a manually selected profile by pinning it, which turns auto matching off', () => {
+    // Selecting a profile only loaded it into the editor. A profile becomes active by matching a
+    // running game or by being pinned, so a profile with no processNames (the Showcase profile
+    // ships with none) could never drive the controller -- it only appeared to work once an edit
+    // armed the live draft preview.
+    const select = extractFunction('selectTriggerProfile');
+    expect(select).toContain('loadTriggerProfileDraft');
+    expect(select).toContain('pinSelectedTriggerProfile');
+  });
+
   it('drops the adaptive-trigger test card, keeping only enable and intensity', () => {
     // The Triggers page is enable/disable plus intensity now. No effect picker, no target
     // selector, no test playback.

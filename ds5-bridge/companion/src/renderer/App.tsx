@@ -5320,11 +5320,14 @@ export function App() {
     return profiles;
   }
 
+  // Picking a profile by hand is a request to use it, so it pins the profile and auto matching
+  // turns off. Without the pin the engine keeps driving whatever a running game matched -- and a
+  // profile with no processNames, like Showcase, could never become active at all.
   function selectTriggerProfile(id: string) {
     const profile = triggerProfiles.find((entry) => entry.id === id);
-    if (profile) {
-      loadTriggerProfileDraft(profile);
-    }
+    if (!profile) return;
+    loadTriggerProfileDraft(profile);
+    void pinSelectedTriggerProfile(profile.id);
   }
 
   function createTriggerProfile() {
@@ -7915,14 +7918,14 @@ export function App() {
                   aria-pressed={triggerProfileEngineStatus?.matchedBy !== 'pin'}
                   title={
                     triggerProfileEngineStatus?.matchedBy === 'pin'
-                      ? 'Pinned to Default — click to switch back to automatic game matching'
+                      ? `Using ${triggerProfileNameById(triggerProfileEngineStatus.activeProfileId)} — click to resume automatic game matching`
                       : 'Auto matching running games — click to pin the Default profile'
                   }
                   onClick={() => {
                     if (triggerProfileEngineStatus?.matchedBy === 'pin') {
+                      // Back to auto: unpinned, the engine falls back to Default until a game matches.
                       void pinSelectedTriggerProfile('');
                     } else {
-                      void pinSelectedTriggerProfile('default');
                       selectTriggerProfile('default');
                     }
                   }}
