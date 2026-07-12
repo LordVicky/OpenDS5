@@ -8340,18 +8340,12 @@ button.trigger-lab-chip {
   flex: 1;
 }
 
-.trigger-profiles-library-entry-game {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-}
-
 .trigger-profiles-library-entry-title {
   display: flex;
   align-items: baseline;
   gap: 6px;
   font-size: 0.9rem;
+  flex-wrap: wrap;
 }
 
 .trigger-profiles-library-entry-author {

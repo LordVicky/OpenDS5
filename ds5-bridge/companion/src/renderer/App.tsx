@@ -9724,9 +9724,8 @@ export function App() {
                         row.kind === 'native' ? (
                           <li key={row.key} className="trigger-profiles-library-entry">
                             <div className="trigger-profiles-library-entry-copy">
-                              <span className="trigger-profiles-library-entry-game">{row.game}</span>
                               <span className="trigger-profiles-library-entry-title">
-                                <strong>Native support</strong>
+                                <strong>{row.game}</strong>
                               </span>
                               <p className="trigger-profiles-library-entry-description">
                                 Drives its own triggers. OpenDS5 passes through — nothing to install.
@@ -9737,13 +9736,13 @@ export function App() {
                         ) : (
                           <li key={row.key} className="trigger-profiles-library-entry">
                             <div className="trigger-profiles-library-entry-copy">
-                              <span className="trigger-profiles-library-entry-game">{row.entry.game}</span>
                               <span className="trigger-profiles-library-entry-title">
-                                <strong>{row.entry.name}</strong>
+                                <strong>{row.entry.game}</strong>
                                 <span className="trigger-profiles-library-entry-author">
+                                  {row.entry.name}
                                   {row.entry.origin
-                                    ? `Ported from ${row.entry.origin.from}`
-                                    : `by ${row.entry.author}`}
+                                    ? ` · Ported from ${row.entry.origin.from}`
+                                    : ` · by ${row.entry.author}`}
                                 </span>
                               </span>
                               <p className="trigger-profiles-library-entry-description">

@@ -20,6 +20,12 @@ import { fileURLToPath } from 'node:url';
 
 const MIRROR_REMOTE = 'https://github.com/LordVicky/OpenDS5-Profiles.git';
 const MIRROR_BRANCH = 'main';
+const COMMIT_NAME = 'LordVicky';
+const COMMIT_EMAIL = 'sreevicky1001@gmail.com';
+
+// index.json is generated from the profiles, and native.json lists games that drive their
+// own triggers. Neither is a profile, so neither counts toward the profile count.
+const NON_PROFILE_FILES = new Set(['index.json', 'native.json']);
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..');
@@ -56,7 +62,8 @@ try {
     process.exit(0);
   }
 
-  const count = readdirSync(libraryDir).filter((f) => f !== 'index.json').length;
+  // index.json is generated and native.json is a game list; neither is a profile.
+  const count = readdirSync(libraryDir).filter((f) => !NON_PROFILE_FILES.has(f)).length;
   console.log(`publish-library: changes to publish (${count} profile(s)):`);
   console.log(status.stdout.trimEnd());
 
@@ -66,7 +73,13 @@ try {
   }
 
   run('git', ['add', '-A'], { cwd: work });
-  run('git', ['commit', '-m', `Publish profiles library (${count} profile(s))`], { cwd: work });
+  // The temp clone inherits no identity when the user has no global git config, so
+  // commit with an explicit one rather than failing at the last step.
+  run(
+    'git',
+    ['-c', `user.name=${COMMIT_NAME}`, '-c', `user.email=${COMMIT_EMAIL}`, 'commit', '-m', `Publish profiles library (${count} profile(s))`],
+    { cwd: work }
+  );
   run('git', ['push', 'origin', MIRROR_BRANCH], { cwd: work });
   console.log(`publish-library: pushed to ${MIRROR_REMOTE} (${MIRROR_BRANCH}).`);
 } finally {
