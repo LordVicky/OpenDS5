@@ -1,12 +1,17 @@
-// Validation harness for repo library profiles.
+// Validation + description harness for repo library profiles.
 //
 // Invoked by scripts/build-index.mjs via `npx tsx` from inside
 // ds5-bridge/companion (where the TypeScript devDependency lives) so we can
-// import the real shared validator instead of duplicating its rules.
+// import the real shared validator and the real capability describer instead of
+// duplicating their rules. The index therefore describes each profile with the
+// same code the app uses, and cannot drift from what the profile actually does.
 //
 // Usage: npx tsx <this> <profile.json> [<profile.json> ...]
-// Prints "<path>: <error>" for each invalid profile and exits 1 if any fail.
+// Errors go to stderr, one line per invalid profile; exits 1 if any fail.
+// On success, prints a JSON object to stdout mapping each file path to its
+// derived fields, which build-index.mjs bakes into index.json.
 import { readFileSync } from 'node:fs';
+import { describeCapabilities } from '../ds5-bridge/companion/src/shared/profile-capabilities.ts';
 import { validateTriggerProfile } from '../ds5-bridge/companion/src/shared/trigger-profiles.ts';
 
 const files = process.argv.slice(2);
@@ -16,6 +21,8 @@ if (files.length === 0) {
 }
 
 let failed = false;
+const derived: Record<string, { capabilities: string }> = {};
+
 for (const file of files) {
   let raw: unknown;
   try {
@@ -29,7 +36,11 @@ for (const file of files) {
   if (!result.ok) {
     console.error(`${file}: ${result.error}`);
     failed = true;
+    continue;
   }
+  derived[file] = { capabilities: describeCapabilities(result.profile) };
 }
 
-process.exit(failed ? 1 : 0);
+if (failed) process.exit(1);
+
+process.stdout.write(JSON.stringify(derived));
