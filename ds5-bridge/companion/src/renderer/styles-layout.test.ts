@@ -197,24 +197,14 @@ describe('companion layout CSS', () => {
     expect(bubbleGumTheme).toContain('--window-bar-border: rgba(124, 30, 111, 0.56);');
   });
 
-  it('uses theme-aware colors for the navbar bridge mark', () => {
-    expect(appSource).toContain('function BridgeMark()');
-    expect(appSource).toContain('fill="var(--bridge-mark-primary)"');
-    expect(appSource).toContain('fill="var(--bridge-mark-secondary)"');
-    expect(appSource).not.toContain('bridgeMarkUrl');
-    expect(cssBlock(':root', '--bridge-mark-primary: #ffffff;')).toContain('--bridge-mark-secondary: #046fff;');
-    expect(cssBlock('.shell[data-theme="light"]', '--bridge-mark-primary: #172232;')).toContain(
-      '--bridge-mark-secondary: #046fff;'
-    );
-    expect(cssBlock('.shell[data-theme="bubble-gum"]', '--bridge-mark-primary: #140d18;')).toContain(
-      '--bridge-mark-secondary: #046fff;'
-    );
-    expect(cssBlock('.shell[data-theme="pomegranate"]', '--bridge-mark-primary: #ffffff;')).toContain(
-      '--bridge-mark-secondary: #00a3ff;'
-    );
-    expect(cssBlock('.shell[data-theme="kiwi"]', '--bridge-mark-primary: #eaffef;')).toContain(
-      '--bridge-mark-secondary: #9cff2f;'
-    );
+  it('shows the navbar wordmark as text only, with no logo glyph', () => {
+    // The old inline SVG glyph was themeable; the OpenDS5 artwork is not, and a white
+    // controller would vanish on the light themes. The header is the wordmark alone.
+    expect(appSource).not.toContain('BridgeMark');
+    expect(appSource).not.toContain('bridge-mark');
+    expect(styles).not.toContain('--bridge-mark-');
+    expect(appSource).toContain('<span className="bridge-wordmark-ds">Open</span>');
+    expect(appSource).toContain('<span className="bridge-wordmark-name">DS5</span>');
   });
 
   it('uses dedicated sidebar text tokens for section labels and nav links', () => {

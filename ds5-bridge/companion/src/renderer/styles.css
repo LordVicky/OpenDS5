@@ -27,8 +27,6 @@
   --window-bar-bg-flat: #050b13;
   --window-bar-bg: var(--window-bar-bg-flat);
   --window-bar-border: rgba(144, 166, 197, 0.12);
-  --bridge-mark-primary: #ffffff;
-  --bridge-mark-secondary: #046fff;
   --sidebar-bg: #050b13;
   --sidebar-overlay: transparent;
   --sidebar-border: rgba(142, 164, 194, 0.1);
@@ -157,8 +155,6 @@
   --window-bar-bg-flat: #f6f9fd;
   --window-bar-bg: var(--window-bar-bg-flat);
   --window-bar-border: rgba(68, 86, 112, 0.18);
-  --bridge-mark-primary: #172232;
-  --bridge-mark-secondary: #046fff;
   --sidebar-bg: #edf3fa;
   --sidebar-overlay: transparent;
   --sidebar-border: rgba(68, 86, 112, 0.16);
@@ -282,8 +278,6 @@
   --window-bar-bg-flat: #d86fbd;
   --window-bar-bg: var(--window-bar-bg-flat);
   --window-bar-border: rgba(124, 30, 111, 0.56);
-  --bridge-mark-primary: #140d18;
-  --bridge-mark-secondary: #046fff;
   --sidebar-bg: #e889cf;
   --sidebar-overlay: transparent;
   --sidebar-border: rgba(165, 38, 137, 0.36);
@@ -407,8 +401,6 @@
   --window-bar-bg-flat: #d01868;
   --window-bar-bg: var(--window-bar-bg-flat);
   --window-bar-border: rgba(255, 76, 151, 0.42);
-  --bridge-mark-primary: #ffffff;
-  --bridge-mark-secondary: #00a3ff;
   --sidebar-bg: #1a0b18;
   --sidebar-overlay: transparent;
   --sidebar-border: rgba(208, 24, 104, 0.48);
@@ -534,8 +526,6 @@
   --window-bar-bg-flat: #07100b;
   --window-bar-bg: var(--window-bar-bg-flat);
   --window-bar-border: rgba(156, 255, 47, 0.22);
-  --bridge-mark-primary: #eaffef;
-  --bridge-mark-secondary: #9cff2f;
   --sidebar-bg: #050c08;
   --sidebar-overlay: transparent;
   --sidebar-border: rgba(156, 255, 47, 0.18);
@@ -742,11 +732,7 @@ button {
   min-width: 0;
 }
 
-.startup-brand .bridge-mark {
-  width: 24px;
-}
-
-.startup-brand div {
+.startup-brand .startup-brand div {
   min-width: 0;
   display: grid;
   gap: 3px;
@@ -871,13 +857,6 @@ button {
   line-height: 1;
   letter-spacing: 0;
   white-space: nowrap;
-}
-
-.bridge-mark {
-  width: 18px;
-  height: auto;
-  flex: 0 0 auto;
-  display: block;
 }
 
 .bridge-wordmark-ds {
