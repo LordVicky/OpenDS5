@@ -2,13 +2,12 @@ name: library-check
 
 on:
   pull_request:
-    branches: [Profiles-Library]
     paths:
       - 'profiles/**'
       - 'scripts/build-index.mjs'
       - 'scripts/validate-profile.mts'
   push:
-    branches: [Profiles-Library]
+    branches: [dev, main]
     paths:
       - 'profiles/**'
       - 'scripts/build-index.mjs'

@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "id": "showcase",
+  "name": "Showcase",
+  "match": {
+    "processNames": [],
+    "windowTitles": []
+  },
+  "triggers": {
+    "l2": {
+      "base": {
+        "mode": "multi-feedback",
+        "zones": [10, 25, 40, 55, 70, 85, 70, 55, 40, 25]
+      },
+      "modifiers": []
+    },
+    "r2": {
+      "base": {
+        "mode": "slope",
+        "startPercent": 20,
+        "endPercent": 90,
+        "startForcePercent": 15,
+        "endForcePercent": 100
+      },
+      "modifiers": []
+    }
+  },
+  "updatedAtMs": 0,
+  "meta": {
+    "game": "Any",
+    "author": "LordVicky",
+    "description": "Demonstrates multi-zone feedback (L2) and slope (R2)."
+  }
+}
