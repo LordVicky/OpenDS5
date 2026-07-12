@@ -95,7 +95,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # A semver prerelease tag (v1.7.0-beta.1) ships from dev without
+          # becoming "Latest release" on the repo page -- main stays the stable
+          # line. A plain v1.7.0 publishes as a normal release.
+          prerelease=""
+          case "${GITHUB_REF_NAME}" in
+            *-*) prerelease="--prerelease" ;;
+          esac
           gh release create "${GITHUB_REF_NAME}" \
             --title "OpenDS5 ${GITHUB_REF_NAME}" \
+            --target "${GITHUB_SHA}" \
             --generate-notes \
+            ${prerelease} \
             ds5-bridge/companion/artifacts/installer/*.AppImage
