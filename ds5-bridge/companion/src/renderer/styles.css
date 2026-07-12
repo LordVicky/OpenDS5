@@ -8104,6 +8104,26 @@ button.trigger-lab-chip {
   gap: 8px;
 }
 
+/* The editor header is a three-column grid, so everything on its right-hand side shares a
+   single cell. Without this the buttons become extra grid items and wrap out of view. */
+.trigger-profiles-editor-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* .primary-action, like .secondary-action, is width: 100% for the big test-card actions.
+   In this row that makes Save claim the full width and wrap onto its own line. */
+.trigger-profiles-editor-header-actions .trigger-profiles-save-button {
+  width: auto;
+  min-height: 32px;
+  gap: 6px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+
 /* Import and Export sit together above the editor. .secondary-action sizes buttons
    full-width at --action-height for the big test-card actions; these are toolbar-scale
    controls, so match the strip buttons instead. */

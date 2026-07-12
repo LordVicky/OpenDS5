@@ -7607,48 +7607,52 @@ export function App() {
                         </p>
                       ) : null}
                     </div>
-                    <div className="trigger-profiles-status-group trigger-profiles-editor-match-source">
-                      <span className="overview-status-heading">
-                        <IconDeviceGamepad2 size={14} />
-                        Match Source
-                      </span>
-                      <span className="status-badge">
-                        <strong>
-                          {!triggerProfileEngineStatus
-                            ? '—'
-                            : triggerProfileEngineStatus.matchedBy === 'pin'
-                              ? 'Pinned'
-                              : triggerProfileEngineStatus.matchedBy === 'process'
-                                ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
-                                : 'Default fallback'}
-                        </strong>
-                      </span>
+                    {/* .feature-card-title is a three-column grid, so the header's actions live in
+                        one cell -- loose buttons overflow the template onto an implicit row. */}
+                    <div className="trigger-profiles-editor-header-actions">
+                      <div className="trigger-profiles-status-group trigger-profiles-editor-match-source">
+                        <span className="overview-status-heading">
+                          <IconDeviceGamepad2 size={14} />
+                          Match Source
+                        </span>
+                        <span className="status-badge">
+                          <strong>
+                            {!triggerProfileEngineStatus
+                              ? '—'
+                              : triggerProfileEngineStatus.matchedBy === 'pin'
+                                ? 'Pinned'
+                                : triggerProfileEngineStatus.matchedBy === 'process'
+                                  ? `Process: ${triggerProfileEngineStatus.matchedName ?? 'unknown'}`
+                                  : 'Default fallback'}
+                          </strong>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="secondary-action trigger-profiles-transfer-button"
+                        onClick={() => void importTriggerProfilesFromDisk()}
+                      >
+                        <IconDownload size={14} />
+                        Import
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-action trigger-profiles-transfer-button"
+                        disabled={!triggerProfileDraft}
+                        onClick={() => void exportTriggerProfileDraft()}
+                      >
+                        <IconUpload size={14} />
+                        Export
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-action trigger-profiles-save-button"
+                        onClick={() => void saveTriggerProfileDraft()}
+                      >
+                        <Save size={14} />
+                        Save
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="secondary-action trigger-profiles-transfer-button"
-                      onClick={() => void importTriggerProfilesFromDisk()}
-                    >
-                      <IconUpload size={14} />
-                      Import
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-action trigger-profiles-transfer-button"
-                      disabled={!triggerProfileDraft}
-                      onClick={() => void exportTriggerProfileDraft()}
-                    >
-                      <IconDownload size={14} />
-                      Export
-                    </button>
-                    <button
-                      type="button"
-                      className="primary-action trigger-profiles-save-button"
-                      onClick={() => void saveTriggerProfileDraft()}
-                    >
-                      <Save size={14} />
-                      Save
-                    </button>
                   </div>
 
                   <div className="trigger-profiles-editor-body">
