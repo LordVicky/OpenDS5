@@ -423,7 +423,10 @@ function isAllowedExternalUrl(url: string): boolean {
     || /^https:\/\/github\.com\/LordVicky\/OpenDS5\/?$/i.test(url)
     // Upstream attribution: the companion app is an AGPL-3.0 derivative of
     // SundayMoments/DS5_Bridge, so the credit stays.
-    || /^https:\/\/github\.com\/SundayMoments\/?$/i.test(url);
+    || /^https:\/\/github\.com\/SundayMoments\/?$/i.test(url)
+    // vds (MIT, Jihong Min) is the kernel module and daemon this port runs on, and it
+    // ships inside the AppImage.
+    || /^https:\/\/github\.com\/hurryman2212\/vds\/?$/i.test(url);
 }
 
 function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {

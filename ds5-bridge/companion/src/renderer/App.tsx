@@ -10174,6 +10174,20 @@ export function App() {
                     <span>by SundayMoments</span>
                   </span>
                 </button>
+                {/* vds (MIT, Jihong Min) is the virtual-DualSense transport this port runs on. */}
+                <button
+                  type="button"
+                  className="settings-menu-link-row"
+                  onClick={() => void window.bridge.openExternal('https://github.com/hurryman2212/vds')}
+                >
+                  <span className="settings-menu-link-icon" aria-hidden="true">
+                    <IconBrandGithub size={18} />
+                  </span>
+                  <span className="settings-menu-link-copy">
+                    <strong>Powered by vds</strong>
+                    <span>by Jihong Min · MIT</span>
+                  </span>
+                </button>
               </div>
             </div>
           </div>

@@ -8,6 +8,12 @@ Affero General Public License version 3. See LICENSE.
 
 Third-party submodules and package dependencies retain their own license terms.
 
+vds (virtual DualSense) — the kernel module, vdsd daemon, and vdsctl that provide
+the Linux transport — is by Jihong Min and is included under the MIT License.
+Copyright (c) 2026 Jihong Min.
+Source: https://github.com/hurryman2212/vds
+See vds/LICENSE.
+
 PS5 Button Icons and Controls by Zacksly are included under CC BY 3.0.
 Source: https://zacksly.itch.io
 See assets/glyphs/ps5-buttons-outline-white/LICENSE.txt.
