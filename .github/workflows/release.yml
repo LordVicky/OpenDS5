@@ -1,0 +1,84 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - 'ds5-bridge/**'
+      - 'vds/**'
+      - 'installer/**'
+      - 'scripts/collect-vds-bin.sh'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ pkg-config \
+            libbluetooth-dev libdbus-1-dev libopus-dev libudev-dev
+
+      # vds-bin/ is gitignored and consumed via extraResources, so the
+      # userspace bundle has to exist before electron-builder stages it.
+      - name: build vds-bin
+        run: bash scripts/collect-vds-bin.sh
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ds5-bridge/companion/package-lock.json
+
+      - name: install
+        working-directory: ds5-bridge/companion
+        run: npm ci
+
+      - name: build AppImage
+        working-directory: ds5-bridge/companion
+        run: npm run installer:linux
+
+      # The default electron-builder toolset ships a 2019 runtime that dlopens
+      # libfuse.so.2, which fails on fuse3-only distros. toolsets.appimage 1.0.2
+      # selects a runtime with libfuse3 linked in statically. Guard the swap so a
+      # toolset regression can't silently ship a libfuse2-dependent AppImage.
+      - name: verify static-fuse3 runtime
+        working-directory: ds5-bridge/companion
+        run: |
+          appimage="$(find artifacts/installer -maxdepth 1 -name '*.AppImage' -print -quit)"
+          [ -n "$appimage" ] || { echo "no AppImage produced"; exit 1; }
+          offset="$("$appimage" --appimage-offset)"
+          head -c "$offset" "$appimage" > /tmp/runtime.bin
+          if readelf -d /tmp/runtime.bin | grep -q NEEDED; then
+            echo "runtime is dynamically linked; expected a static runtime:"
+            readelf -d /tmp/runtime.bin | grep NEEDED
+            exit 1
+          fi
+          if strings -a /tmp/runtime.bin | grep -q 'libfuse\.so\.2'; then
+            echo "runtime still depends on libfuse2"
+            exit 1
+          fi
+          echo "ok: static runtime, no libfuse2 ($offset bytes)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenDS5-AppImage
+          path: ds5-bridge/companion/artifacts/installer/*.AppImage
+
+      - name: publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "OpenDS5 ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            ds5-bridge/companion/artifacts/installer/*.AppImage
