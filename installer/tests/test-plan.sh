@@ -16,6 +16,9 @@ assert_contains "$out" "dkms install vds_hcd/"            "fedora dkms install"
 assert_contains "$out" "/usr/src/vds_hcd-"                "fedora stages source"
 assert_contains "$out" "include/" "staging copies shared vds headers (Kbuild -Iinclude)"
 assert_contains "$out" "modules-load.d/vds.conf"          "fedora autoload"
+# An upgrade changes MODULE_VER, so the plan must enumerate the registered
+# versions rather than removing only the incoming one and stranding the old.
+assert_contains "$out" "dkms status vds_hcd" "dkms removal enumerates every registered version"
 
 out="$(plan_for fedora-cachyos 7.1.2-cachyos1.fc44.x86_64)"
 assert_contains "$out" "kernel-cachyos-devel" "fedora COPR kernel uses cachyos devel"

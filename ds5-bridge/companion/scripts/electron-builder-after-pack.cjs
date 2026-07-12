@@ -32,6 +32,28 @@ function sourceNotice(repoDir) {
   ].join('\n') + '\n';
 }
 
+// The in-tree dkms.conf ships PACKAGE_VERSION="unknown" and the installer's
+// fallbacks can't resolve it from a packaged app: generate-version.sh is
+// git-describe based (and isn't bundled anyway), and OPENDS5_MODULE_VERSION is
+// only set when the installer runs from the companion. A direct
+// `sudo opends5-install` therefore landed on the 0.0.0 last resort. Stamp the
+// real version into the staged copy so dkms.conf is self-describing; the
+// in-tree file stays "unknown" so repo builds still resolve via git.
+function stampModuleVersion(context) {
+  const dkmsConf = path.join(context.appOutDir, 'resources', 'vds-module', 'dkms.conf');
+  if (!fs.existsSync(dkmsConf)) {
+    return;
+  }
+  const version = context.packager.appInfo.version;
+  const stamped = fs
+    .readFileSync(dkmsConf, 'utf8')
+    .replace(/^PACKAGE_VERSION=.*$/m, `PACKAGE_VERSION="${version}"`);
+  if (!stamped.includes(`PACKAGE_VERSION="${version}"`)) {
+    throw new Error(`afterPack: failed to stamp PACKAGE_VERSION into ${dkmsConf}`);
+  }
+  fs.writeFileSync(dkmsConf, stamped, 'utf8');
+}
+
 exports.default = async function afterPack(context) {
   const isWindows = context.electronPlatformName === 'win32';
   const exePath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`);
@@ -41,6 +63,8 @@ exports.default = async function afterPack(context) {
   fs.copyFileSync(path.join(repoDir, 'LICENSE'), path.join(context.appOutDir, 'LICENSE'));
   fs.copyFileSync(path.join(repoDir, 'NOTICE'), path.join(context.appOutDir, 'NOTICE'));
   fs.writeFileSync(path.join(context.appOutDir, 'SOURCE.txt'), sourceNotice(repoDir), 'utf8');
+
+  stampModuleVersion(context);
 
   if (!isWindows) {
     return;
