@@ -732,7 +732,17 @@ button {
   min-width: 0;
 }
 
-.startup-brand .startup-brand div {
+/* The opaque tile, not the transparent mark: the startup screen is themed, and a white
+   controller would disappear against the light theme's pale card. */
+.startup-mark {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  display: block;
+  border-radius: 9px;
+}
+
+.startup-brand div {
   min-width: 0;
   display: grid;
   gap: 3px;

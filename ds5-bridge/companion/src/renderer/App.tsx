@@ -65,6 +65,7 @@ import {
   IconX as X
 } from '@tabler/icons-react';
 import playStationLogoUrl from '../../../assets/brand/playstation-logo.svg';
+import openDs5IconUrl from '../../../assets/controllers/opends5_app-icon.png';
 import controllerImage from '../../../assets/controllers/dualsense-edge-front.svg';
 import remappingEdgeLayoutImage from '../../../assets/controllers/dualsense-edge-remapping-layout.svg';
 import remappingLayoutImage from '../../../assets/controllers/dualsense-remapping-layout.svg';
@@ -1093,6 +1094,7 @@ function StartupScreen({ ready }: { ready: boolean }) {
     <main className={`startup-screen ${ready ? 'ready' : ''}`} aria-live="polite">
       <section className="startup-card" aria-label="Starting OpenDS5">
         <div className="startup-brand">
+          <img className="startup-mark" src={openDs5IconUrl} alt="" aria-hidden="true" />
           <div>
             <strong>OpenDS5</strong>
             <span>Starting companion</span>
