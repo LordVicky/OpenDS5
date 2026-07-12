@@ -1,6 +1,6 @@
 {
   "name": "ds5-bridge-companion",
-  "version": "1.6.3",
+  "version": "1.7.0-beta.1",
   "private": true,
   "description": "Windows companion app for the Pico DS5 Bridge companion firmware.",
   "author": "SundayMoments",
@@ -50,12 +50,21 @@
       {
         "from": "../../installer",
         "to": "installer",
-        "filter": ["opends5-install"]
+        "filter": [
+          "opends5-install"
+        ]
       },
       {
         "from": "../../vds/module",
         "to": "vds-module",
-        "filter": ["**/*", "!*.o", "!*.ko*", "!*.mod*", "!modules.order", "!Module.symvers"]
+        "filter": [
+          "**/*",
+          "!*.o",
+          "!*.ko*",
+          "!*.mod*",
+          "!modules.order",
+          "!Module.symvers"
+        ]
       },
       {
         "from": "../../vds/include",
