@@ -8464,6 +8464,16 @@ button.trigger-lab-chip {
   border-color: var(--surface-border-strong);
 }
 
+.trigger-profiles-library-installed {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
 .library-pill-native {
   color: var(--success);
   background: var(--success-bg, transparent);
