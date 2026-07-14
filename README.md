@@ -99,6 +99,14 @@ see [docs/PORTING.md](docs/PORTING.md) for manual steps.
    module, `vdsd` service, udev rules) and does it after one password prompt.
 3. Pair your DualSense over Bluetooth and you're done.
 
+> [!NOTE]
+> Setup disables BlueZ's input plugin so vds can own the controller's
+> Bluetooth HID channels — without this the system grabs the DualSense as a
+> plain gamepad and OpenDS5 never sees it. The trade-off (an upstream vds
+> limitation): **other Bluetooth input devices like keyboards and mice won't
+> work while OpenDS5's driver stack is installed.** Revert anytime with
+> `sudo /usr/share/opends5/override-bluetoothd.sh enable-input --restart`.
+
 Prefer the terminal? `./OpenDS5.AppImage --install-system` does the same
 setup. See [docs/INSTALLER.md](docs/INSTALLER.md) for per-platform details,
 exit codes, and logs.

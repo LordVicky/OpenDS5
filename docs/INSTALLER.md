@@ -45,7 +45,15 @@ locally with `scripts/collect-vds-bin.sh`), the installer also:
 3. creates the `vds` group and adds the invoking user,
 4. installs the wireplumber config into the user's
    `~/.config/wireplumber/wireplumber.conf.d/` (owned by the user, not root),
-5. reloads systemd and enables/starts `vdsd.service`.
+5. disables BlueZ's input plugin (`bluetoothd --noplugin=input`, applied via
+   the bundled `override-bluetoothd.sh`, skipped if already in effect) — vds
+   needs raw ownership of the controller's Bluetooth HID channels, and with
+   the plugin active BlueZ claims the DualSense first and the app never sees
+   it. **Trade-off (upstream vds limitation): other Bluetooth input devices
+   such as keyboards and mice will not work while this is active.** Revert
+   anytime with `sudo /usr/share/opends5/override-bluetoothd.sh enable-input
+   --restart`,
+6. reloads systemd and enables/starts `vdsd.service`.
 
 Without a bundle (e.g. a plain repo checkout) these steps are skipped and
 `install-system.sh` builds vdsd from source instead.
@@ -103,7 +111,12 @@ everything the installer does on other distributions:
 - builds `vdsd`/`vdsctl` from the `vds/` source tree (no glibc-prebuilt
   binaries, no nix-ld),
 - installs the udev rules, the system-wide wireplumber config, the `vds`
-  group, and the `vdsd` systemd unit.
+  group, and the `vdsd` systemd unit,
+- enables Bluetooth and runs bluetoothd with `--noplugin=input` so vds can
+  own the controller's HID channels — without this, BlueZ claims the
+  DualSense first and the app never sees it. While active, other Bluetooth
+  input devices (keyboards, mice) will not work; opt out with
+  `services.opends5.disableBluetoothInputPlugin = false;` and use USB.
 
 To run the companion app itself, enable AppImage support
 (`programs.appimage = { enable = true; binfmt = true; };`) and run the

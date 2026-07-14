@@ -259,6 +259,18 @@ plan_userspace() {
     "mkdir -p '${home}/.config/wireplumber/wireplumber.conf.d' && \
      install -m 0644 '${USERSPACE_SRC}/99-vds-dualsense-wireplumber.conf' '${home}/.config/wireplumber/wireplumber.conf.d/' && \
      chown -R '${user}:' '${home}/.config/wireplumber'"
+  # vds needs raw ownership of the controller's HID L2CAP channels; BlueZ's
+  # input plugin claims them first and the app never sees the controller.
+  # Trade-off (upstream vds limitation): other BT input devices stop working.
+  if [ -f "${USERSPACE_SRC}/override-bluetoothd.sh" ]; then
+    plan_add "Disable the BlueZ input plugin (vds owns the controller; BT keyboards/mice stop working)" \
+      "if systemctl show -p ExecStart bluetooth 2>/dev/null | grep -q 'noplugin=input'; then \
+         echo 'BlueZ input plugin already disabled'; \
+       else \
+         install -D -m 0755 '${USERSPACE_SRC}/override-bluetoothd.sh' /usr/share/opends5/override-bluetoothd.sh && \
+         bash /usr/share/opends5/override-bluetoothd.sh disable-input --restart; \
+       fi"
+  fi
   plan_add "Reload systemd" "systemctl daemon-reload"
 }
 
