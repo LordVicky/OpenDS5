@@ -11,22 +11,44 @@ function walk(root: string, dir: string, out: string[]): void {
 }
 
 /**
- * Identifies the driver sources the app is carrying, so the installer only runs
- * when they actually changed. Gating on the app version instead would prompt for
- * a password on every release, since dkms.conf is stamped from package.json.
+ * dkms.conf's PACKAGE_VERSION is generated, not authored: electron-builder's
+ * afterPack stamps it from package.json, so it changes on every release even
+ * when the driver does not. Hashing it would make a UI-only update prompt for a
+ * password. Flatten that one line to a constant; every other line of dkms.conf
+ * (MAKE, BUILT_MODULE_NAME, ...) is a real driver change and must still count.
  */
-export function moduleSourceHash(root: string): string {
-  if (!fs.existsSync(root)) return '';
-  const files: string[] = [];
-  walk(root, root, files);
-  files.sort();
+function contentsFor(root: string, relative: string): Buffer {
+  const raw = fs.readFileSync(path.join(root, relative));
+  if (path.basename(relative) !== 'dkms.conf') return raw;
+  return Buffer.from(
+    raw.toString('utf8').replace(/^PACKAGE_VERSION=.*$/m, 'PACKAGE_VERSION="__hashed__"'),
+    'utf8'
+  );
+}
 
-  const hash = createHash('sha256');
-  for (const relative of files) {
-    // Hash the path as well as the bytes, so a pure rename is still a change.
-    hash.update(relative);
-    hash.update('\0');
-    hash.update(fs.readFileSync(path.join(root, relative)));
+export function moduleSourceHash(root: string): string {
+  try {
+    if (!fs.existsSync(root)) return '';
+    const files: string[] = [];
+    walk(root, root, files);
+    files.sort();
+    if (files.length === 0) return '';
+
+    const hash = createHash('sha256');
+    for (const relative of files) {
+      const contents = contentsFor(root, relative);
+      // Hash the path as well as the bytes, so a pure rename is still a change,
+      // and frame the byte length so a path can never be confused for content
+      // ({a: "AAA", b: "BBB"} must not collide with {a: "AAAb\0BBB"}).
+      hash.update(relative);
+      hash.update('\0');
+      hash.update(String(contents.length));
+      hash.update('\0');
+      hash.update(contents);
+    }
+    return hash.digest('hex');
+  } catch {
+    // The contract is "a hash, or '' meaning stay inert" -- never throw into launch.
+    return '';
   }
-  return hash.digest('hex');
 }
