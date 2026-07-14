@@ -1,0 +1,32 @@
+name: nix-flake
+
+on:
+  pull_request:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'nix/**'
+      - 'vds/**'
+      - '.github/workflows/nix-flake.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'nix/**'
+      - 'vds/**'
+      - '.github/workflows/nix-flake.yml'
+  workflow_dispatch:
+
+jobs:
+  flake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+      - name: flake evaluates
+        run: nix flake check --no-build
+      - name: build userspace (vdsd, vdsctl)
+        run: nix build .#vds --print-build-logs
+      - name: build kernel module
+        run: nix build .#vds-module --print-build-logs
