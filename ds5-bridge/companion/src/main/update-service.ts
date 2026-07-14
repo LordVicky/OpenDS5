@@ -8,6 +8,7 @@ import {
   parseSha256Asset,
   sha256File,
   swapInPlace,
+  tempDownloadPath,
 } from './appimage-updater';
 import { moduleSourceHash } from './module-source-hash';
 import { decideUpdate, type UpdateDecision } from './update-checker';
@@ -105,7 +106,9 @@ const DEFAULT_DEPS: UpdateServiceDeps = {
   swapInPlace,
   moduleSourceHash,
   installedModuleVersion,
-  fetchText: async (url) => (await fetch(url)).text(),
+  // The checksum asset is 64 bytes; a total deadline is right for it (unlike the
+  // AppImage itself, which uses an inactivity timeout — see downloadTo).
+  fetchText: async (url) => (await fetch(url, { signal: AbortSignal.timeout(15_000) })).text(),
   // resourcesPath only exists inside Electron; outside it (tests, plain node) there is
   // no bundled module. Return '' rather than a cwd-relative 'vds-module', which a stray
   // directory of that name would turn into a live rebuild gate.
@@ -190,8 +193,7 @@ export class UpdateService {
     if (!decision || !target) return;
     const { version } = decision;
 
-    // Same directory as the running AppImage: rename() must not cross filesystems.
-    const tempPath = path.join(path.dirname(target), `.${path.basename(target)}.download`);
+    const tempPath = tempDownloadPath(target);
 
     try {
       this.set({ phase: 'downloading', version, received: 0, total: decision.appImage.size });
@@ -215,8 +217,6 @@ export class UpdateService {
         });
         return;
       }
-
-      this.deps.swapInPlace(tempPath, target);
     } catch {
       await fs.promises.rm(tempPath, { force: true });
       this.set({
@@ -228,7 +228,37 @@ export class UpdateService {
       return;
     }
 
+    try {
+      this.deps.swapInPlace(tempPath, target);
+    } catch {
+      // ENOSPC at rename, or the directory turned read-only since the writability
+      // probe: the bytes arrived fine, so do not blame the download.
+      await fs.promises.rm(tempPath, { force: true });
+      this.set({
+        phase: 'failed',
+        version,
+        message: "OpenDS5 downloaded the update but couldn't install it.",
+        retry: 'download',
+      });
+      return;
+    }
+
     this.set({ phase: 'restart', version });
+  }
+
+  /**
+   * A hard kill mid-download leaves a ~100MB hidden sibling of the AppImage. The next
+   * download truncates it, but it should not linger. Called on launch; must never throw
+   * into the launch path.
+   */
+  cleanStaleDownload(): void {
+    try {
+      const target = this.deps.appImagePath();
+      if (!target) return;
+      fs.rmSync(tempDownloadPath(target), { force: true });
+    } catch {
+      /* a leftover temp file is not worth failing a launch over */
+    }
   }
 
   /**

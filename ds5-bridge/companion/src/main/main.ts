@@ -1442,6 +1442,9 @@ function registerUpdateIpc(settingsStore: SettingsStore, setupService: SetupServ
   ));
 
   ipcMain.handle('update:check', async (): Promise<UpdateState> => {
+    // A previous run may have been killed mid-download; drop its leftovers.
+    updateService.cleanStaleDownload();
+
     // We may have just been relaunched by an update. Finish the job first: this is the
     // only point at which resourcesPath and app.getVersion() describe the NEW release,
     // so it is the only point at which the driver can be rebuilt correctly.

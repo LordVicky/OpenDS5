@@ -22,49 +22,82 @@ export function canSelfReplace(target: string): boolean {
   }
 }
 
+/** The AppImage is ~120MB: a slow-but-healthy link must not be killed. */
+export const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
+
+/** The temp file must be a sibling of the AppImage: rename() cannot cross filesystems. */
+export function tempDownloadPath(target: string): string {
+  return path.join(path.dirname(target), `.${path.basename(target)}.download`);
+}
+
 export async function downloadTo(opts: {
   url: string;
   tempPath: string;
   onProgress: (received: number, total: number) => void;
   fetchImpl?: typeof fetch;
+  stallTimeoutMs?: number;
 }): Promise<void> {
-  const { url, tempPath, onProgress, fetchImpl = fetch } = opts;
-  const response = await fetchImpl(url);
-  if (!response.ok || !response.body) {
-    throw new Error(`download failed (${response.status})`);
-  }
-  const total = Number(response.headers.get('content-length') ?? 0);
-  let received = 0;
+  const {
+    url,
+    tempPath,
+    onProgress,
+    fetchImpl = fetch,
+    stallTimeoutMs = DOWNLOAD_STALL_TIMEOUT_MS,
+  } = opts;
 
-  const handle = await fs.promises.open(tempPath, 'w');
-  let closed = false;
+  // An inactivity deadline, NOT a total one: a 120MB download over a slow link is
+  // healthy and must not be aborted, but a stalled one (captive portal, dead mirror)
+  // would otherwise hang the toast in a phase that renders no cancel button. The
+  // timer is armed before the request — headers can stall too — and reset per chunk.
+  const controller = new AbortController();
+  let stallTimer: NodeJS.Timeout | undefined;
+  const armStallTimer = (): void => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => controller.abort(new Error('download stalled')), stallTimeoutMs);
+  };
+
   try {
+    armStallTimer();
+    const response = await fetchImpl(url, { signal: controller.signal });
+    if (!response.ok || !response.body) {
+      throw new Error(`download failed (${response.status})`);
+    }
+    const total = Number(response.headers.get('content-length') ?? 0);
+    let received = 0;
+
+    const handle = await fs.promises.open(tempPath, 'w');
+    let closed = false;
     try {
-      for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-        await handle.write(chunk);
-        received += chunk.byteLength;
-        onProgress(received, total);
-      }
-      // Flush before the rename can publish this file, so a power loss cannot
-      // install a partially-materialized AppImage. ENOSPC/EIO surface here.
-      await handle.sync();
-      await handle.close();
-      closed = true;
-    } finally {
-      // A failing close() must not replace the original error nor skip the rm,
-      // so it is swallowed here and the outer catch still runs.
-      if (!closed) {
-        try {
-          await handle.close();
-          closed = true;
-        } catch {
-          /* ignore */
+      try {
+        for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+          armStallTimer();
+          await handle.write(chunk);
+          received += chunk.byteLength;
+          onProgress(received, total);
+        }
+        // Flush before the rename can publish this file, so a power loss cannot
+        // install a partially-materialized AppImage. ENOSPC/EIO surface here.
+        await handle.sync();
+        await handle.close();
+        closed = true;
+      } finally {
+        // A failing close() must not replace the original error nor skip the rm,
+        // so it is swallowed here and the outer catch still runs.
+        if (!closed) {
+          try {
+            await handle.close();
+            closed = true;
+          } catch {
+            /* ignore */
+          }
         }
       }
+    } catch (error) {
+      await fs.promises.rm(tempPath, { force: true });
+      throw error;
     }
-  } catch (error) {
-    await fs.promises.rm(tempPath, { force: true });
-    throw error;
+  } finally {
+    clearTimeout(stallTimer);
   }
 }
 

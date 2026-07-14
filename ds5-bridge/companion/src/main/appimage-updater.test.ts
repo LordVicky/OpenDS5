@@ -159,6 +159,59 @@ describe('downloadTo', () => {
     expect(fs.existsSync(tempPath)).toBe(false);
   });
 
+  it('aborts and leaves no temp file when the download stalls', async () => {
+    const tempPath = path.join(dir, 'OpenDS5.AppImage.download');
+    const stalling: typeof fetch = (async (_url: string, init: { signal: AbortSignal }) =>
+      ({
+        ok: true,
+        status: 200,
+        headers: { get: () => '999' },
+        body: (async function* () {
+          yield Buffer.from('first');
+          // Then nothing ever arrives, until the stall timer aborts us.
+          await new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => reject(init.signal.reason));
+          });
+        })(),
+      }) as unknown as Response) as unknown as typeof fetch;
+
+    await expect(
+      downloadTo({
+        url: 'https://example.invalid/x',
+        tempPath,
+        onProgress: () => {},
+        fetchImpl: stalling,
+        stallTimeoutMs: 50,
+      }),
+    ).rejects.toThrow('download stalled');
+
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  it('does not abort a slow download that keeps making progress', async () => {
+    // Ten 20ms-apart chunks: ~200ms total, far past the 50ms budget, but no single
+    // gap reaches it. A total-duration cap would kill this; a stall timeout must not.
+    const tempPath = path.join(dir, 'OpenDS5.AppImage.download');
+
+    await downloadTo({
+      url: 'https://example.invalid/x',
+      tempPath,
+      onProgress: () => {},
+      fetchImpl: fakeFetch(
+        (async function* () {
+          for (let i = 0; i < 10; i += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            yield Buffer.from('.');
+          }
+        })(),
+        { total: 10 },
+      ),
+      stallTimeoutMs: 50,
+    });
+
+    expect(fs.readFileSync(tempPath, 'utf8')).toBe('..........');
+  });
+
   it('rejects a non-ok response without creating a temp file', async () => {
     const tempPath = path.join(dir, 'OpenDS5.AppImage.download');
     await expect(

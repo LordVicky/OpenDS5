@@ -202,6 +202,69 @@ describe('UpdateService.start', () => {
 
     expect(fs.readFileSync(target, 'utf8')).toBe('old-appimage-bytes');
     expect(svc.getState().phase).toBe('failed');
+    expect(svc.getState()).toMatchObject({
+      message: 'The download was interrupted.',
+      retry: 'download',
+    });
+  });
+
+  it('does not blame the download when the swap itself fails', async () => {
+    const { svc } = service({
+      swapInPlace: vi.fn(() => {
+        throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+      }),
+    });
+    await svc.start();
+
+    expect(fs.readFileSync(target, 'utf8')).toBe('old-appimage-bytes');
+    expect(svc.getState()).toEqual({
+      phase: 'failed',
+      version: '1.8.0',
+      message: "OpenDS5 downloaded the update but couldn't install it.",
+      retry: 'download',
+    });
+    expect(fs.readdirSync(dir)).toEqual(['OpenDS5.AppImage']); // temp file cleaned up
+  });
+});
+
+describe('UpdateService.cleanStaleDownload', () => {
+  let dir: string;
+
+  function service(appImagePathImpl: () => string | null) {
+    const setup = { install: vi.fn() } as unknown as SetupService;
+    return new UpdateService('1.7.0', setup, () => {}, {
+      appImagePath: appImagePathImpl,
+      canSelfReplace: () => true,
+      fetchLatestRelease: vi.fn(),
+    });
+  }
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opends5-stale-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('removes a temp file orphaned by a hard kill mid-download', () => {
+    const target = path.join(dir, 'OpenDS5.AppImage');
+    fs.writeFileSync(target, 'installed');
+    fs.writeFileSync(path.join(dir, '.OpenDS5.AppImage.download'), 'half a download');
+
+    service(() => target).cleanStaleDownload();
+
+    expect(fs.readdirSync(dir)).toEqual(['OpenDS5.AppImage']);
+    expect(fs.readFileSync(target, 'utf8')).toBe('installed');
+  });
+
+  it('does nothing when there is no AppImage and never throws into the launch path', () => {
+    expect(() => service(() => null).cleanStaleDownload()).not.toThrow();
+
+    // A directory at the temp path makes rmSync throw EISDIR even with force:true.
+    const target = path.join(dir, 'OpenDS5.AppImage');
+    fs.mkdirSync(path.join(dir, '.OpenDS5.AppImage.download'));
+    expect(() => service(() => target).cleanStaleDownload()).not.toThrow();
   });
 });
 
