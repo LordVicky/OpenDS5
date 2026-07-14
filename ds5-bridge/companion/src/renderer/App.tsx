@@ -2720,6 +2720,7 @@ export function App() {
   const [startupTutorialStep, setStartupTutorialStep] = useState<StartupTutorialStep>(storedStartupTutorialStep);
   const [startupTutorialFeatureActive, setStartupTutorialFeatureActive] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState>({ phase: 'idle' });
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const [deviceCleanupMessage, setDeviceCleanupMessage] = useState<string | null>(null);
   const [deviceCleanupError, setDeviceCleanupError] = useState<string | null>(null);
 
@@ -2738,6 +2739,10 @@ export function App() {
   );
 
   useEffect(() => window.update.onState(setUpdateState), []);
+
+  useEffect(() => {
+    void window.appInfo.version().then(setAppVersion);
+  }, []);
 
   useEffect(() => {
     if (startupTutorialOpen) return;
@@ -9975,7 +9980,7 @@ export function App() {
                     <IconBrandGithub size={18} />
                   </span>
                   <span className="settings-menu-link-copy">
-                    <strong>OpenDS5</strong>
+                    <strong>OpenDS5{appVersion ? ` ${appVersion}` : ''}</strong>
                     <span>LordVicky/OpenDS5 · AGPL-3.0</span>
                   </span>
                 </button>

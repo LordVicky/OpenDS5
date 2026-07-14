@@ -318,6 +318,12 @@ const updateApi = {
 };
 contextBridge.exposeInMainWorld('update', updateApi);
 
+const appInfoApi = {
+  version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+};
+contextBridge.exposeInMainWorld('appInfo', appInfoApi);
+
 export type BridgeApi = typeof api;
 export type SetupApi = typeof setupApi;
 export type UpdateApi = typeof updateApi;
+export type AppInfoApi = typeof appInfoApi;

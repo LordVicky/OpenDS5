@@ -1441,6 +1441,8 @@ function registerUpdateIpc(settingsStore: SettingsStore, setupService: SetupServ
     sendToMainWindow('update:state', state)
   ));
 
+  ipcMain.handle('app:version', () => app.getVersion());
+
   ipcMain.handle('update:check', async (): Promise<UpdateState> => {
     // A previous run may have been killed mid-download; drop its leftovers.
     updateService.cleanStaleDownload();
