@@ -1,8 +1,8 @@
 // Renders what a profile actually does, derived from the profile itself rather
 // than from author-written prose, so a library card can never claim an effect the
-// profile does not have. Shared with scripts/build-index.mjs, which bakes the line
-// into index.json at publish time -- the app then describes a profile without
-// downloading it.
+// profile does not have. Vendored into the OpenDS5-Profiles repo (see
+// scripts/sync-validator.mjs), whose CI bakes the line into index.json on merge --
+// the app then describes a profile without downloading it.
 import type { TriggerEffectMode } from './protocol';
 import type { TriggerProfile, TriggerSlotConfig } from './trigger-profiles';
 

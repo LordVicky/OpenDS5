@@ -133,6 +133,8 @@ import type {
   TriggerTestTarget
 } from '../shared/protocol';
 import type { AudioHapticsSession, BridgeSnapshot, UiScalePercent, UiThemePreset } from '../shared/types';
+import type { UpdateState } from '../main/update-service';
+import { UpdateToast } from './UpdateToast';
 import {
   createDefaultProfile,
   defaultEffectForMode,
@@ -150,11 +152,12 @@ import type {
 } from '../shared/trigger-profiles';
 import type { GameProcessCandidate } from '../main/game-watcher';
 import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
+import { profileVariantLabel } from './library-entry';
 import { filterLibrary } from './library-search';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
 
 type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
-type StartupTutorialStep = 'feature-toggle' | 'support' | 'done';
+type StartupTutorialStep = 'feature-toggle' | 'done';
 type ControllerType = BridgeStatusPayload['controllerType'];
 type KnownControllerType = Exclude<ControllerType, 'unknown'>;
 type RemapButtonDefinition = {
@@ -412,11 +415,6 @@ const AUDIO_REACTIVE_HAPTICS_FIELD_TOOLTIPS = {
   attack: 'Controls how quickly the haptics ramp when a sound rises or spikes.',
   release: 'Controls how quickly the haptics fade when a sound drops.'
 } as const;
-const TRIGGER_TARGET_OPTIONS: Array<[string, TriggerTestTarget]> = [
-  ['L2', 'l2'],
-  ['R2', 'r2'],
-  ['Both Triggers', 'both']
-];
 const IDLE_DISCONNECT_TIMEOUT_OPTIONS: Array<[string, number]> = [
   ['5 min', 5],
   ['15 min', 15],
@@ -1088,34 +1086,11 @@ function sliderTickClass(value: number, max: number): string | undefined {
   return undefined;
 }
 
-function BridgeMark() {
-  return (
-    <svg className="bridge-mark" viewBox="335 88 310 292" aria-hidden="true" focusable="false">
-      <path
-        d="M 864.77 430.4 L 864.77 430.4 A 0.3453 0.3389 -55.841 0 1 864.65 429.74 C 890.7 418.97 908.21 394.39 913.07 367.04 Q 913.87 362.54 913.87 350.25 Q 913.87 343.85 913.73 310.51 C 913.59 279.64 890.84 248.89 859.8 243.26 Q 855.01 242.39 845.2 242.4 Q 735.01 242.44 716.25 242.4 Q 708.72 242.38 705.28 242.67 C 688.41 244.09 674.53 255.82 670.13 271.87 Q 668.71 277.05 668.72 288.26 Q 668.8 403.3 668.79 407.26 C 668.73 429.15 687.02 445.81 708.28 445.78 Q 723.29 445.75 737.72 445.69 L 737.72 445.69 A 0.6565 0.6519 78.2735 0 1 738.34 446.1 Q 748.79 472.7 773.46 487.92 L 773.46 487.92 A 0.2759 0.2737 60.5847 0 1 773.32 488.43 Q 746.06 488.27 717.83 488.45 Q 699.82 488.56 692.29 486.93 Q 675.65 483.32 663.78 475.73 Q 640.67 460.95 630.84 435.18 C 626.71 424.34 625.81 415.24 625.82 402.4 Q 625.87 313.63 625.78 289.05 Q 625.72 274.97 627.22 267.58 C 634.19 233.22 661.15 206.38 695.82 200.44 Q 701.96 199.39 712.75 199.39 Q 768.15 199.4 854 199.4 Q 858.34 199.41 867.8 201.07 Q 874.86 202.32 881.21 204.48 C 914.65 215.86 940.3 242.82 951.4 276.34 Q 956.72 292.43 956.78 308.5 Q 956.81 318.91 956.88 344.27 Q 956.94 364.15 955.25 374.14 Q 951.72 395.08 941.77 413.99 C 938.94 419.38 934.77 424.88 931.3 429.85 L 931.3 429.85 A 1.2776 1.2741 17.2763 0 1 930.25 430.4 L 864.77 430.4 Z"
-        fill="var(--bridge-mark-primary)"
-        transform="matrix(0.5818 0 0 0.5818 0 0)"
-      />
-      <path
-        d="M 896.95 373.03 L 896.95 373.03 A 0.6463 0.6441 -83.8938 0 1 896.32 373.54 Q 871.83 373.82 838.84 373.65 Q 820.82 373.56 816.73 374.53 C 795.55 379.55 784.9 400.68 790.87 421.13 C 793.48 430.08 798.91 436.11 806.81 440.77 Q 815.27 445.76 824.54 445.77 Q 857.29 445.77 980.74 445.82 Q 993.93 445.83 1007.2 451.29 C 1046.5 467.48 1065.63 510.54 1050.8199 550.98 Q 1043.61 570.68 1027.51 584.73 Q 1023.67 588.08 1014.98 593.18 Q 1005.17 598.94 992.3 601.61 Q 986.5 602.81 968.13 602.8 Q 876.32 602.75 842.35 602.75 Q 818.37 602.75 817.15 602.59 C 805.99 601.11 795.75 597.97 785.66 591.65 Q 759.6 575.33 750.46 544.77 Q 746.76 532.39 747.41 519.21 L 747.41 519.21 A 1.3529 1.3514 -88.6671 0 1 748.76 517.92 L 787.86 517.92 L 787.86 517.92 A 1.8981 1.8942 -88.1551 0 1 789.75 519.94 C 788.61 537.13 798.59 553.44 815.27 558.67 Q 820.27 560.24 835.53 560.22 Q 897.28 560.16 976.26 560.16 Q 990.81 560.16 1000.68 551.71 Q 1015.36 539.15 1013.57 519.34 Q 1013.3 516.35 1011.1 510.38 C 1008.01 501.96 1001.86 496.55 993.91 492.23 C 986.35 488.13 979.5 488.45 970 488.44 Q 892 488.41 827.25 488.47 Q 816.38 488.48 807.56 486.62 C 787.46 482.39 769.98 469.71 759.32 452.36 Q 757.23 448.98 755.78 445.86 C 754.36 442.81 752.55 439.97 751.58 437.02 Q 740.83 404.12 755.51 374.72 C 767.26 351.19 788.59 335.04 814.84 331.58 Q 820.95 330.78 832.06 330.81 Q 883.87 330.98 897.79 330.8 L 897.79 330.8 A 0.7015 0.6915 -89.2094 0 1 898.49 331.53 Q 898.05 343.01 898.46 354.62 C 898.72 361.7 898.34 366.91 896.95 373.03 Z"
-        fill="var(--bridge-mark-secondary)"
-        transform="matrix(0.5818 0 0 0.5818 0 0)"
-      />
-      <path
-        d="M 971.82 331.88 L 971.82 331.88 A 0.98 0.98 -60.1943 0 1 972.8 330.9 C 994.8 331.03 1015.5 340.93 1030.0601 357.64 Q 1049.92 380.42 1049.22 413.11 L 1049.22 413.11 A 1.591 1.5905 -89.2606 0 1 1047.63 414.66 L 1008.32 414.66 L 1008.32 414.66 A 1.9801 1.98 89.8546 0 1 1006.34 412.69 Q 1006.3 406.39 1006.21 405.46 Q 1004.53 389.03 991.04 379.45 Q 983.23 373.91 972.94 373.98 L 972.94 373.98 A 1.1101 1.11 -0.2558 0 1 971.82 372.87 L 971.82 331.88 Z"
-        fill="var(--bridge-mark-secondary)"
-        transform="matrix(0.5818 0 0 0.5818 0 0)"
-      />
-    </svg>
-  );
-}
-
 function StartupScreen({ ready }: { ready: boolean }) {
   return (
     <main className={`startup-screen ${ready ? 'ready' : ''}`} aria-live="polite">
       <section className="startup-card" aria-label="Starting OpenDS5">
         <div className="startup-brand">
-          <BridgeMark />
           <div>
             <strong>OpenDS5</strong>
             <span>Starting companion</span>
@@ -1130,22 +1105,12 @@ function StartupScreen({ ready }: { ready: boolean }) {
 }
 
 function StartupTutorial({
-  step,
   featureExampleActive,
-  supportCountdown,
-  kofiBadgeUrl,
   onFeatureExampleToggle,
-  onFeatureStepComplete,
-  onSupport,
   onFinish
 }: {
-  step: Exclude<StartupTutorialStep, 'done'>;
   featureExampleActive: boolean;
-  supportCountdown: number;
-  kofiBadgeUrl: string;
   onFeatureExampleToggle: () => void;
-  onFeatureStepComplete: () => void;
-  onSupport: () => void;
   onFinish: () => void;
 }) {
   return (
@@ -1154,80 +1119,43 @@ function StartupTutorial({
         className="settings-menu bridge-settings-modal startup-tutorial-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={step === 'feature-toggle' ? 'Feature tile tutorial' : 'Support OpenDS5'}
+        aria-label="Feature tile tutorial"
       >
-        {step === 'feature-toggle' ? (
-          <>
-            <div className="settings-menu-heading bridge-settings-modal-heading">
-              <div className="modal-heading-copy">
-                <IconSparkleHighlight size={16} />
-                <span>Feature Tiles</span>
-              </div>
-              <span className="startup-tutorial-step">1 / 2</span>
-            </div>
-            <div className="startup-tutorial-copy">
-              <h2>Click The Square</h2>
-              <p>Feature tiles turn effects on and off. Try it once here, then keep going.</p>
-            </div>
-            <div className="startup-tutorial-feature-demo">
-              <button
-                className={`startup-tutorial-feature-icon ${featureExampleActive ? 'active' : ''}`}
-                type="button"
-                aria-pressed={featureExampleActive}
-                aria-label="Toggle example effect"
-                onClick={onFeatureExampleToggle}
-              >
-                <IconSparkleHighlight size={24} />
-              </button>
-              <span>
-                <strong>Example Effect</strong>
-                <span>{featureExampleActive ? 'On' : 'Off'}</span>
-              </span>
-            </div>
-            <div className="startup-tutorial-actions">
-              <button
-                type="button"
-                className="primary-action"
-                disabled={!featureExampleActive}
-                onClick={onFeatureStepComplete}
-              >
-                Next <ArrowRight size={16} />
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="settings-menu-heading bridge-settings-modal-heading">
-              <div className="modal-heading-copy">
-                <Heart size={16} />
-                <span>One Tiny Ask</span>
-              </div>
-              <span className="startup-tutorial-step">2 / 2</span>
-            </div>
-            <div className="startup-tutorial-copy">
-              <h2>Enjoying OpenDS5?</h2>
-              <p>If this app makes your setup better, please consider supporting the work on Ko-fi.</p>
-            </div>
-            <button
-              className="startup-tutorial-kofi-button"
-              type="button"
-              aria-label="Support LordVicky on Ko-fi"
-              onClick={onSupport}
-            >
-              <img src={kofiBadgeUrl} alt="" />
-            </button>
-            <div className="startup-tutorial-actions">
-              <button
-                type="button"
-                className="primary-action"
-                disabled={supportCountdown > 0}
-                onClick={onFinish}
-              >
-                {supportCountdown > 0 ? `Continue In ${supportCountdown}` : 'Continue'}
-              </button>
-            </div>
-          </>
-        )}
+        <div className="settings-menu-heading bridge-settings-modal-heading">
+          <div className="modal-heading-copy">
+            <IconSparkleHighlight size={16} />
+            <span>Feature Tiles</span>
+          </div>
+        </div>
+        <div className="startup-tutorial-copy">
+          <h2>Click The Square</h2>
+          <p>Feature tiles turn effects on and off. Try it once here, then keep going.</p>
+        </div>
+        <div className="startup-tutorial-feature-demo">
+          <button
+            className={`startup-tutorial-feature-icon ${featureExampleActive ? 'active' : ''}`}
+            type="button"
+            aria-pressed={featureExampleActive}
+            aria-label="Toggle example effect"
+            onClick={onFeatureExampleToggle}
+          >
+            <IconSparkleHighlight size={24} />
+          </button>
+          <span>
+            <strong>Example Effect</strong>
+            <span>{featureExampleActive ? 'On' : 'Off'}</span>
+          </span>
+        </div>
+        <div className="startup-tutorial-actions">
+          <button
+            type="button"
+            className="primary-action"
+            disabled={!featureExampleActive}
+            onClick={onFinish}
+          >
+            Continue <ArrowRight size={16} />
+          </button>
+        </div>
       </section>
     </div>
   );
@@ -1310,7 +1238,8 @@ function FeatureTipsPanel({
       title: 'Custom Color',
       text: 'Double-click the final color swatch to choose a custom lightbar color.'
     });
-  } else {
+  } else if (tab !== 'triggers') {
+    // The triggers tab has no tests any more -- it is enable/disable plus intensity.
     tips.push({
       key: 'tests',
       icon: <Play size={16} />,
@@ -2705,17 +2634,6 @@ export function App() {
   const [customSwatchPrimed, setCustomSwatchPrimed] = useState(false);
   const [lightbarBrightnessValue, setLightbarBrightnessValue] = useState(100);
   const [triggerEffectIntensityValue, setTriggerEffectIntensityValue] = useState(100);
-  const [triggerTarget, setTriggerTarget] = useState<TriggerTestTarget>('both');
-  const [triggerLabEffect, setTriggerLabEffect] = useState<TriggerEffectSpec>(() => defaultEffectForMode('feedback'));
-  const triggerLabSeededRef = useRef(false);
-
-  useEffect(() => {
-    if (triggerLabSeededRef.current) return;
-    const mode = snapshot?.settings.triggerTestMode;
-    if (!mode) return;
-    triggerLabSeededRef.current = true;
-    setTriggerLabEffect(defaultEffectForMode(mode));
-  }, [snapshot]);
   const [audioHapticsOpen, setAudioHapticsOpen] = useState(false);
   const [audioHapticsSessions, setAudioHapticsSessions] = useState<AudioHapticsSession[]>([]);
   const [audioHapticsSessionsLoading, setAudioHapticsSessionsLoading] = useState(false);
@@ -2788,7 +2706,6 @@ export function App() {
   const [speakerTestError, setSpeakerTestError] = useState<string | null>(null);
   const [micTestLocked, setMicTestLocked] = useState(false);
   const [micTestError, setMicTestError] = useState<string | null>(null);
-  const [triggerTestLocked, setTriggerTestLocked] = useState(false);
   const [hapticsCommitPending, setHapticsCommitPending] = useState(false);
   const [classicRumbleCommitPending, setClassicRumbleCommitPending] = useState(false);
   const [classicRumbleV1CommitPending, setClassicRumbleV1CommitPending] = useState(false);
@@ -2802,9 +2719,34 @@ export function App() {
   const [deviceCleanupConfirmVisible, setDeviceCleanupConfirmVisible] = useState(false);
   const [startupTutorialStep, setStartupTutorialStep] = useState<StartupTutorialStep>(storedStartupTutorialStep);
   const [startupTutorialFeatureActive, setStartupTutorialFeatureActive] = useState(false);
-  const [startupTutorialSupportCountdown, setStartupTutorialSupportCountdown] = useState(5);
+  const [updateState, setUpdateState] = useState<UpdateState>({ phase: 'idle' });
   const [deviceCleanupMessage, setDeviceCleanupMessage] = useState<string | null>(null);
   const [deviceCleanupError, setDeviceCleanupError] = useState<string | null>(null);
+
+  const startupTutorialOpen = startupTutorialStep !== 'done';
+  // Every dialog that renders a .modal-backdrop. The update toast is suppressed while
+  // any of them is up, so it can never sit on top of a dialog or first-run setup.
+  const anyModalOpen = (
+    deviceCleanupConfirmVisible
+    || chordFunctionDialog !== null
+    || triggerProfileDeleteConfirm !== null
+    || triggerProfileResetConfirm !== null
+    || remapProfileDialogMode !== null
+    || controllerProfileDialogMode !== null
+    || triggerProfileLibraryOpen
+    || showBridgeSettings
+  );
+
+  useEffect(() => window.update.onState(setUpdateState), []);
+
+  useEffect(() => {
+    if (startupTutorialOpen) return;
+    // Let the window's opening animation settle before anything appears.
+    const timer = setTimeout(() => {
+      void window.update.check().then(setUpdateState);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [startupTutorialOpen]);
   const hapticsEditingRef = useRef(false);
   const classicRumbleEditingRef = useRef(false);
   const speakerVolumeEditingRef = useRef(false);
@@ -2860,20 +2802,6 @@ export function App() {
       }
     };
   }, [Boolean(snapshot), startupVisible]);
-
-  useEffect(() => {
-    if (startupTutorialStep !== 'support') {
-      return undefined;
-    }
-
-    setStartupTutorialSupportCountdown(5);
-    const interval = window.setInterval(() => {
-      setStartupTutorialSupportCountdown((value) => Math.max(0, value - 1));
-    }, 1000);
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [startupTutorialStep]);
 
   const personaTransition = snapshot?.personaTransition ?? null;
   const personaTransitionActive = Boolean(personaTransition);
@@ -3230,18 +3158,13 @@ export function App() {
     return () => observer.disconnect();
   }, [mainUiMounted]);
 
-  // When the engine auto-matches a running game, follow it in the editor so the
-  // viewport shows the profile that is actually driving the triggers. Only on
-  // the transition to a newly matched profile, so manual selection still wins.
+  // The editor always shows the profile that is actually driving the triggers, however it became
+  // active: a matched game, a pin, or the default fallback. Following only process matches left
+  // the editor on a profile the controller was not using -- e.g. auto mode falls back to Default
+  // while the strip still highlights the last profile opened.
   useEffect(() => {
     const status = triggerProfileEngineStatus;
-    if (!status) return;
-    if (status.matchedBy !== 'process' || !status.activeProfileId) {
-      // Not auto-matched right now (pinned, fallback, or no game): clear the
-      // marker so the next process match re-follows even for the same game.
-      lastAutoMatchedProfileRef.current = null;
-      return;
-    }
+    if (!status?.activeProfileId) return;
     if (lastAutoMatchedProfileRef.current === status.activeProfileId) return;
     const profile = triggerProfiles.find((entry) => entry.id === status.activeProfileId);
     if (!profile) return;
@@ -3908,33 +3831,6 @@ export function App() {
       ? 'Active'
       : 'Enabled'
     : 'Off';
-  const triggerLabModeTestable = TRIGGER_LAB_TESTABLE_MODES.includes(triggerLabEffect.mode as TriggerTestMode);
-  const testTriggersUnavailable = !triggerLabModeTestable
-    || !connected
-    || !adaptiveTriggersSupported
-    || !adaptiveTriggersEnabled
-    || pendingAction !== null
-    || triggerTestLocked
-    || adaptiveTriggerOutputActive
-    || Boolean(snapshot?.status?.testAdaptiveTriggersBusy);
-  const triggerStatusReady = connected
-    && adaptiveTriggersSupported
-    && adaptiveTriggersEnabled
-    && !triggerTestLocked
-    && !adaptiveTriggerOutputActive
-    && !snapshot?.status?.testAdaptiveTriggersBusy;
-  const triggerStatusLabel = triggerTestLocked || snapshot?.status?.testAdaptiveTriggersBusy
-    ? 'Testing'
-    : triggerStatusReady
-      ? 'Ready'
-      : connected && adaptiveTriggerOutputActive
-        ? 'Game Triggers Active'
-        : 'Unavailable';
-  const triggerStatusTone = triggerTestLocked || snapshot?.status?.testAdaptiveTriggersBusy || triggerStatusReady
-    ? 'good'
-    : connected && adaptiveTriggerOutputActive
-      ? 'warn'
-      : 'idle';
   const lightbarStateActive = connected && lightbarSupported && lightbarEnabled;
   const lightbarStateLabel = lightbarStateActive
     ? 'Active'
@@ -4603,49 +4499,6 @@ export function App() {
         setMicTestLocked(false);
       }
     })();
-  }
-
-  function runTestAdaptiveTriggers() {
-    setTriggerTestLocked(true);
-    void runAction('triggers', async () => {
-      if (
-        snapshot
-        && triggerEffectIntensityValue !== snapshot.settings.triggerEffectIntensityPercent
-        && !isPreservingPowerSavingCap(snapshot.settings.triggerEffectIntensityPercent, triggerEffectIntensityValue)
-      ) {
-        await window.bridge.setTriggerEffectIntensity(triggerEffectIntensityValue);
-      }
-      const effect = triggerLabEffect;
-      if (effect.mode === 'feedback' || effect.mode === 'weapon' || effect.mode === 'vibration') {
-        return window.bridge.previewAdaptiveTriggerEffect({
-          mode: effect.mode,
-          target: triggerTarget,
-          startPercent: effect.startPercent,
-          wallPercent: effect.mode === 'weapon' ? effect.wallPercent : 0,
-          forcePercent: effect.forcePercent
-        });
-      }
-      return window.bridge.testAdaptiveTriggers(snapshot?.settings.triggerTestMode ?? 'feedback', triggerTarget);
-    }).finally(() => {
-      window.setTimeout(() => setTriggerTestLocked(false), TEST_TRIGGER_LOCK_MS);
-    });
-  }
-
-  function setTriggerTestMode(mode: TriggerTestMode) {
-    void runAction('trigger-mode', () => window.bridge.setTriggerTestMode(mode));
-  }
-
-  function updateTriggerLabEffect(effect: TriggerEffectSpec) {
-    const previousMode = triggerLabEffect.mode;
-    setTriggerLabEffect(effect);
-    if (
-      effect.mode !== previousMode
-      && TRIGGER_LAB_TESTABLE_MODES.includes(effect.mode as TriggerTestMode)
-      && snapshot
-      && snapshot.settings.triggerTestMode !== effect.mode
-    ) {
-      setTriggerTestMode(effect.mode as TriggerTestMode);
-    }
   }
 
   function resetAdaptiveTriggers() {
@@ -5491,11 +5344,14 @@ export function App() {
     return profiles;
   }
 
+  // Picking a profile by hand is a request to use it, so it pins the profile and auto matching
+  // turns off. Without the pin the engine keeps driving whatever a running game matched -- and a
+  // profile with no processNames, like Showcase, could never become active at all.
   function selectTriggerProfile(id: string) {
     const profile = triggerProfiles.find((entry) => entry.id === id);
-    if (profile) {
-      loadTriggerProfileDraft(profile);
-    }
+    if (!profile) return;
+    loadTriggerProfileDraft(profile);
+    void pinSelectedTriggerProfile(profile.id);
   }
 
   function createTriggerProfile() {
@@ -5907,7 +5763,6 @@ export function App() {
         }}
       >
         <span className="bridge-wordmark" aria-label="OpenDS5">
-          <BridgeMark />
           <span className="bridge-wordmark-ds">Open</span>
           <span className="bridge-wordmark-name">DS5</span>
         </span>
@@ -7363,9 +7218,21 @@ export function App() {
               <div className="feature-heading">
                 <div>
                   <h2>Adaptive Triggers</h2>
-                  <p>Set trigger effect intensity and test mode</p>
+                  <p>Set the strength of adaptive trigger effects</p>
                 </div>
                 <div className="triggers-heading-controls">
+                  {/* Rarely needed, but it is the way out when a game quits without releasing
+                      the triggers and leaves an effect held on them. */}
+                  <button
+                    className="secondary-action triggers-reset-button"
+                    type="button"
+                    title="Clear any effect currently held on the triggers"
+                    disabled={!connected || !adaptiveTriggersSupported || adaptiveTriggerOutputActive || pendingAction !== null}
+                    onClick={resetAdaptiveTriggers}
+                  >
+                    <RefreshCcw size={14} />
+                    Reset
+                  </button>
                   <div className="inline-switch">
                     <span>Enabled</span>
                     <button
@@ -7452,75 +7319,6 @@ export function App() {
                         {label}
                       </button>
                     ))}
-                  </div>
-                </section>
-                <section className="feature-card test-card trigger-test-card">
-                  <div className="feature-card-title">
-                    <span className="feature-icon"><IconTestPipe size={20} /></span>
-                    <div className="title-copy">
-                      <h3>Testing</h3>
-                      <p>Choose a trigger effect and run a short test</p>
-                    </div>
-                  </div>
-                  <div className="test-options">
-                    <TriggerEffectEditor
-                      label="Trigger test"
-                      value={triggerLabEffect}
-                      disabled={
-                        !connected
-                        || !adaptiveTriggersSupported
-                        || !snapshot.settings.adaptiveTriggersEnabled
-                        || adaptiveTriggerOutputActive
-                        || pendingAction !== null
-                      }
-                      onChange={updateTriggerLabEffect}
-                    />
-                    {!triggerLabModeTestable && (
-                      <p className="trigger-lab-test-note">
-                        Test playback covers Feedback, Weapon, and Vibration. Preview this effect by
-                        assigning it in a game trigger profile.
-                      </p>
-                    )}
-                    <div className="target-row">
-                      <div className="segmented-row compact">
-                        {TRIGGER_TARGET_OPTIONS.map(([label, value]) => (
-                          <button
-                            key={value}
-                            type="button"
-                            className={triggerTarget === value ? 'active' : ''}
-                            disabled={!connected || !adaptiveTriggersSupported || adaptiveTriggerOutputActive}
-                            onClick={() => setTriggerTarget(value)}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="trigger-action-row">
-                    <button className="primary-action" type="button" disabled={testTriggersUnavailable} onClick={runTestAdaptiveTriggers}>
-                      <Play size={15} />
-                      {connected && adaptiveTriggerOutputActive
-                        ? 'Game Triggers Active'
-                        : connected && (triggerTestLocked || snapshot.status?.testAdaptiveTriggersBusy)
-                          ? 'Testing'
-                          : 'Test Triggers'}
-                    </button>
-                    <button
-                      className="secondary-action"
-                      type="button"
-                      disabled={!connected || !adaptiveTriggersSupported || adaptiveTriggerOutputActive || pendingAction !== null}
-                      onClick={resetAdaptiveTriggers}
-                    >
-                      <RefreshCcw size={14} />
-                      Reset Triggers
-                    </button>
-                  </div>
-                  <div className={`feature-status test-status ${triggerStatusTone}`}>
-                    <span className="status-badge">
-                      <span className={`dot ${triggerStatusTone}`} />
-                      <strong>{triggerStatusLabel}</strong>
-                    </span>
                   </div>
                 </section>
               </div>
@@ -8144,14 +7942,14 @@ export function App() {
                   aria-pressed={triggerProfileEngineStatus?.matchedBy !== 'pin'}
                   title={
                     triggerProfileEngineStatus?.matchedBy === 'pin'
-                      ? 'Pinned to Default — click to switch back to automatic game matching'
+                      ? `Using ${triggerProfileNameById(triggerProfileEngineStatus.activeProfileId)} — click to resume automatic game matching`
                       : 'Auto matching running games — click to pin the Default profile'
                   }
                   onClick={() => {
                     if (triggerProfileEngineStatus?.matchedBy === 'pin') {
+                      // Back to auto: unpinned, the engine falls back to Default until a game matches.
                       void pinSelectedTriggerProfile('');
                     } else {
-                      void pinSelectedTriggerProfile('default');
                       selectTriggerProfile('default');
                     }
                   }}
@@ -9365,13 +9163,8 @@ export function App() {
 
       {startupTutorialStep !== 'done' && (
         <StartupTutorial
-          step={startupTutorialStep}
           featureExampleActive={startupTutorialFeatureActive}
-          supportCountdown={startupTutorialSupportCountdown}
-          kofiBadgeUrl={kofiBadgeUrl}
           onFeatureExampleToggle={() => setStartupTutorialFeatureActive((active) => !active)}
-          onFeatureStepComplete={() => setStartupTutorialStep('support')}
-          onSupport={() => void window.bridge.openExternal('https://ko-fi.com/lordvicky')}
           onFinish={() => {
             saveStartupTutorialCompleted();
             setStartupTutorialStep('done');
@@ -9844,10 +9637,15 @@ export function App() {
                               <span className="trigger-profiles-library-entry-title">
                                 <strong>{row.entry.game}</strong>
                                 <span className="trigger-profiles-library-entry-author">
-                                  {row.entry.name}
-                                  {row.entry.origin
-                                    ? ` · Ported from ${row.entry.origin.from}`
-                                    : ` · by ${row.entry.author}`}
+                                  {[
+                                    profileVariantLabel(row.entry.game, row.entry.name),
+                                    row.entry.author ? `by ${row.entry.author}` : null,
+                                    row.entry.origin
+                                      ? `ported from ${row.entry.origin.from}`
+                                      : null
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · ')}
                                 </span>
                               </span>
                               <p className="trigger-profiles-library-entry-description">
@@ -10171,20 +9969,68 @@ export function App() {
                 <button
                   type="button"
                   className="settings-menu-link-row"
+                  onClick={() => void window.bridge.openExternal('https://github.com/LordVicky/OpenDS5')}
+                >
+                  <span className="settings-menu-link-icon" aria-hidden="true">
+                    <IconBrandGithub size={18} />
+                  </span>
+                  <span className="settings-menu-link-copy">
+                    <strong>OpenDS5</strong>
+                    <span>LordVicky/OpenDS5 · AGPL-3.0</span>
+                  </span>
+                </button>
+                {/* Upstream attribution. The companion app is an AGPL-3.0 derivative of
+                    SundayMoments/DS5_Bridge, so the credit stays. */}
+                <button
+                  type="button"
+                  className="settings-menu-link-row"
                   onClick={() => void window.bridge.openExternal('https://github.com/SundayMoments')}
                 >
                   <span className="settings-menu-link-icon" aria-hidden="true">
                     <IconBrandGithub size={18} />
                   </span>
                   <span className="settings-menu-link-copy">
-                    <strong>GitHub</strong>
-                    <span>SundayMoments</span>
+                    <strong>Based on DS5 Bridge</strong>
+                    <span>by SundayMoments</span>
+                  </span>
+                </button>
+                {/* vds (MIT, Jihong Min) is the virtual-DualSense transport this port runs on. */}
+                <button
+                  type="button"
+                  className="settings-menu-link-row"
+                  onClick={() => void window.bridge.openExternal('https://github.com/hurryman2212/vds')}
+                >
+                  <span className="settings-menu-link-icon" aria-hidden="true">
+                    <IconBrandGithub size={18} />
+                  </span>
+                  <span className="settings-menu-link-copy">
+                    <strong>Powered by vds</strong>
+                    <span>by Jihong Min · MIT</span>
                   </span>
                 </button>
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {!startupTutorialOpen && !anyModalOpen && (
+        <UpdateToast
+          state={updateState}
+          onAction={(action) => {
+            if (action === 'skip') {
+              if ('version' in updateState) void window.update.skip(updateState.version);
+              setUpdateState({ phase: 'idle' });
+              return;
+            }
+            if (action === 'dismiss') {
+              void window.update.dismiss();
+              setUpdateState({ phase: 'idle' });
+              return;
+            }
+            void window.update[action]();
+          }}
+        />
       )}
 
     </div>

@@ -143,6 +143,9 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
   launchAtStartupEnabled: false,
   setupSkipped: false,
   showBatteryPercentTrayIcon: false,
+  lastUpdateCheckAt: 0,
+  skippedUpdateVersions: [],
+  installedModuleSourceHash: '',
   hapticsEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.hapticsEnabled,
   hapticsGainPercent: DEFAULT_CONTROLLER_PROFILE_SETTINGS.hapticsGainPercent,
   feedbackBoostEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.feedbackBoostEnabled,
@@ -310,6 +313,11 @@ function normalizeAudioReactiveHapticsRelease(value: unknown): AudioReactiveHapt
     default:
       return DEFAULT_CONTROLLER_PROFILE_SETTINGS.audioReactiveHapticsRelease;
   }
+}
+
+export function normalizeSkippedUpdateVersions(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
 }
 
 export function normalizeUiScalePercent(value: unknown): UiScalePercent {
@@ -804,6 +812,7 @@ function syncSelectedButtonRemappingProfile(settings: CompanionSettings): Compan
 function cloneSettings(settings: CompanionSettings): CompanionSettings {
   return {
     ...settings,
+    skippedUpdateVersions: [...settings.skippedUpdateVersions],
     controllerProfiles: settings.controllerProfiles.map((profile) => ({
       ...profile,
       settings: cloneControllerProfileSettings(profile.settings)
@@ -867,6 +876,13 @@ function normalizeSettings(value: Partial<CompanionSettings> | null | undefined)
     showBatteryPercentTrayIcon: typeof value?.showBatteryPercentTrayIcon === 'boolean'
       ? value.showBatteryPercentTrayIcon
       : DEFAULT_SETTINGS.showBatteryPercentTrayIcon,
+    lastUpdateCheckAt: typeof value?.lastUpdateCheckAt === 'number' && Number.isFinite(value.lastUpdateCheckAt)
+      ? value.lastUpdateCheckAt
+      : DEFAULT_SETTINGS.lastUpdateCheckAt,
+    skippedUpdateVersions: normalizeSkippedUpdateVersions(value?.skippedUpdateVersions),
+    installedModuleSourceHash: typeof value?.installedModuleSourceHash === 'string'
+      ? value.installedModuleSourceHash
+      : DEFAULT_SETTINGS.installedModuleSourceHash,
     hapticsEnabled: typeof value?.hapticsEnabled === 'boolean'
       ? value.hapticsEnabled
       : DEFAULT_SETTINGS.hapticsEnabled,

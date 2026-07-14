@@ -25,7 +25,7 @@ stream; used by the wizard).
 | Debian / Ubuntu | apt: dkms + `linux-headers-$(uname -r)` |
 | openSUSE | zypper: dkms + `kernel-default-devel` |
 | Bazzite / Silverblue | `rpm-ostree install --idempotent dkms kernel-devel`; requires one reboot, then re-run the installer |
-| NixOS | No system changes: writes `./opends5-vds.nix` + `./opends5-vds-src/` for `boot.extraModulePackages`; apply with `nixos-rebuild switch` |
+| NixOS | Nothing to run: use the flake (see "NixOS" below). The installer's fallback writes `./opends5-vds.nix` + `./opends5-vds-src/` for non-flake configs |
 | Anything else | Clean "unsupported" message; see docs/PORTING.md for manual steps |
 
 On all dkms-based platforms it then stages the module source to
@@ -66,6 +66,75 @@ checkout) the step is skipped.
 
 The binaries are built in CI on Ubuntu 22.04 (glibc 2.35 baseline), so one
 build runs on every 2022-or-newer distribution.
+
+## NixOS
+
+NixOS is configured declaratively, so the installer never escalates and never
+modifies the system there. The repo ships a **flake** that replaces the whole
+installer — kernel module *and* userspace — with one import.
+
+### Flake (recommended)
+
+Add the input and enable the service in your flake-based configuration:
+
+```nix
+{
+  inputs.opends5.url = "github:LordVicky/OpenDS5";
+
+  # in your nixosConfigurations.<host>:
+  modules = [
+    inputs.opends5.nixosModules.default
+    {
+      services.opends5 = {
+        enable = true;
+        users = [ "YOURNAME" ];   # members of the vds group (/dev/vds* access)
+      };
+    }
+  ];
+}
+```
+
+Then `sudo nixos-rebuild switch`. This is the declarative equivalent of
+everything the installer does on other distributions:
+
+- builds the `vds_hcd` kernel module from source against *your* configured
+  kernel (`boot.extraModulePackages`) and autoloads it — no DKMS, no MOK
+  signing; kernel bumps rebuild it automatically,
+- builds `vdsd`/`vdsctl` from the `vds/` source tree (no glibc-prebuilt
+  binaries, no nix-ld),
+- installs the udev rules, the system-wide wireplumber config, the `vds`
+  group, and the `vdsd` systemd unit.
+
+To run the companion app itself, enable AppImage support
+(`programs.appimage = { enable = true; binfmt = true; };`) and run the
+release AppImage; the setup wizard will detect a working system and skip
+installation.
+
+**Updates**: the AppImage swap updates the app normally, but the driver is
+pinned by your flake lock — after an app update, run
+`nix flake update opends5 && sudo nixos-rebuild switch` to match. Until then
+the running module is the locked version.
+
+Smoke-test the packages without a NixOS machine (any box with Nix):
+`nix build .#vds` and `nix build .#vds-module`.
+
+### Generator fallback (non-flake configs)
+
+`--install-system` on NixOS runs entirely unprivileged and writes two things
+to the current directory: `opends5-vds.nix` (a module that builds `vds_hcd`
+via `boot.extraModulePackages`) and `opends5-vds-src/` (the module source).
+Move both next to `configuration.nix`, add
+`imports = [ ./opends5-vds.nix ];`, and `sudo nixos-rebuild switch`.
+
+The fallback covers the kernel module only. For userspace, mirror the flake
+module by hand: create the `vds` group, add your user, install the udev rules
+(`vds-bin/99-vds-dualsense-udev.rules`) via `services.udev.extraRules`, and
+run `vdsd` as a systemd service built from the `vds/` source (the prebuilt
+Ubuntu binaries need `programs.nix-ld.enable`). Re-run the generator and
+rebuild after driver updates.
+
+Verify either path with `lsmod | grep vds_hcd` and `ls /dev/vds*` after the
+rebuild (reboot if the kernel changed).
 
 ## Setup wizard
 

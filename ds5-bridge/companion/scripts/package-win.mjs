@@ -12,17 +12,17 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const outDir = path.join(companionDir, 'artifacts', `DS5 Bridge-win32-x64-${stamp}`);
 const appDir = path.join(outDir, 'resources', 'app');
 const assetDir = path.join('assets', 'controllers');
-const appIcon = path.join(repoDir, assetDir, 'ds5-bridge_app-icon-tile.ico');
+const appIcon = path.join(repoDir, assetDir, 'opends5_app-icon.ico');
 const audioHelperDir = path.join(companionDir, 'native', 'AudioHelper', 'bin', 'publish', 'win-x64');
 const windowsCleanupScript = path.join(repoDir, 'tools', 'windows', 'clean-ds5bridge-devices.ps1');
 const picoUniversalFlashNukeUf2 = path.join(companionDir, 'firmware', 'pico-universal-flash-nuke.uf2');
 const picoUniversalFlashNukeSha256 = `${picoUniversalFlashNukeUf2}.sha256`;
 const appPackage = JSON.parse(fs.readFileSync(path.join(companionDir, 'package.json'), 'utf8'));
 const appAssets = [
-  'ds5-bridge_app-icon-tile.ico',
-  'ds5-bridge_app-icon-tile.png',
-  'ds5-bridge_mark.ico',
-  'ds5-bridge_mark.png'
+  'opends5_app-icon.ico',
+  'opends5_app-icon.png',
+  'opends5_mark.ico',
+  'opends5_mark.png'
 ];
 
 const runtimePackages = [

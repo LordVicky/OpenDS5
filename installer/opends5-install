@@ -200,8 +200,8 @@ cleanup_stage() { [ -n "$STAGE_DIR" ] && rm -rf "$STAGE_DIR"; }
 
 resolve_icon_source() {
   local cand
-  for cand in "${APPDIR:-/nonexistent}/resources/assets/controllers/ds5-bridge_app-icon-tile.png" \
-              "${APPDIR:-/nonexistent}/resources/assets/controllers/ds5-bridge_mark.png"; do
+  for cand in "${APPDIR:-/nonexistent}/resources/assets/controllers/opends5_app-icon.png" \
+              "${APPDIR:-/nonexistent}/resources/assets/controllers/opends5_mark.png"; do
     if [ -f "$cand" ]; then ICON_SRC="$cand"; return; fi
   done
 }

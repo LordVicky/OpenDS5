@@ -15,7 +15,10 @@ import {
   nukePicoFlash as copyPicoFlashNuke
 } from './pico-firmware-updater';
 import { SettingsStore } from './settings-store';
-import { growBoundsToMinimum, loadWindowState, resolveWindowBounds, saveWindowState } from './window-state';
+import { appImagePath } from './appimage-updater';
+import { isCheckDue, UpdateService, type UpdateState } from './update-service';
+import { RELEASES_PAGE_URL } from './update-ipc';
+import { defaultWindowSize, growBoundsToMinimum, loadWindowState, resolveWindowBounds, saveWindowState } from './window-state';
 import { deriveLegacyUserDataPath, migrateLegacyUserData } from './user-data-migration';
 import { readProfileFileForImport, TriggerProfileStore } from './trigger-profile-store';
 import { ProfileLibrary, type LibraryEntry } from './profile-library';
@@ -50,12 +53,14 @@ import type {
 const APP_NAME = 'OpenDS5';
 const WINDOWS_APP_USER_MODEL_ID = 'io.github.sundaymoments.ds5bridge';
 const WINDOWS_TOAST_ACTIVATOR_CLSID = '{A8B3700D-4BB5-4E22-BF57-0C43B7C2FDF6}';
-const APP_MARK_PNG = path.join('assets', 'controllers', 'ds5-bridge_mark.png');
-const APP_TRAY_ICON_ICO = path.join('assets', 'controllers', 'ds5-bridge_mark.ico');
-const APP_TRAY_ICON_PNG = path.join('assets', 'controllers', 'ds5-bridge_mark.png');
-const APP_ICON_ICO = path.join('assets', 'controllers', 'ds5-bridge_app-icon-tile.ico');
+const APP_MARK_PNG = path.join('assets', 'controllers', 'opends5_mark.png');
+const APP_TRAY_ICON_ICO = path.join('assets', 'controllers', 'opends5_mark.ico');
+const APP_TRAY_ICON_PNG = path.join('assets', 'controllers', 'opends5_mark.png');
+const APP_ICON_ICO = path.join('assets', 'controllers', 'opends5_app-icon.ico');
 const PICO_UNIVERSAL_FLASH_NUKE_RELATIVE_PATH = path.join('firmware', PICO_UNIVERSAL_FLASH_NUKE_FILE);
 const PICO_UNIVERSAL_FLASH_NUKE_SHA256_RELATIVE_PATH = path.join('firmware', PICO_UNIVERSAL_FLASH_NUKE_SHA256_FILE);
+// The floor the window may be resized to. The size a first launch opens at lives in
+// window-state.ts as defaultWindowSize().
 const BASE_WINDOW_WIDTH = 1120;
 const BASE_WINDOW_HEIGHT = 630;
 const START_IN_TRAY_ARG = '--start-in-tray';
@@ -163,6 +168,7 @@ function scaledWindowSize(uiScalePercent: UiScalePercent): { width: number; heig
     height: Math.round(BASE_WINDOW_HEIGHT * scale)
   };
 }
+
 
 function applyWindowScale(window: BrowserWindow, uiScalePercent: UiScalePercent, recenter: boolean): void {
   const { width: minWidth, height: minHeight } = scaledWindowSize(uiScalePercent);
@@ -420,7 +426,13 @@ function isAppFileUrl(url: string, appIndexPath: string): boolean {
 
 function isAllowedExternalUrl(url: string): boolean {
   return /^https:\/\/ko-fi\.com\/lordvicky\/?$/i.test(url)
-    || /^https:\/\/github\.com\/SundayMoments\/?$/i.test(url);
+    || /^https:\/\/github\.com\/LordVicky\/OpenDS5\/?$/i.test(url)
+    // Upstream attribution: the companion app is an AGPL-3.0 derivative of
+    // SundayMoments/DS5_Bridge, so the credit stays.
+    || /^https:\/\/github\.com\/SundayMoments\/?$/i.test(url)
+    // vds (MIT, Jihong Min) is the kernel module and daemon this port runs on, and it
+    // ships inside the AppImage.
+    || /^https:\/\/github\.com\/hurryman2212\/vds\/?$/i.test(url);
 }
 
 function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {
@@ -428,10 +440,11 @@ function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {
   const savedState = loadWindowState(app.getPath('userData'));
   const workArea = screen.getPrimaryDisplay().workArea;
   const restoredBounds = resolveWindowBounds(savedState, workArea, minWidth, minHeight);
+  const defaultSize = defaultWindowSize(uiScalePercent, workArea, minWidth, minHeight);
   const rendererIndexPath = path.join(__dirname, '..', '..', 'renderer', 'index.html');
   const window = new BrowserWindow({
-    width: restoredBounds?.width ?? minWidth,
-    height: restoredBounds?.height ?? minHeight,
+    width: restoredBounds?.width ?? defaultSize.width,
+    height: restoredBounds?.height ?? defaultSize.height,
     ...(restoredBounds ? { x: restoredBounds.x, y: restoredBounds.y } : {}),
     minWidth,
     minHeight,
@@ -1393,7 +1406,7 @@ function resolveInstallerScriptPath(): string {
   return path.join(__dirname, '..', '..', '..', '..', '..', 'installer', 'opends5-install');
 }
 
-function runSetupWizardIfNeeded(settingsStore: SettingsStore): Promise<void> {
+function runSetupWizardIfNeeded(settingsStore: SettingsStore, service: SetupService): Promise<void> {
   const needed = process.platform === 'linux' ? isSetupNeeded() : false;
   if (
     !shouldShowSetupWizard({
@@ -1405,7 +1418,6 @@ function runSetupWizardIfNeeded(settingsStore: SettingsStore): Promise<void> {
     return Promise.resolve();
   }
   return new Promise<void>((resolve) => {
-    const service = new SetupService(resolveInstallerScriptPath(), app.getVersion());
     openSetupWindow({
       service,
       indexPath: path.join(__dirname, '..', '..', 'renderer', 'index.html'),
@@ -1422,6 +1434,72 @@ function runSetupWizardIfNeeded(settingsStore: SettingsStore): Promise<void> {
       onDismiss: () => resolve()
     });
   });
+}
+
+function registerUpdateIpc(settingsStore: SettingsStore, setupService: SetupService): void {
+  const updateService = new UpdateService(app.getVersion(), setupService, (state) => (
+    sendToMainWindow('update:state', state)
+  ));
+
+  ipcMain.handle('update:check', async (): Promise<UpdateState> => {
+    // A previous run may have been killed mid-download; drop its leftovers.
+    updateService.cleanStaleDownload();
+
+    // We may have just been relaunched by an update. Finish the job first: this is the
+    // only point at which resourcesPath and app.getVersion() describe the NEW release,
+    // so it is the only point at which the driver can be rebuilt correctly.
+    const rebuiltHash = await updateService.rebuildIfNeeded(settingsStore.get().installedModuleSourceHash);
+    // A null hash means the rebuild failed; record nothing so the next launch retries.
+    if (rebuiltHash) {
+      settingsStore.update({ installedModuleSourceHash: rebuiltHash });
+    }
+    if (updateService.getState().phase === 'failed') {
+      return updateService.getState();
+    }
+
+    const settings = settingsStore.get();
+    if (!isCheckDue(settings.lastUpdateCheckAt, Date.now())) {
+      return { phase: 'idle' };
+    }
+    // Record the attempt regardless of the outcome so a failed check does not retry
+    // on every launch.
+    settingsStore.update({ lastUpdateCheckAt: Date.now() });
+    return updateService.check(settings.skippedUpdateVersions);
+  });
+
+  ipcMain.handle('update:start', () => updateService.start());
+
+  // "Try again" after a failed driver rebuild. Passing '' forces the gate to
+  // re-evaluate rather than trusting a hash we never recorded.
+  ipcMain.handle('update:rebuild', async () => {
+    const hash = await updateService.rebuildIfNeeded('');
+    if (hash) {
+      settingsStore.update({ installedModuleSourceHash: hash });
+    }
+  });
+
+  ipcMain.handle('update:skip', (_event, version: string) => {
+    const current = settingsStore.get().skippedUpdateVersions;
+    if (!current.includes(version)) {
+      settingsStore.update({ skippedUpdateVersions: [...current, version] });
+    }
+  });
+
+  ipcMain.handle('update:dismiss', () => {
+    // "Remind me later" writes no state; the next check past the window re-offers.
+  });
+
+  ipcMain.handle('update:restart', () => {
+    const target = appImagePath();
+    if (!target) {
+      return;
+    }
+    // The default execPath is the /tmp FUSE mount, which is gone after exit.
+    app.relaunch({ execPath: target });
+    app.exit(0);
+  });
+
+  ipcMain.handle('update:open-release-page', () => shell.openExternal(RELEASES_PAGE_URL));
 }
 
 app.whenReady().then(async () => {
@@ -1465,12 +1543,22 @@ app.whenReady().then(async () => {
   });
   registerIpc(bridgeService, triggerProfileStore, triggerProfileEngine, profileLibrary);
 
+  // One installer service for both the first-launch wizard and the post-update
+  // driver rebuild: it is inert until install() runs.
+  const setupService = new SetupService(resolveInstallerScriptPath(), app.getVersion());
+
   // Linux first launch: run the system setup wizard to completion (or skip)
   // before the main window exists, so the app never starts against a
   // half-installed driver stack.
-  await runSetupWizardIfNeeded(settingsStore);
+  await runSetupWizardIfNeeded(settingsStore, setupService);
 
   mainWindow = createWindow(settingsStore.get().uiScalePercent);
+
+  // Only now: the update handlers share setupService with the wizard, and
+  // SetupService.install() is not re-entrant, so they must not be callable
+  // while the wizard may be mid-install.
+  registerUpdateIpc(settingsStore, setupService);
+
   mainWindow.on('maximize', sendWindowMaximizedState);
   mainWindow.on('unmaximize', sendWindowMaximizedState);
   mainWindow.on('show', () => scheduleMainWindowScaleRestore(false));

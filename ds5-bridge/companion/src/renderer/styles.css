@@ -27,8 +27,6 @@
   --window-bar-bg-flat: #050b13;
   --window-bar-bg: var(--window-bar-bg-flat);
   --window-bar-border: rgba(144, 166, 197, 0.12);
-  --bridge-mark-primary: #ffffff;
-  --bridge-mark-secondary: #046fff;
   --sidebar-bg: #050b13;
   --sidebar-overlay: transparent;
   --sidebar-border: rgba(142, 164, 194, 0.1);
@@ -157,8 +155,6 @@
   --window-bar-bg-flat: #f6f9fd;
   --window-bar-bg: var(--window-bar-bg-flat);
   --window-bar-border: rgba(68, 86, 112, 0.18);
-  --bridge-mark-primary: #172232;
-  --bridge-mark-secondary: #046fff;
   --sidebar-bg: #edf3fa;
   --sidebar-overlay: transparent;
   --sidebar-border: rgba(68, 86, 112, 0.16);
@@ -282,8 +278,6 @@
   --window-bar-bg-flat: #d86fbd;
   --window-bar-bg: var(--window-bar-bg-flat);
   --window-bar-border: rgba(124, 30, 111, 0.56);
-  --bridge-mark-primary: #140d18;
-  --bridge-mark-secondary: #046fff;
   --sidebar-bg: #e889cf;
   --sidebar-overlay: transparent;
   --sidebar-border: rgba(165, 38, 137, 0.36);
@@ -407,8 +401,6 @@
   --window-bar-bg-flat: #d01868;
   --window-bar-bg: var(--window-bar-bg-flat);
   --window-bar-border: rgba(255, 76, 151, 0.42);
-  --bridge-mark-primary: #ffffff;
-  --bridge-mark-secondary: #00a3ff;
   --sidebar-bg: #1a0b18;
   --sidebar-overlay: transparent;
   --sidebar-border: rgba(208, 24, 104, 0.48);
@@ -534,8 +526,6 @@
   --window-bar-bg-flat: #07100b;
   --window-bar-bg: var(--window-bar-bg-flat);
   --window-bar-border: rgba(156, 255, 47, 0.22);
-  --bridge-mark-primary: #eaffef;
-  --bridge-mark-secondary: #9cff2f;
   --sidebar-bg: #050c08;
   --sidebar-overlay: transparent;
   --sidebar-border: rgba(156, 255, 47, 0.18);
@@ -742,10 +732,6 @@ button {
   min-width: 0;
 }
 
-.startup-brand .bridge-mark {
-  width: 24px;
-}
-
 .startup-brand div {
   min-width: 0;
   display: grid;
@@ -871,13 +857,6 @@ button {
   line-height: 1;
   letter-spacing: 0;
   white-space: nowrap;
-}
-
-.bridge-mark {
-  width: 18px;
-  height: auto;
-  flex: 0 0 auto;
-  display: block;
 }
 
 .bridge-wordmark-ds {
@@ -1484,13 +1463,6 @@ button {
   overflow: hidden;
 }
 
-.startup-tutorial-step {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1;
-}
-
 .startup-tutorial-copy {
   display: grid;
   gap: 8px;
@@ -1581,35 +1553,6 @@ button {
   font-weight: 800;
   opacity: 0.76;
   text-transform: uppercase;
-}
-
-.startup-tutorial-kofi-button {
-  width: 100%;
-  height: 118px;
-  margin-top: 14px;
-  border: 1px solid var(--surface-border-strong);
-  border-radius: var(--card-radius);
-  padding: 10px;
-  display: grid;
-  place-items: center;
-  background: var(--surface-control-soft);
-  transition:
-    border-color 140ms ease,
-    background 140ms ease,
-    transform 140ms ease;
-}
-
-.startup-tutorial-kofi-button:hover,
-.startup-tutorial-kofi-button:focus-visible {
-  border-color: var(--accent-border-strong);
-  background: var(--surface-control-hover);
-  transform: translateY(-1px);
-}
-
-.startup-tutorial-kofi-button img {
-  display: block;
-  width: min(420px, 100%);
-  height: auto;
 }
 
 .startup-tutorial-actions {
@@ -3313,6 +3256,18 @@ button.overview-shortcut-chip {
   box-shadow: var(--shadow-panel);
 }
 
+/* .secondary-action is width: 100% at --action-height for the large test-card actions, and it is
+   declared later in this file -- so this needs the extra specificity to win, or Reset claims the
+   whole heading row. */
+.triggers-heading-controls .triggers-reset-button {
+  width: auto;
+  flex: 0 0 auto;
+  min-height: 32px;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
 .triggers-heading-controls .inline-switch {
   position: relative;
   min-height: 36px;
@@ -3550,6 +3505,12 @@ button.overview-shortcut-chip {
 .system-page .system-card {
   min-height: 0;
   height: auto;
+}
+
+/* One Intensity card now that the test card is gone, so it takes the full width rather than
+   sitting in the left column of a two-column grid. */
+.triggers-page .feature-card-grid {
+  grid-template-columns: 1fr;
 }
 
 .system-page .feature-card-grid {
@@ -4967,16 +4928,6 @@ button.feature-icon {
 .test-card .feature-card-title {
   align-self: start;
   margin-bottom: 0;
-}
-
-/* The triggers test card hosts the full 7-mode effect editor, which is far
- * taller than the fixed 76px options row the other test cards use. */
-.trigger-test-card {
-  grid-template-rows: var(--feature-card-header-height) auto var(--action-height) var(--action-height) minmax(40px, auto);
-}
-
-.trigger-test-card .test-options {
-  align-self: start;
 }
 
 .test-options {
@@ -8296,13 +8247,6 @@ button.trigger-lab-chip {
   color: var(--text-secondary);
 }
 
-.trigger-lab-test-note {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-muted);
-}
-
 .trigger-profiles-library-modal {
   position: relative;
   top: auto;
@@ -8628,4 +8572,180 @@ button.trigger-lab-chip {
 
 .setup-actions button.install:hover:not(:disabled) {
   box-shadow: 0 0 14px color-mix(in srgb, var(--success) 45%, transparent);
+}
+
+/* The toast must never cover a dialog or interrupt first-run setup: it sits below
+   .modal-backdrop (100) and .startup-tutorial-backdrop (120), and App.tsx also
+   suppresses it entirely while either of those is open. */
+.update-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 90;
+  width: min(348px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 15px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--card-radius);
+  background: var(--surface-menu);
+  box-shadow: var(--shadow-menu);
+  animation: update-toast-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes update-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-toast {
+    animation: none;
+  }
+
+  .update-toast-bar i {
+    transition: none;
+  }
+}
+
+.update-toast-head {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+}
+
+.update-toast-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--control-radius);
+  font-weight: 700;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.update-toast-glyph.ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.update-toast-glyph.warn {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
+
+.update-toast-title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 620;
+  color: var(--text-primary);
+}
+
+.update-toast-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.update-toast-notes {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.update-toast-notes summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.update-toast-notes p {
+  margin: 6px 0 0;
+  max-height: 132px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.update-toast-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.update-toast-actions button {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-control);
+  color: var(--text-control);
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.update-toast-actions button:hover {
+  border-color: var(--accent);
+}
+
+/* The ring, not the border, is the focus signal: .quiet has a transparent border and
+   the primary's border is already accent-coloured, so a border swap alone shows nothing. */
+.update-toast-actions button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.update-toast-actions button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.update-toast-actions button.primary:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+/* Skipping is the most consequential choice — it silences this version forever —
+   so it is the quietest control and the hardest to hit by reflex. */
+.update-toast-actions .quiet {
+  margin-left: auto;
+  padding: 0 2px;
+  border-color: transparent;
+  background: none;
+  color: var(--text-muted);
+  font-weight: 400;
+  text-decoration: underline;
+}
+
+.update-toast-actions .quiet:hover,
+.update-toast-actions .quiet:focus-visible {
+  color: var(--text-secondary);
+}
+
+.update-toast-bar {
+  height: 5px;
+  border-radius: 99px;
+  background: var(--surface-control);
+  border: 1px solid var(--surface-border);
+  overflow: hidden;
+}
+
+/* Scaled, not width-animated: the repo animates progress with transform to keep it
+   off the layout path (see styles-layout.test.ts). */
+.update-toast-bar i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+  transform: scaleX(var(--update-progress, 0));
+  transform-origin: left center;
+  transition: transform 200ms linear;
 }
