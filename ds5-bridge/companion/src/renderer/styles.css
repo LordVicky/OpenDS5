@@ -8691,9 +8691,15 @@ button.trigger-lab-chip {
   font-weight: 560;
 }
 
-.update-toast-actions button:hover,
-.update-toast-actions button:focus-visible {
+.update-toast-actions button:hover {
   border-color: var(--accent);
+}
+
+/* The ring, not the border, is the focus signal: .quiet has a transparent border and
+   the primary's border is already accent-coloured, so a border swap alone shows nothing. */
+.update-toast-actions button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .update-toast-actions button.primary {
@@ -8702,8 +8708,7 @@ button.trigger-lab-chip {
   color: #ffffff;
 }
 
-.update-toast-actions button.primary:hover,
-.update-toast-actions button.primary:focus-visible {
+.update-toast-actions button.primary:hover {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
 }
@@ -8722,7 +8727,6 @@ button.trigger-lab-chip {
 
 .update-toast-actions .quiet:hover,
 .update-toast-actions .quiet:focus-visible {
-  border-color: transparent;
   color: var(--text-secondary);
 }
 

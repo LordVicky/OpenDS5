@@ -236,6 +236,7 @@ describe('UpdateService.check', () => {
     await expect(svc.check([])).resolves.toEqual({
       phase: 'offer',
       version: '1.8.0',
+      currentVersion: '1.7.0',
       notes: 'notes',
       sizeBytes: 100,
     });

@@ -23,7 +23,7 @@ export type RebuildOutcome =
 
 export type UpdateState =
   | { phase: 'idle' }
-  | { phase: 'offer'; version: string; notes: string; sizeBytes: number }
+  | { phase: 'offer'; version: string; currentVersion: string; notes: string; sizeBytes: number }
   | { phase: 'downloading'; version: string; received: number; total: number }
   | { phase: 'verifying'; version: string }
   | { phase: 'installing'; version: string; step: string; index: number; total: number }
@@ -169,6 +169,7 @@ export class UpdateService {
     this.set({
       phase: 'offer',
       version: decision.version,
+      currentVersion: this.currentVersion,
       notes: decision.notes,
       sizeBytes: decision.appImage.size,
     });

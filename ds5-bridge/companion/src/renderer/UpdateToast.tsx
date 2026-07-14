@@ -23,7 +23,7 @@ export function UpdateToast({
   if (state.phase === 'idle') return null;
 
   return (
-    <div className="update-toast" role="dialog" aria-label="Update">
+    <div className="update-toast" role="status" aria-label="Update">
       {state.phase === 'offer' && (
         <>
           <div className="update-toast-head">
@@ -31,7 +31,8 @@ export function UpdateToast({
             <div>
               <p className="update-toast-title">Update available</p>
               <p className="update-toast-sub">
-                {state.version} · {megabytes(state.sizeBytes)}
+                {state.version} · you&rsquo;re on {state.currentVersion} ·{' '}
+                {megabytes(state.sizeBytes)}
               </p>
             </div>
           </div>
