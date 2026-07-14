@@ -15,9 +15,12 @@
 // comparison. trigger-profiles.ts and profile-capabilities.ts import only *types* from protocol.ts,
 // so vendoring these three pulls in no other runtime code.
 //
-// --check reads the published copies over HTTPS (the repo is public), so CI needs no token.
-// Pushing clones and pushes with the maintainer's own git credentials, so no cross-repo token has
-// to exist anywhere.
+// Both modes read the published copy by cloning, never over raw.githubusercontent.com. The raw
+// CDN serves a stale copy for minutes after a push, and it flaps between edge nodes while it
+// settles -- a --check reading it could fail a pull request over a drift that had already been
+// fixed. A gate that reports false drift is worse than no gate, so --check clones instead: the git
+// protocol always serves the real tip. The repo is public, so CI still needs no token, and pushing
+// uses the maintainer's own git credentials, so no cross-repo token has to exist anywhere.
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,8 +29,6 @@ import { fileURLToPath } from 'node:url';
 
 const PROFILES_REMOTE = 'https://github.com/LordVicky/OpenDS5-Profiles.git';
 const PROFILES_BRANCH = 'main';
-const RAW_BASE =
-  'https://raw.githubusercontent.com/LordVicky/OpenDS5-Profiles/main/validator';
 const COMMIT_NAME = 'LordVicky';
 const COMMIT_EMAIL = 'sreevicky1001@gmail.com';
 
@@ -54,37 +55,29 @@ function localSource(file) {
   return readFileSync(join(sharedDir, file), 'utf8');
 }
 
-if (checkMode) {
-  const drifted = [];
-  for (const file of VALIDATOR_FILES) {
-    const response = await fetch(`${RAW_BASE}/${file}`);
-    if (!response.ok) {
-      console.error(
-        `sync-validator: could not read published validator/${file} (HTTP ${response.status}).`
-      );
-      process.exit(1);
-    }
-    if ((await response.text()) !== localSource(file)) drifted.push(file);
-  }
-
-  if (drifted.length > 0) {
-    console.error(
-      'sync-validator: the validator published to OpenDS5-Profiles has drifted from this repo.\n' +
-        `${drifted.map((file) => `  ${file}`).join('\n')}\n` +
-        'Its CI would gate contributions on stale rules. Run `node scripts/sync-validator.mjs`.'
-    );
-    process.exit(1);
-  }
-
-  console.log(`sync-validator: published validator matches (${VALIDATOR_FILES.length} files).`);
-  process.exit(0);
-}
-
 const work = mkdtempSync(join(tmpdir(), 'opends5-validator-'));
 try {
   run('git', ['clone', '--depth', '1', '--branch', PROFILES_BRANCH, PROFILES_REMOTE, work], {
     stdio: 'ignore'
   });
+
+  if (checkMode) {
+    const drifted = VALIDATOR_FILES.filter(
+      (file) => readFileSync(join(work, 'validator', file), 'utf8') !== localSource(file)
+    );
+
+    if (drifted.length > 0) {
+      console.error(
+        'sync-validator: the validator published to OpenDS5-Profiles has drifted from this repo.\n' +
+          `${drifted.map((file) => `  ${file}`).join('\n')}\n` +
+          'Its CI would gate contributions on stale rules. Run `node scripts/sync-validator.mjs`.'
+      );
+      process.exit(1);
+    }
+
+    console.log(`sync-validator: published validator matches (${VALIDATOR_FILES.length} files).`);
+    process.exit(0);
+  }
 
   for (const file of VALIDATOR_FILES) {
     copyFileSync(join(sharedDir, file), join(work, 'validator', file));
