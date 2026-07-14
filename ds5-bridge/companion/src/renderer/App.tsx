@@ -133,6 +133,8 @@ import type {
   TriggerTestTarget
 } from '../shared/protocol';
 import type { AudioHapticsSession, BridgeSnapshot, UiScalePercent, UiThemePreset } from '../shared/types';
+import type { UpdateState } from '../main/update-service';
+import { UpdateToast } from './UpdateToast';
 import {
   createDefaultProfile,
   defaultEffectForMode,
@@ -2717,8 +2719,34 @@ export function App() {
   const [deviceCleanupConfirmVisible, setDeviceCleanupConfirmVisible] = useState(false);
   const [startupTutorialStep, setStartupTutorialStep] = useState<StartupTutorialStep>(storedStartupTutorialStep);
   const [startupTutorialFeatureActive, setStartupTutorialFeatureActive] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateState>({ phase: 'idle' });
   const [deviceCleanupMessage, setDeviceCleanupMessage] = useState<string | null>(null);
   const [deviceCleanupError, setDeviceCleanupError] = useState<string | null>(null);
+
+  const startupTutorialOpen = startupTutorialStep !== 'done';
+  // Every dialog that renders a .modal-backdrop. The update toast is suppressed while
+  // any of them is up, so it can never sit on top of a dialog or first-run setup.
+  const anyModalOpen = (
+    deviceCleanupConfirmVisible
+    || chordFunctionDialog !== null
+    || triggerProfileDeleteConfirm !== null
+    || triggerProfileResetConfirm !== null
+    || remapProfileDialogMode !== null
+    || controllerProfileDialogMode !== null
+    || triggerProfileLibraryOpen
+    || showBridgeSettings
+  );
+
+  useEffect(() => window.update.onState(setUpdateState), []);
+
+  useEffect(() => {
+    if (startupTutorialOpen) return;
+    // Let the window's opening animation settle before anything appears.
+    const timer = setTimeout(() => {
+      void window.update.check().then(setUpdateState);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [startupTutorialOpen]);
   const hapticsEditingRef = useRef(false);
   const classicRumbleEditingRef = useRef(false);
   const speakerVolumeEditingRef = useRef(false);
@@ -9984,6 +10012,25 @@ export function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {!startupTutorialOpen && !anyModalOpen && (
+        <UpdateToast
+          state={updateState}
+          onAction={(action) => {
+            if (action === 'skip') {
+              if ('version' in updateState) void window.update.skip(updateState.version);
+              setUpdateState({ phase: 'idle' });
+              return;
+            }
+            if (action === 'dismiss') {
+              void window.update.dismiss();
+              setUpdateState({ phase: 'idle' });
+              return;
+            }
+            void window.update[action]();
+          }}
+        />
       )}
 
     </div>

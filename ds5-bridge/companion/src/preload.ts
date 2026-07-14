@@ -26,6 +26,7 @@ import type { LibraryCatalog, LibraryEntry } from './main/profile-library';
 import type { ImportResult } from './main/trigger-profile-store';
 import type { GameProcessCandidate } from './main/game-watcher';
 import type { SetupProgressEvent } from './main/setup-service';
+import type { UpdateState } from './main/update-service';
 
 // The preload runs sandboxed: only `require('electron')` is available, so the
 // setup channel names are inlined rather than imported from ./main/setup-ipc.
@@ -298,5 +299,25 @@ const setupApi = {
 };
 contextBridge.exposeInMainWorld('setup', setupApi);
 
+// Channel names are inlined string literals: ipc-contract.test.ts pairs preload
+// invokes against main handlers by matching the source text, so a constants
+// object would hide these channels from it.
+const updateApi = {
+  check: (): Promise<UpdateState> => ipcRenderer.invoke('update:check'),
+  start: (): Promise<void> => ipcRenderer.invoke('update:start'),
+  rebuild: (): Promise<void> => ipcRenderer.invoke('update:rebuild'),
+  skip: (version: string): Promise<void> => ipcRenderer.invoke('update:skip', version),
+  dismiss: (): Promise<void> => ipcRenderer.invoke('update:dismiss'),
+  restart: (): Promise<void> => ipcRenderer.invoke('update:restart'),
+  openReleasePage: (): Promise<void> => ipcRenderer.invoke('update:open-release-page'),
+  onState: (cb: (state: UpdateState) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: UpdateState) => cb(payload);
+    ipcRenderer.on('update:state', listener);
+    return () => ipcRenderer.removeListener('update:state', listener);
+  },
+};
+contextBridge.exposeInMainWorld('update', updateApi);
+
 export type BridgeApi = typeof api;
 export type SetupApi = typeof setupApi;
+export type UpdateApi = typeof updateApi;

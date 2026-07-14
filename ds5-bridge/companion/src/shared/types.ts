@@ -32,6 +32,9 @@ export interface CompanionSettings {
   launchAtStartupEnabled: boolean;
   setupSkipped: boolean;
   showBatteryPercentTrayIcon: boolean;
+  lastUpdateCheckAt: number;
+  skippedUpdateVersions: string[];
+  installedModuleSourceHash: string;
   hapticsEnabled: boolean;
   hapticsGainPercent: number;
   feedbackBoostEnabled: boolean;

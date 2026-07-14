@@ -16,6 +16,8 @@
 - **Never break the working install.** Any failure at any stage must leave the currently installed version runnable. Do not roll back a swapped AppImage; do not half-write the target file.
 - **`rename()` must be same-filesystem.** Download into `path.dirname(process.env.APPIMAGE)`, never `/tmp` (that raises `EXDEV`).
 - **Relaunch must be `app.relaunch({ execPath: process.env.APPIMAGE })`.** The default `process.execPath` is the `/tmp/.mount_*` FUSE mount, which no longer exists after exit. This was verified on a real AppImage; a bare `app.relaunch()` is a bug.
+- **The installer runs AFTER the relaunch, never before.** `SetupService` resolves the installer via `resolveInstallerPath(process.resourcesPath)` (`main.ts:1398`) and is constructed with `app.getVersion()` — both of which, before a relaunch, still describe the **old** AppImage that is currently mounted. Rebuilding the driver pre-relaunch would build the old module from the old sources and stamp it with the old version, while every test passed. The rebuild belongs on the next launch, from the new mount.
+- **Never gate the rebuild on the version string.** `dkms.conf` is stamped from `package.json`, so the module version equals the app version and differs after *every* release — gating on it means a password prompt on every update, including UI-only ones. Gate on the hash of the bundled module sources (Task 5).
 - **Never write into the running AppImage.** Truncate-and-write corrupts it. Only write a sibling temp file and `rename()` over the target.
 - **A failed background check is silent.** The user did not ask to check for updates. Network errors produce no toast and no dialog.
 - **Repo is `LordVicky/OpenDS5`.** Current version comes from `app.getVersion()`.
@@ -34,7 +36,7 @@ Persist when we last checked and which versions the user skipped.
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `CompanionSettings.lastUpdateCheckAt: number` (epoch ms, `0` = never) and `CompanionSettings.skippedUpdateVersions: string[]`. Also exports `normalizeSkippedUpdateVersions(value: unknown): string[]`.
+- Produces: `CompanionSettings.lastUpdateCheckAt: number` (epoch ms, `0` = never), `CompanionSettings.skippedUpdateVersions: string[]`, and `CompanionSettings.installedModuleSourceHash: string` (`''` = unknown). Also exports `normalizeSkippedUpdateVersions(value: unknown): string[]`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -42,9 +44,10 @@ Add to `src/main/settings-store.test.ts`:
 
 ```ts
 describe('update settings', () => {
-  it('defaults to never-checked with nothing skipped', () => {
+  it('defaults to never-checked with nothing skipped and no known module hash', () => {
     expect(DEFAULT_SETTINGS.lastUpdateCheckAt).toBe(0);
     expect(DEFAULT_SETTINGS.skippedUpdateVersions).toEqual([]);
+    expect(DEFAULT_SETTINGS.installedModuleSourceHash).toBe('');
   });
 
   it('normalizes a settings file written before this feature existed', () => {
@@ -78,6 +81,7 @@ In `src/shared/types.ts`, add to `interface CompanionSettings`:
 ```ts
   lastUpdateCheckAt: number;
   skippedUpdateVersions: string[];
+  installedModuleSourceHash: string;
 ```
 
 In `src/main/settings-store.ts`, add to the `DEFAULT_SETTINGS` object literal:
@@ -85,6 +89,7 @@ In `src/main/settings-store.ts`, add to the `DEFAULT_SETTINGS` object literal:
 ```ts
   lastUpdateCheckAt: 0,
   skippedUpdateVersions: [],
+  installedModuleSourceHash: '',
 ```
 
 And add the normalizer beside the other `normalize*` helpers:
@@ -96,7 +101,7 @@ export function normalizeSkippedUpdateVersions(value: unknown): string[] {
 }
 ```
 
-Then wire both fields into the store's existing load/normalize path, following exactly how a neighbouring field such as `setupSkipped` is handled there — `lastUpdateCheckAt` normalizes with `typeof value === 'number' && Number.isFinite(value) ? value : 0`.
+Then wire all three fields into the store's existing load/normalize path, following exactly how a neighbouring field such as `setupSkipped` is handled there. `lastUpdateCheckAt` normalizes with `typeof value === 'number' && Number.isFinite(value) ? value : 0`; `installedModuleSourceHash` with `typeof value === 'string' ? value : ''`.
 
 - [ ] **Step 4: Run the tests and watch them pass**
 
@@ -672,7 +677,136 @@ git commit -m "Download, verify and atomically replace the running AppImage"
 
 ---
 
-### Task 5: The orchestrator
+### Task 5: Hash the bundled module sources
+
+This is what makes "no password for a UI-only update" true. `package.json` already ships `vds/module` and `vds/include` as `extraResources` under `vds-module/`, so the running app carries the exact sources its driver would be built from — hash them and compare.
+
+**Files:**
+- Create: `src/main/module-source-hash.ts`
+- Test: `src/main/module-source-hash.test.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `export function moduleSourceHash(root: string): string` — sha256 hex over every file under `root`, walked in sorted path order, hashing each relative path *and then* its bytes so that a rename registers as a change. Returns `''` if `root` does not exist.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `src/main/module-source-hash.test.ts`:
+
+```ts
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { moduleSourceHash } from './module-source-hash';
+
+let dir: string;
+
+function tree(files: Record<string, string>): string {
+  const root = fs.mkdtempSync(path.join(dir, 'mod-'));
+  for (const [name, contents] of Object.entries(files)) {
+    const target = path.join(root, name);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, contents);
+  }
+  return root;
+}
+
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opends5-hash-'));
+});
+
+afterEach(() => {
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+describe('moduleSourceHash', () => {
+  const base = { 'vds_hcd.c': 'int main;', 'include/vds.h': '#pragma once' };
+
+  it('hashes identical trees identically, regardless of creation order', () => {
+    expect(moduleSourceHash(tree(base))).toBe(moduleSourceHash(tree(base)));
+  });
+
+  it('changes when a byte of source changes', () => {
+    const changed = { ...base, 'vds_hcd.c': 'int main; // fix' };
+    expect(moduleSourceHash(tree(changed))).not.toBe(moduleSourceHash(tree(base)));
+  });
+
+  it('changes when a file is added', () => {
+    const added = { ...base, 'extra.c': '' };
+    expect(moduleSourceHash(tree(added))).not.toBe(moduleSourceHash(tree(base)));
+  });
+
+  it('changes when a file is renamed but its contents are not', () => {
+    const renamed = { 'vds_hcd_v2.c': 'int main;', 'include/vds.h': '#pragma once' };
+    expect(moduleSourceHash(tree(renamed))).not.toBe(moduleSourceHash(tree(base)));
+  });
+
+  it('returns an empty hash for a missing directory', () => {
+    expect(moduleSourceHash(path.join(dir, 'nope'))).toBe('');
+  });
+});
+```
+
+- [ ] **Step 2: Run the test and watch it fail**
+
+Run: `npx vitest run src/main/module-source-hash.test.ts`
+Expected: FAIL — cannot resolve `./module-source-hash`.
+
+- [ ] **Step 3: Implement**
+
+Create `src/main/module-source-hash.ts`:
+
+```ts
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+
+function walk(root: string, dir: string, out: string[]): void {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walk(root, full, out);
+    else if (entry.isFile()) out.push(path.relative(root, full));
+  }
+}
+
+/**
+ * Identifies the driver sources the app is carrying, so the installer only runs
+ * when they actually changed. Gating on the app version instead would prompt for
+ * a password on every release, since dkms.conf is stamped from package.json.
+ */
+export function moduleSourceHash(root: string): string {
+  if (!fs.existsSync(root)) return '';
+  const files: string[] = [];
+  walk(root, root, files);
+  files.sort();
+
+  const hash = createHash('sha256');
+  for (const relative of files) {
+    // Hash the path as well as the bytes, so a pure rename is still a change.
+    hash.update(relative);
+    hash.update('\0');
+    hash.update(fs.readFileSync(path.join(root, relative)));
+  }
+  return hash.digest('hex');
+}
+```
+
+- [ ] **Step 4: Run the tests and watch them pass**
+
+Run: `npx vitest run src/main/module-source-hash.test.ts`
+Expected: PASS, 5 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/main/module-source-hash.ts src/main/module-source-hash.test.ts
+git commit -m "Identify the driver sources the app carries"
+```
+
+---
+
+### Task 6: The orchestrator
 
 Sequences the check and the update, and decides whether the kernel module needs rebuilding.
 
@@ -681,7 +815,7 @@ Sequences the check and the update, and decides whether the kernel module needs 
 - Test: `src/main/update-service.test.ts`
 
 **Interfaces:**
-- Consumes: `decideUpdate`, `UpdateDecision` (Task 2); `fetchLatestRelease` (Task 3); `appImagePath`, `canSelfReplace`, `downloadTo`, `sha256File`, `parseSha256Asset`, `swapInPlace` (Task 4); `SetupService` from `./setup-service`.
+- Consumes: `decideUpdate`, `UpdateDecision` (Task 2); `fetchLatestRelease` (Task 3); `appImagePath`, `canSelfReplace`, `downloadTo`, `sha256File`, `parseSha256Asset`, `swapInPlace` (Task 4); `moduleSourceHash` (Task 5); `SetupService` from `./setup-service`.
 - Produces:
   ```ts
   export const UPDATE_CHECK_INTERVAL_MS: number; // 48h
@@ -692,25 +826,45 @@ Sequences the check and the update, and decides whether the kernel module needs 
     | { phase: 'verifying'; version: string }
     | { phase: 'installing'; version: string; step: string; index: number; total: number }
     | { phase: 'restart'; version: string }
-    | { phase: 'failed'; version: string; message: string }
+    | { phase: 'failed'; version: string; message: string; retry: 'download' | 'rebuild' }
     | { phase: 'readonly'; version: string; url: string };
+
+  export type RebuildOutcome =
+    | { kind: 'not-needed' }              // nothing to do
+    | { kind: 'adopt'; hash: string }     // record this hash without rebuilding
+    | { kind: 'rebuild'; hash: string };  // run the installer, then record this hash
 
   export function installedModuleVersion(run?: (cmd: string, args: string[]) => string | null): string | null;
   export function isCheckDue(lastCheckAt: number, now: number): boolean;
+  export function decideRebuild(input: {
+    bundledHash: string;
+    recordedHash: string;
+    installedVersion: string | null;
+    appVersion: string;
+  }): RebuildOutcome;
   export class UpdateService { /* see below */ }
   ```
+  `UpdateService` exposes `getState()`, `check(skipped)`, `start()`, and `rebuildIfNeeded(recordedHash)` — the last of which main calls **on launch**, before the update check.
 
 - [ ] **Step 1: Write the failing test**
 
 Create `src/main/update-service.test.ts`:
 
 ```ts
-import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   UPDATE_CHECK_INTERVAL_MS,
+  UpdateService,
+  decideRebuild,
   installedModuleVersion,
   isCheckDue,
+  type UpdateState,
 } from './update-service';
+import type { SetupService } from './setup-service';
 
 describe('isCheckDue', () => {
   const now = 1_000_000_000_000;
@@ -741,12 +895,197 @@ describe('installedModuleVersion', () => {
   });
 
   it('reports no module when modinfo fails', () => {
-    // A user-mode-only setup must not be handed a password prompt by an app update.
     expect(installedModuleVersion(() => null)).toBeNull();
   });
 
   it('reports no module when modinfo prints nothing', () => {
     expect(installedModuleVersion(() => '  \n')).toBeNull();
+  });
+});
+
+describe('decideRebuild', () => {
+  const app = '1.8.0';
+
+  it('asks for nothing when the driver sources did not change', () => {
+    // The whole point of the hash gate: a UI-only release needs no password.
+    expect(
+      decideRebuild({
+        bundledHash: 'aaa',
+        recordedHash: 'aaa',
+        installedVersion: '1.7.0',
+        appVersion: app,
+      }),
+    ).toEqual({ kind: 'not-needed' });
+  });
+
+  it('rebuilds when the driver sources changed', () => {
+    expect(
+      decideRebuild({
+        bundledHash: 'bbb',
+        recordedHash: 'aaa',
+        installedVersion: '1.7.0',
+        appVersion: app,
+      }),
+    ).toEqual({ kind: 'rebuild', hash: 'bbb' });
+  });
+
+  it('never touches the installer when no module is installed', () => {
+    // Someone who never installed the driver must not be handed a password prompt.
+    expect(
+      decideRebuild({
+        bundledHash: 'bbb',
+        recordedHash: '',
+        installedVersion: null,
+        appVersion: app,
+      }),
+    ).toEqual({ kind: 'not-needed' });
+  });
+
+  it('falls back to the version for an existing user with no recorded hash', () => {
+    expect(
+      decideRebuild({
+        bundledHash: 'bbb',
+        recordedHash: '',
+        installedVersion: '1.7.0',
+        appVersion: app,
+      }),
+    ).toEqual({ kind: 'rebuild', hash: 'bbb' });
+  });
+
+  it('adopts the hash without rebuilding when the module already matches the app', () => {
+    expect(
+      decideRebuild({
+        bundledHash: 'bbb',
+        recordedHash: '',
+        installedVersion: '1.8.0',
+        appVersion: app,
+      }),
+    ).toEqual({ kind: 'adopt', hash: 'bbb' });
+  });
+});
+
+describe('UpdateService.start', () => {
+  let dir: string;
+  let target: string;
+  let states: UpdateState[];
+
+  const NEW_BYTES = 'new-appimage-bytes';
+  const digest = createHash('sha256').update(NEW_BYTES).digest('hex');
+
+  const decision = {
+    kind: 'offer' as const,
+    version: '1.8.0',
+    notes: '',
+    appImage: { name: 'x.AppImage', url: 'https://x/a', size: NEW_BYTES.length },
+    sha256: { name: 'x.AppImage.sha256', url: 'https://x/s', size: 64 },
+  };
+
+  function service(overrides: Record<string, unknown> = {}) {
+    states = [];
+    const setup = { install: vi.fn().mockResolvedValue(0) } as unknown as SetupService;
+    const svc = new UpdateService('1.7.0', setup, (s) => states.push(s), {
+      appImagePath: () => target,
+      canSelfReplace: () => true,
+      fetchLatestRelease: vi.fn(),
+      fetchText: vi.fn().mockResolvedValue(`${digest}  x.AppImage`),
+      downloadTo: vi.fn(async ({ tempPath }: { tempPath: string }) => {
+        fs.writeFileSync(tempPath, NEW_BYTES);
+      }),
+      ...overrides,
+    });
+    // The offer normally comes from check(); inject it directly.
+    (svc as unknown as { pending: unknown }).pending = decision;
+    return { svc, setup };
+  }
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opends5-svc-'));
+    target = path.join(dir, 'OpenDS5.AppImage');
+    fs.writeFileSync(target, 'old-appimage-bytes');
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('downloads, verifies, swaps, and stops at restart', async () => {
+    const { svc, setup } = service();
+    await svc.start();
+
+    expect(fs.readFileSync(target, 'utf8')).toBe(NEW_BYTES);
+    expect(svc.getState()).toEqual({ phase: 'restart', version: '1.8.0' });
+    expect(states.map((s) => s.phase)).toEqual([
+      'downloading',
+      'verifying',
+      'restart',
+    ]);
+  });
+
+  it('never runs the installer before the relaunch', async () => {
+    // Pre-relaunch, resourcesPath and app.getVersion() still describe the OLD
+    // AppImage, so a rebuild here would build the old module from old sources.
+    const { svc, setup } = service();
+    await svc.start();
+    expect(setup.install).not.toHaveBeenCalled();
+  });
+
+  it('does not swap when the checksum does not match', async () => {
+    const { svc } = service({ fetchText: vi.fn().mockResolvedValue('deadbeef  x.AppImage') });
+    await svc.start();
+
+    expect(fs.readFileSync(target, 'utf8')).toBe('old-appimage-bytes');
+    expect(svc.getState().phase).toBe('failed');
+    expect(fs.readdirSync(dir)).toEqual(['OpenDS5.AppImage']); // temp file cleaned up
+  });
+
+  it('leaves the installed version alone when the download fails', async () => {
+    const { svc } = service({
+      downloadTo: vi.fn().mockRejectedValue(new Error('ECONNRESET')),
+    });
+    await svc.start();
+
+    expect(fs.readFileSync(target, 'utf8')).toBe('old-appimage-bytes');
+    expect(svc.getState().phase).toBe('failed');
+  });
+});
+
+describe('UpdateService.rebuildIfNeeded', () => {
+  function service(installExit: number) {
+    const states: UpdateState[] = [];
+    const setup = {
+      install: vi.fn(async (onEvent: (e: unknown) => void) => {
+        onEvent({ event: 'plan', total: 1, steps: ['Rebuilding the driver'], log: '' });
+        onEvent({ event: 'step', index: 0, status: 'start' });
+        return installExit;
+      }),
+    } as unknown as SetupService;
+    const svc = new UpdateService('1.8.0', setup, (s) => states.push(s), {
+      appImagePath: () => '/x/OpenDS5.AppImage',
+      canSelfReplace: () => true,
+      fetchLatestRelease: vi.fn(),
+      moduleSourceHash: () => 'bbb',
+      installedModuleVersion: () => '1.7.0',
+    });
+    return { svc, setup, states };
+  }
+
+  it('runs the installer and reports the new hash to record', async () => {
+    const { svc, setup, states } = service(0);
+    await expect(svc.rebuildIfNeeded('aaa')).resolves.toBe('bbb');
+    expect(setup.install).toHaveBeenCalled();
+    expect(states.some((s) => s.phase === 'installing')).toBe(true);
+  });
+
+  it('records nothing when the rebuild fails, so the next launch retries', async () => {
+    const { svc } = service(1);
+    await expect(svc.rebuildIfNeeded('aaa')).resolves.toBeNull();
+    expect(svc.getState().phase).toBe('failed');
+  });
+
+  it('does nothing at all when the sources are unchanged', async () => {
+    const { svc, setup } = service(0);
+    await expect(svc.rebuildIfNeeded('bbb')).resolves.toBeNull();
+    expect(setup.install).not.toHaveBeenCalled();
   });
 });
 ```
@@ -772,11 +1111,17 @@ import {
   sha256File,
   swapInPlace,
 } from './appimage-updater';
+import { moduleSourceHash } from './module-source-hash';
 import { decideUpdate, type UpdateDecision } from './update-checker';
 import { fetchLatestRelease } from './update-source';
 import type { SetupService } from './setup-service';
 
 export const UPDATE_CHECK_INTERVAL_MS = 48 * 60 * 60 * 1000;
+
+export type RebuildOutcome =
+  | { kind: 'not-needed' }
+  | { kind: 'adopt'; hash: string }
+  | { kind: 'rebuild'; hash: string };
 
 export type UpdateState =
   | { phase: 'idle' }
@@ -785,7 +1130,7 @@ export type UpdateState =
   | { phase: 'verifying'; version: string }
   | { phase: 'installing'; version: string; step: string; index: number; total: number }
   | { phase: 'restart'; version: string }
-  | { phase: 'failed'; version: string; message: string }
+  | { phase: 'failed'; version: string; message: string; retry: 'download' | 'rebuild' }
   | { phase: 'readonly'; version: string; url: string };
 
 /** A stored timestamp in the future means the clock moved back; check again. */
@@ -812,16 +1157,73 @@ export function installedModuleVersion(run = runCommand): string | null {
   return version.length > 0 ? version : null;
 }
 
+/**
+ * The rebuild gate. Gating on the app version would prompt for a password on every
+ * release, because dkms.conf is stamped from package.json; gate on the sources.
+ */
+export function decideRebuild(input: {
+  bundledHash: string;
+  recordedHash: string;
+  installedVersion: string | null;
+  appVersion: string;
+}): RebuildOutcome {
+  const { bundledHash, recordedHash, installedVersion, appVersion } = input;
+
+  // No driver installed: never hand this user a password prompt.
+  if (installedVersion === null) return { kind: 'not-needed' };
+  if (!bundledHash) return { kind: 'not-needed' };
+  if (recordedHash === bundledHash) return { kind: 'not-needed' };
+
+  // Existing users upgrading into the first release with this feature have no
+  // recorded hash. Fall back to the version comparison once, then adopt.
+  if (recordedHash === '') {
+    return installedVersion === appVersion
+      ? { kind: 'adopt', hash: bundledHash }
+      : { kind: 'rebuild', hash: bundledHash };
+  }
+
+  return { kind: 'rebuild', hash: bundledHash };
+}
+
+export type UpdateServiceDeps = {
+  appImagePath: typeof appImagePath;
+  canSelfReplace: typeof canSelfReplace;
+  fetchLatestRelease: typeof fetchLatestRelease;
+  downloadTo: typeof downloadTo;
+  sha256File: typeof sha256File;
+  swapInPlace: typeof swapInPlace;
+  moduleSourceHash: (root: string) => string;
+  installedModuleVersion: () => string | null;
+  fetchText: (url: string) => Promise<string>;
+  moduleSourceRoot: () => string;
+};
+
+const DEFAULT_DEPS: UpdateServiceDeps = {
+  appImagePath,
+  canSelfReplace,
+  fetchLatestRelease,
+  downloadTo,
+  sha256File,
+  swapInPlace,
+  moduleSourceHash,
+  installedModuleVersion,
+  fetchText: async (url) => (await fetch(url)).text(),
+  moduleSourceRoot: () => path.join(process.resourcesPath, 'vds-module'),
+};
+
 export class UpdateService {
   private state: UpdateState = { phase: 'idle' };
   private pending: Extract<UpdateDecision, { kind: 'offer' }> | null = null;
+  private readonly deps: UpdateServiceDeps;
 
   constructor(
     private readonly currentVersion: string,
     private readonly setupService: SetupService,
     private readonly emit: (state: UpdateState) => void,
-    private readonly deps = { appImagePath, canSelfReplace, fetchLatestRelease },
-  ) {}
+    deps: Partial<UpdateServiceDeps> = {},
+  ) {
+    this.deps = { ...DEFAULT_DEPS, ...deps };
+  }
 
   getState(): UpdateState {
     return this.state;
@@ -871,7 +1273,14 @@ export class UpdateService {
     return this.state;
   }
 
-  /** Download -> verify -> swap -> (rebuild module) -> ready to restart. */
+  /**
+   * Download -> verify -> swap -> ready to restart.
+   *
+   * The driver rebuild deliberately does NOT happen here. Until the relaunch we are
+   * still running from the old AppImage's FUSE mount, so process.resourcesPath and
+   * app.getVersion() both describe the OLD release: rebuilding now would install the
+   * old module from the old sources. See rebuildIfNeeded(), called on the next launch.
+   */
   async start(): Promise<void> {
     const decision = this.pending;
     const target = this.deps.appImagePath();
@@ -883,7 +1292,7 @@ export class UpdateService {
 
     try {
       this.set({ phase: 'downloading', version, received: 0, total: decision.appImage.size });
-      await downloadTo({
+      await this.deps.downloadTo({
         url: decision.appImage.url,
         tempPath,
         onProgress: (received, total) =>
@@ -891,51 +1300,80 @@ export class UpdateService {
       });
 
       this.set({ phase: 'verifying', version });
-      const expected = parseSha256Asset(
-        await (await fetch(decision.sha256.url)).text(),
-      );
-      const actual = await sha256File(tempPath);
+      const expected = parseSha256Asset(await this.deps.fetchText(decision.sha256.url));
+      const actual = await this.deps.sha256File(tempPath);
       if (!expected || expected !== actual) {
         await fs.promises.rm(tempPath, { force: true });
-        this.set({ phase: 'failed', version, message: "The download didn't verify." });
-        return;
-      }
-
-      swapInPlace(tempPath, target);
-    } catch {
-      await fs.promises.rm(tempPath, { force: true });
-      this.set({ phase: 'failed', version, message: 'The download was interrupted.' });
-      return;
-    }
-
-    // Past this point the new AppImage is on disk. Never roll it back.
-    const moduleVersion = installedModuleVersion();
-    if (moduleVersion !== null && moduleVersion !== version) {
-      this.set({ phase: 'installing', version, step: 'Preparing…', index: 0, total: 1 });
-      let steps: string[] = [];
-      const exit = await this.setupService.install((event) => {
-        if (event.event === 'plan') steps = event.steps;
-        if (event.event === 'step' && event.status === 'start') {
-          this.set({
-            phase: 'installing',
-            version,
-            step: steps[event.index] ?? 'Working…',
-            index: event.index,
-            total: steps.length || 1,
-          });
-        }
-      });
-      if (exit !== 0) {
         this.set({
           phase: 'failed',
           version,
-          message: "OpenDS5 updated, but the controller driver didn't rebuild.",
+          message: "The download didn't verify.",
+          retry: 'download',
         });
         return;
       }
+
+      this.deps.swapInPlace(tempPath, target);
+    } catch {
+      await fs.promises.rm(tempPath, { force: true });
+      this.set({
+        phase: 'failed',
+        version,
+        message: 'The download was interrupted.',
+        retry: 'download',
+      });
+      return;
     }
 
     this.set({ phase: 'restart', version });
+  }
+
+  /**
+   * Called on launch, before the update check, from the NEW AppImage.
+   *
+   * Resolves the hash to record in settings, or null if nothing should be recorded
+   * (nothing to do, or the rebuild failed — in which case the next launch retries).
+   */
+  async rebuildIfNeeded(recordedHash: string): Promise<string | null> {
+    const outcome = decideRebuild({
+      bundledHash: this.deps.moduleSourceHash(this.deps.moduleSourceRoot()),
+      recordedHash,
+      installedVersion: this.deps.installedModuleVersion(),
+      appVersion: this.currentVersion,
+    });
+
+    if (outcome.kind === 'not-needed') return null;
+    if (outcome.kind === 'adopt') return outcome.hash;
+
+    const version = this.currentVersion;
+    this.set({ phase: 'installing', version, step: 'Preparing…', index: 0, total: 1 });
+
+    let steps: string[] = [];
+    const exit = await this.setupService.install((event) => {
+      if (event.event === 'plan') steps = event.steps;
+      if (event.event === 'step' && event.status === 'start') {
+        this.set({
+          phase: 'installing',
+          version,
+          step: steps[event.index] ?? 'Working…',
+          index: event.index,
+          total: steps.length || 1,
+        });
+      }
+    });
+
+    if (exit !== 0) {
+      this.set({
+        phase: 'failed',
+        version,
+        message: "OpenDS5 updated, but the controller driver didn't rebuild.",
+        retry: 'rebuild',
+      });
+      return null;
+    }
+
+    this.set({ phase: 'idle' });
+    return outcome.hash;
   }
 }
 ```
@@ -954,7 +1392,7 @@ git commit -m "Sequence the update from check to ready-to-restart"
 
 ---
 
-### Task 6: IPC and main wiring
+### Task 7: IPC and main wiring
 
 **Files:**
 - Create: `src/main/update-ipc.ts`
@@ -963,11 +1401,12 @@ git commit -m "Sequence the update from check to ready-to-restart"
 - Test: `src/main/ipc-contract.test.ts` (already exists — it enforces the pairing)
 
 **Interfaces:**
-- Consumes: `UpdateService`, `UpdateState` (Task 5); the settings store (Task 1).
-- Produces: `UPDATE_CHANNELS`, and `window.update` in the renderer:
+- Consumes: `UpdateService`, `UpdateState`, `isCheckDue` (Task 6); the settings store (Task 1).
+- Produces: `RELEASES_PAGE_URL`, the `update:*` IPC channels (as string literals), and `window.update` in the renderer:
   ```ts
   window.update.check(): Promise<UpdateState>
   window.update.start(): Promise<void>
+  window.update.rebuild(): Promise<void>
   window.update.skip(version: string): Promise<void>
   window.update.dismiss(): Promise<void>
   window.update.restart(): Promise<void>
@@ -975,30 +1414,24 @@ git commit -m "Sequence the update from check to ready-to-restart"
   window.update.onState(cb: (state: UpdateState) => void): () => void
   ```
 
-- [ ] **Step 1: Write the channel constants**
+- [ ] **Step 1: Create the shared constant**
 
-Create `src/main/update-ipc.ts`, matching the shape of `setup-ipc.ts`:
+Create `src/main/update-ipc.ts`:
 
 ```ts
-export const UPDATE_CHANNELS = {
-  check: 'update:check',
-  start: 'update:start',
-  skip: 'update:skip',
-  dismiss: 'update:dismiss',
-  restart: 'update:restart',
-  openReleasePage: 'update:open-release-page',
-  state: 'update:state',
-} as const;
-
 export const RELEASES_PAGE_URL = 'https://github.com/LordVicky/OpenDS5/releases/latest';
 ```
 
+**Write the channel names as string literals**, in both preload and main — do *not* introduce an `UPDATE_CHANNELS` object the way `setup-ipc.ts` does.
+
+`ipc-contract.test.ts` finds channels by matching the source text for `/ipcRenderer\.invoke\('([^']+)'/` — it requires a literal quote immediately after `invoke(`. A call like `invoke(UPDATE_CHANNELS.check)` is therefore **invisible to it**, which is why the existing `SETUP_CHANNELS` channels are not actually covered by that test today. Using literals (as the `bridge:*` channels already do) is what makes the contract test catch a preload/main typo such as `update:chekc` — otherwise it surfaces only at runtime as an unhandled-channel rejection.
+
 - [ ] **Step 2: Run the contract test and watch it fail**
 
-Add the preload API first (Step 3), *then* run this — the contract test fails when a preload channel has no main handler, which is exactly the failure we want to see before wiring main.
+Add the preload API first (Step 3), *then* run this — the contract test fails when a preload `invoke` channel has no matching `ipcMain.handle`, which is exactly the failure we want to see before wiring main.
 
 Run: `npx vitest run src/main/ipc-contract.test.ts`
-Expected: FAIL — the preload `invoke` channels have no matching `ipcMain.handle`.
+Expected: FAIL — the six new `update:*` preload channels have no matching handler.
 
 - [ ] **Step 3: Expose the API in preload**
 
@@ -1006,16 +1439,17 @@ Append to `src/preload.ts`, following the existing `setupApi` block:
 
 ```ts
 const updateApi = {
-  check: (): Promise<UpdateState> => ipcRenderer.invoke(UPDATE_CHANNELS.check),
-  start: (): Promise<void> => ipcRenderer.invoke(UPDATE_CHANNELS.start),
-  skip: (version: string): Promise<void> => ipcRenderer.invoke(UPDATE_CHANNELS.skip, version),
-  dismiss: (): Promise<void> => ipcRenderer.invoke(UPDATE_CHANNELS.dismiss),
-  restart: (): Promise<void> => ipcRenderer.invoke(UPDATE_CHANNELS.restart),
-  openReleasePage: (): Promise<void> => ipcRenderer.invoke(UPDATE_CHANNELS.openReleasePage),
+  check: (): Promise<UpdateState> => ipcRenderer.invoke('update:check'),
+  start: (): Promise<void> => ipcRenderer.invoke('update:start'),
+  rebuild: (): Promise<void> => ipcRenderer.invoke('update:rebuild'),
+  skip: (version: string): Promise<void> => ipcRenderer.invoke('update:skip', version),
+  dismiss: (): Promise<void> => ipcRenderer.invoke('update:dismiss'),
+  restart: (): Promise<void> => ipcRenderer.invoke('update:restart'),
+  openReleasePage: (): Promise<void> => ipcRenderer.invoke('update:open-release-page'),
   onState: (cb: (state: UpdateState) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: UpdateState) => cb(payload);
-    ipcRenderer.on(UPDATE_CHANNELS.state, listener);
-    return () => ipcRenderer.removeListener(UPDATE_CHANNELS.state, listener);
+    ipcRenderer.on('update:state', listener);
+    return () => ipcRenderer.removeListener('update:state', listener);
   },
 };
 contextBridge.exposeInMainWorld('update', updateApi);
@@ -1023,7 +1457,7 @@ contextBridge.exposeInMainWorld('update', updateApi);
 export type UpdateApi = typeof updateApi;
 ```
 
-Import `UPDATE_CHANNELS` from `./main/update-ipc` and `UpdateState` from `./main/update-service` at the top, alongside the existing setup imports.
+Import `UpdateState` from `./main/update-service` at the top, alongside the existing setup imports. The `removeListener` in `onState` is not optional — `ipc-contract.test.ts` asserts every renderer subscription returns an unsubscribe.
 
 - [ ] **Step 4: Handle the channels in main**
 
@@ -1031,10 +1465,18 @@ In `src/main/main.ts`, construct the service once the main window exists (reuse 
 
 ```ts
 const updateService = new UpdateService(app.getVersion(), setupService, (state) =>
-  sendToMainWindow(UPDATE_CHANNELS.state, state),
+  sendToMainWindow('update:state', state),
 );
 
-ipcMain.handle(UPDATE_CHANNELS.check, async () => {
+ipcMain.handle('update:check', async () => {
+  // We may have just been relaunched by an update. Finish the job first: this is
+  // the only point at which resourcesPath and app.getVersion() describe the NEW
+  // release, so it is the only point at which the driver can be rebuilt correctly.
+  const recorded = settingsStore.get().installedModuleSourceHash;
+  const rebuiltHash = await updateService.rebuildIfNeeded(recorded);
+  if (rebuiltHash) settingsStore.update({ installedModuleSourceHash: rebuiltHash });
+  if (updateService.getState().phase === 'failed') return updateService.getState();
+
   const settings = settingsStore.get();
   if (!isCheckDue(settings.lastUpdateCheckAt, Date.now())) return { phase: 'idle' };
   // Record the attempt regardless of the outcome so a failed check does not
@@ -1043,20 +1485,27 @@ ipcMain.handle(UPDATE_CHANNELS.check, async () => {
   return updateService.check(settings.skippedUpdateVersions);
 });
 
-ipcMain.handle(UPDATE_CHANNELS.start, () => updateService.start());
+ipcMain.handle('update:start', () => updateService.start());
 
-ipcMain.handle(UPDATE_CHANNELS.skip, (_event, version: string) => {
+// "Try again" after a failed driver rebuild. Passing '' forces the gate to
+// re-evaluate rather than trusting a hash we never recorded.
+ipcMain.handle('update:rebuild', async () => {
+  const hash = await updateService.rebuildIfNeeded('');
+  if (hash) settingsStore.update({ installedModuleSourceHash: hash });
+});
+
+ipcMain.handle('update:skip', (_event, version: string) => {
   const current = settingsStore.get().skippedUpdateVersions;
   if (!current.includes(version)) {
     settingsStore.update({ skippedUpdateVersions: [...current, version] });
   }
 });
 
-ipcMain.handle(UPDATE_CHANNELS.dismiss, () => {
+ipcMain.handle('update:dismiss', () => {
   // "Remind me later" writes no state; the next check past the window re-offers.
 });
 
-ipcMain.handle(UPDATE_CHANNELS.restart, () => {
+ipcMain.handle('update:restart', () => {
   const target = appImagePath();
   if (!target) return;
   // The default execPath is the /tmp FUSE mount, which is gone after exit.
@@ -1064,7 +1513,7 @@ ipcMain.handle(UPDATE_CHANNELS.restart, () => {
   app.exit(0);
 });
 
-ipcMain.handle(UPDATE_CHANNELS.openReleasePage, () => shell.openExternal(RELEASES_PAGE_URL));
+ipcMain.handle('update:open-release-page', () => shell.openExternal(RELEASES_PAGE_URL));
 ```
 
 Match the settings-store accessor names already used in `main.ts` (read the file — do not assume `get`/`update` if it exposes different names).
@@ -1083,7 +1532,7 @@ git commit -m "Wire the update service to the renderer"
 
 ---
 
-### Task 7: The toast
+### Task 8: The toast
 
 Presentational only: it renders an `UpdateState` and emits actions. All sequencing lives in main.
 
@@ -1097,7 +1546,7 @@ Presentational only: it renders an `UpdateState` and emits actions. All sequenci
 Mockup (authoritative for layout and copy): <https://claude.ai/code/artifact/c24dc13a-a018-46de-80ca-53d7ec3758b3>
 
 **Interfaces:**
-- Consumes: `window.update` (Task 6), `UpdateState` (Task 5).
+- Consumes: `window.update` (Task 7), `UpdateState` (Task 6).
 - Produces: `<UpdateToast state={state} onAction={...} />`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1174,7 +1623,13 @@ Create `src/renderer/UpdateToast.tsx`:
 ```tsx
 import type { UpdateState } from '../main/update-service';
 
-export type UpdateAction = 'start' | 'dismiss' | 'skip' | 'restart' | 'openReleasePage';
+export type UpdateAction =
+  | 'start'
+  | 'rebuild'
+  | 'dismiss'
+  | 'skip'
+  | 'restart'
+  | 'openReleasePage';
 
 function megabytes(bytes: number): string {
   return `${Math.round(bytes / 1_000_000)} MB`;
@@ -1276,7 +1731,11 @@ export function UpdateToast({
             </div>
           </div>
           <div className="update-toast-actions">
-            <button type="button" className="primary" onClick={() => onAction('start')}>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => onAction(state.retry === 'rebuild' ? 'rebuild' : 'start')}
+            >
               Try again
             </button>
             <button type="button" onClick={() => onAction('dismiss')}>
@@ -1526,7 +1985,7 @@ git commit -m "Offer the update in a toast that never blocks the app"
 
 ---
 
-### Task 8: Publish the checksum
+### Task 9: Publish the checksum
 
 Without this asset the updater will never offer anything — `decideUpdate` requires a `.sha256` alongside the AppImage. This task is what makes the feature live.
 
@@ -1578,7 +2037,7 @@ git commit -m "Publish a checksum beside the AppImage so updates can be verified
 
 ---
 
-### Task 9: Full suite and manual verification
+### Task 10: Full suite and manual verification
 
 - [ ] **Step 1: Run everything**
 
@@ -1612,8 +2071,12 @@ gh pr create --base main --title "Update backend" --body "Implements docs/superp
 
 ## Self-Review
 
-**Spec coverage:** GitHub Releases source → Task 3. Prerelease/draft filtering → Task 2. Two-day gate → Task 5 (`isCheckDue`) + Task 6 (persisted). Three actions → Tasks 6, 7. Toast UI, z-index, scaling → Task 7. Download/verify/atomic swap/read-only probe → Task 4. `modinfo` module-version check and automatic install → Task 5. Relaunch with `execPath` → Task 6. `.sha256` asset → Task 8. Settings fields → Task 1. Error handling → the `failed` phase in Task 5 plus silent-null in Task 3. Manual AppImage verification → Task 9. No gaps.
+**Spec coverage:** GitHub Releases source → Task 3. Prerelease/draft filtering → Task 2. Two-day gate → Task 6 (`isCheckDue`) + Task 7 (persisted). Three actions → Tasks 7, 8. Toast UI, z-index, scaling → Task 8. Download/verify/atomic swap/read-only probe → Task 4. Module-source hash gate → Task 5 + `decideRebuild` in Task 6. Post-relaunch rebuild → Task 6 (`rebuildIfNeeded`) + Task 7 (called from the check handler). Relaunch with `execPath` → Task 7. `.sha256` asset → Task 9. Settings fields → Task 1. Error handling → the `failed` phase in Task 6 plus silent-null in Task 3. Manual AppImage verification → Task 10. No gaps.
 
-**Type consistency:** `UpdateState` is defined once in Task 5 and consumed by Tasks 6 and 7. `Release`/`ReleaseAsset` are defined in Task 2 and consumed by Task 3. `UPDATE_CHANNELS` is defined in Task 6 and used by both main and preload. Asset lookup uses `.AppImage` / `.AppImage.sha256` suffixes consistently in Tasks 2, 4 and 8.
+**Type consistency:** `UpdateState` is defined once in Task 6 and consumed by Tasks 7 and 8; its `failed` phase carries `retry: 'download' | 'rebuild'`, which the toast uses to route "Try again" to either `start` or `rebuild`. `Release`/`ReleaseAsset` are defined in Task 2 and consumed by Task 3. The `update:*` channels are written as string literals in both preload and main, which is what makes `ipc-contract.test.ts` actually cover them (it matches source text for a literal quote after `invoke(`, so a channels-object indirection would slip past it — as the existing `SETUP_CHANNELS` calls do today). Asset lookup uses `.AppImage` / `.AppImage.sha256` suffixes consistently in Tasks 2, 4 and 9.
 
-**Known soft spots the implementer must resolve by reading, not guessing:** the settings-store accessor names in `main.ts` (Task 6, Step 4), the existing app-version mechanism in `App.tsx` (Task 7, Step 3), the tutorial/modal flag names (Task 7, Step 5), and the real CSS custom-property names (Task 7, Step 4). Each is flagged inline.
+**Two ordering invariants the tests actively defend**, because both were bugs caught in review rather than in code:
+1. `start()` must not call the installer — Task 6's test `never runs the installer before the relaunch` asserts it. Pre-relaunch, `resourcesPath` and `app.getVersion()` still describe the old AppImage.
+2. The rebuild must not be gated on the version string — Task 6's test `asks for nothing when the driver sources did not change` asserts it. Version-gating means a password prompt on every release.
+
+**Known soft spots the implementer must resolve by reading, not guessing:** the settings-store accessor names in `main.ts` (Task 7, Step 4 — do not assume `get`/`update`), the existing app-version mechanism in `App.tsx` (Task 8, Step 3), the tutorial/modal flag names (Task 8, Step 5), and the real CSS custom-property names (Task 8, Step 4). Each is flagged inline.

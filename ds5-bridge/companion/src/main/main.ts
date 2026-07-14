@@ -15,6 +15,9 @@ import {
   nukePicoFlash as copyPicoFlashNuke
 } from './pico-firmware-updater';
 import { SettingsStore } from './settings-store';
+import { appImagePath } from './appimage-updater';
+import { isCheckDue, UpdateService, type UpdateState } from './update-service';
+import { RELEASES_PAGE_URL } from './update-ipc';
 import { defaultWindowSize, growBoundsToMinimum, loadWindowState, resolveWindowBounds, saveWindowState } from './window-state';
 import { deriveLegacyUserDataPath, migrateLegacyUserData } from './user-data-migration';
 import { readProfileFileForImport, TriggerProfileStore } from './trigger-profile-store';
@@ -1403,7 +1406,7 @@ function resolveInstallerScriptPath(): string {
   return path.join(__dirname, '..', '..', '..', '..', '..', 'installer', 'opends5-install');
 }
 
-function runSetupWizardIfNeeded(settingsStore: SettingsStore): Promise<void> {
+function runSetupWizardIfNeeded(settingsStore: SettingsStore, service: SetupService): Promise<void> {
   const needed = process.platform === 'linux' ? isSetupNeeded() : false;
   if (
     !shouldShowSetupWizard({
@@ -1415,7 +1418,6 @@ function runSetupWizardIfNeeded(settingsStore: SettingsStore): Promise<void> {
     return Promise.resolve();
   }
   return new Promise<void>((resolve) => {
-    const service = new SetupService(resolveInstallerScriptPath(), app.getVersion());
     openSetupWindow({
       service,
       indexPath: path.join(__dirname, '..', '..', 'renderer', 'index.html'),
@@ -1432,6 +1434,72 @@ function runSetupWizardIfNeeded(settingsStore: SettingsStore): Promise<void> {
       onDismiss: () => resolve()
     });
   });
+}
+
+function registerUpdateIpc(settingsStore: SettingsStore, setupService: SetupService): void {
+  const updateService = new UpdateService(app.getVersion(), setupService, (state) => (
+    sendToMainWindow('update:state', state)
+  ));
+
+  ipcMain.handle('update:check', async (): Promise<UpdateState> => {
+    // A previous run may have been killed mid-download; drop its leftovers.
+    updateService.cleanStaleDownload();
+
+    // We may have just been relaunched by an update. Finish the job first: this is the
+    // only point at which resourcesPath and app.getVersion() describe the NEW release,
+    // so it is the only point at which the driver can be rebuilt correctly.
+    const rebuiltHash = await updateService.rebuildIfNeeded(settingsStore.get().installedModuleSourceHash);
+    // A null hash means the rebuild failed; record nothing so the next launch retries.
+    if (rebuiltHash) {
+      settingsStore.update({ installedModuleSourceHash: rebuiltHash });
+    }
+    if (updateService.getState().phase === 'failed') {
+      return updateService.getState();
+    }
+
+    const settings = settingsStore.get();
+    if (!isCheckDue(settings.lastUpdateCheckAt, Date.now())) {
+      return { phase: 'idle' };
+    }
+    // Record the attempt regardless of the outcome so a failed check does not retry
+    // on every launch.
+    settingsStore.update({ lastUpdateCheckAt: Date.now() });
+    return updateService.check(settings.skippedUpdateVersions);
+  });
+
+  ipcMain.handle('update:start', () => updateService.start());
+
+  // "Try again" after a failed driver rebuild. Passing '' forces the gate to
+  // re-evaluate rather than trusting a hash we never recorded.
+  ipcMain.handle('update:rebuild', async () => {
+    const hash = await updateService.rebuildIfNeeded('');
+    if (hash) {
+      settingsStore.update({ installedModuleSourceHash: hash });
+    }
+  });
+
+  ipcMain.handle('update:skip', (_event, version: string) => {
+    const current = settingsStore.get().skippedUpdateVersions;
+    if (!current.includes(version)) {
+      settingsStore.update({ skippedUpdateVersions: [...current, version] });
+    }
+  });
+
+  ipcMain.handle('update:dismiss', () => {
+    // "Remind me later" writes no state; the next check past the window re-offers.
+  });
+
+  ipcMain.handle('update:restart', () => {
+    const target = appImagePath();
+    if (!target) {
+      return;
+    }
+    // The default execPath is the /tmp FUSE mount, which is gone after exit.
+    app.relaunch({ execPath: target });
+    app.exit(0);
+  });
+
+  ipcMain.handle('update:open-release-page', () => shell.openExternal(RELEASES_PAGE_URL));
 }
 
 app.whenReady().then(async () => {
@@ -1475,12 +1543,22 @@ app.whenReady().then(async () => {
   });
   registerIpc(bridgeService, triggerProfileStore, triggerProfileEngine, profileLibrary);
 
+  // One installer service for both the first-launch wizard and the post-update
+  // driver rebuild: it is inert until install() runs.
+  const setupService = new SetupService(resolveInstallerScriptPath(), app.getVersion());
+
   // Linux first launch: run the system setup wizard to completion (or skip)
   // before the main window exists, so the app never starts against a
   // half-installed driver stack.
-  await runSetupWizardIfNeeded(settingsStore);
+  await runSetupWizardIfNeeded(settingsStore, setupService);
 
   mainWindow = createWindow(settingsStore.get().uiScalePercent);
+
+  // Only now: the update handlers share setupService with the wizard, and
+  // SetupService.install() is not re-entrant, so they must not be callable
+  // while the wizard may be mid-install.
+  registerUpdateIpc(settingsStore, setupService);
+
   mainWindow.on('maximize', sendWindowMaximizedState);
   mainWindow.on('unmaximize', sendWindowMaximizedState);
   mainWindow.on('show', () => scheduleMainWindowScaleRestore(false));

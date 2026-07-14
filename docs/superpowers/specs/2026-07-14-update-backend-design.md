@@ -192,9 +192,13 @@ stated.
 - **`src/main/appimage-updater.ts`** — download, sha256 verify, chmod, atomic rename,
   writability probe, relaunch. Takes the AppImage path by injection so tests drive a
   temp directory instead of the real one.
+- **`src/main/module-source-hash.ts`** — `moduleSourceHash(root: string): string`, the
+  sorted-walk sha256 above. Pure filesystem, no Electron.
 - **`src/main/update-service.ts`** — orchestrates the flow above and owns the state
   machine the toast renders. Delegates the installer run to the existing
-  `SetupService` rather than spawning the installer a second way.
+  `SetupService` rather than spawning the installer a second way. Every collaborator
+  (download, hash, verify, swap, installer) is injected, so `start()` and the
+  post-relaunch rebuild are both testable against a temp directory.
 - **`src/renderer/UpdateToast.tsx`** — presentational; renders a state, emits actions.
 
 ## Settings
@@ -204,6 +208,7 @@ normalized in `settings-store.ts` in the existing style:
 
 - `lastUpdateCheckAt: number` — epoch ms, `0` meaning never.
 - `skippedUpdateVersions: string[]`
+- `installedModuleSourceHash: string` — `''` meaning unknown (see the fallback above).
 
 Both must survive a settings file that predates them; the store's existing
 normalization path covers this and gets test coverage for these fields.
@@ -232,10 +237,10 @@ Every failure leaves the currently installed version working. That is the invari
   toast with Try again. Nothing has been swapped at this point.
 - `rename()` fails → the temp file is removed and the old AppImage is untouched;
   surface as a failed update.
-- Installer fails or the user cancels the polkit prompt → the **new AppImage is
-  already in place** but the module was not rebuilt. Surface this honestly and offer
-  to re-run the installer; do not pretend the update succeeded and do not attempt to
-  roll the AppImage back.
+- Installer fails or the user cancels the polkit prompt → the new app is already
+  running; only the driver rebuild failed. Say so honestly and offer to retry.
+  `installedModuleSourceHash` is **not** recorded, so the next launch retries by
+  itself. Never pretend the update succeeded, and never roll the AppImage back.
 
 ## Testing
 
@@ -246,6 +251,13 @@ Unit tests (vitest, alongside the source as this codebase does):
   offered while its successor is; missing assets → no offer.
 - `appimage-updater.test.ts` — against a temp dir: checksum mismatch does not swap;
   rename is atomic; a non-writable directory is detected before any download.
+- `module-source-hash.test.ts` — identical trees hash equal; a changed byte, an added
+  file, and a renamed file each change the hash.
+- `update-service.test.ts` — the two-day gate; **`start()` driven end to end against a
+  temp dir with a mocked installer** (this is the riskiest code in the feature and
+  must not be left untested); the rebuild gate: unchanged hash asks for nothing,
+  changed hash runs the installer, absent module never runs it, and a failed installer
+  leaves the recorded hash alone so the next launch retries.
 - `settings-store.test.ts` — the two new fields default correctly and a settings file
   written before this feature still loads.
 - `ipc-contract.test.ts` — passes with the new channels (it will fail loudly if a
