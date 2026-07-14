@@ -85,6 +85,18 @@ jobs:
           fi
           echo "ok: static runtime, no libfuse2 ($offset bytes)"
 
+      # The updater refuses to install an AppImage it cannot verify, so the
+      # checksum ships as a release asset beside it. sha256sum runs from inside
+      # the artifact directory so the recorded name is a bare basename, which is
+      # the `<64-hex>  <file>` shape the client's parseSha256Asset expects.
+      - name: checksum AppImage
+        working-directory: ds5-bridge/companion
+        run: |
+          appimage="$(find artifacts/installer -maxdepth 1 -name '*.AppImage' -print -quit)"
+          [ -n "$appimage" ] || { echo "no AppImage produced"; exit 1; }
+          ( cd "$(dirname "$appimage")" && sha256sum "$(basename "$appimage")" > "$(basename "$appimage").sha256" )
+          cat "${appimage}.sha256"
+
       - uses: actions/upload-artifact@v4
         with:
           name: OpenDS5-AppImage
@@ -107,4 +119,5 @@ jobs:
             --target "${GITHUB_SHA}" \
             --generate-notes \
             ${prerelease} \
-            ds5-bridge/companion/artifacts/installer/*.AppImage
+            ds5-bridge/companion/artifacts/installer/*.AppImage \
+            ds5-bridge/companion/artifacts/installer/*.AppImage.sha256
