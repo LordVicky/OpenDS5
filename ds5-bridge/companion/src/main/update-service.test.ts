@@ -168,11 +168,20 @@ describe('UpdateService.start', () => {
     ]);
   });
 
-  it('never runs the installer before the relaunch', async () => {
+  it('never consults the rebuild decision before the relaunch', async () => {
     // Pre-relaunch, resourcesPath and app.getVersion() still describe the OLD
     // AppImage, so a rebuild here would build the old module from old sources.
-    const { svc, setup } = service();
+    // Asserting the inputs to decideRebuild are never even read is what makes this
+    // fail if rebuildIfNeeded() is moved back into start(): a hash/version override
+    // alone could land on the 'adopt' path and skip the installer anyway.
+    const moduleSourceHash = vi.fn().mockReturnValue('bbb');
+    const installedModuleVersion = vi.fn().mockReturnValue('1.7.0');
+    const { svc, setup } = service({ moduleSourceHash, installedModuleVersion });
+
     await svc.start();
+
+    expect(moduleSourceHash).not.toHaveBeenCalled();
+    expect(installedModuleVersion).not.toHaveBeenCalled();
     expect(setup.install).not.toHaveBeenCalled();
   });
 
@@ -193,6 +202,69 @@ describe('UpdateService.start', () => {
 
     expect(fs.readFileSync(target, 'utf8')).toBe('old-appimage-bytes');
     expect(svc.getState().phase).toBe('failed');
+  });
+});
+
+describe('UpdateService.check', () => {
+  const release = {
+    version: '1.8.0',
+    notes: 'notes',
+    draft: false,
+    prerelease: false,
+    assets: [
+      { name: 'x.AppImage', url: 'https://x/a', size: 100 },
+      { name: 'x.AppImage.sha256', url: 'https://x/s', size: 64 },
+    ],
+  };
+
+  function service(overrides: Record<string, unknown> = {}) {
+    const setup = { install: vi.fn() } as unknown as SetupService;
+    const svc = new UpdateService('1.7.0', setup, () => {}, {
+      appImagePath: () => '/x/OpenDS5.AppImage',
+      canSelfReplace: () => true,
+      fetchLatestRelease: vi.fn().mockResolvedValue(release),
+      ...overrides,
+    });
+    return svc;
+  }
+
+  const pendingOf = (svc: UpdateService) =>
+    (svc as unknown as { pending: unknown }).pending;
+
+  it('offers a newer release', async () => {
+    const svc = service();
+    await expect(svc.check([])).resolves.toEqual({
+      phase: 'offer',
+      version: '1.8.0',
+      notes: 'notes',
+      sizeBytes: 100,
+    });
+  });
+
+  it('points a read-only install at the download page instead', async () => {
+    const svc = service({ canSelfReplace: () => false });
+    await expect(svc.check([])).resolves.toEqual({
+      phase: 'readonly',
+      version: '1.8.0',
+      url: 'https://x/a',
+    });
+  });
+
+  it('stays idle when there is no AppImage to replace', async () => {
+    const svc = service({ appImagePath: () => null });
+    expect((await svc.check([])).phase).toBe('idle');
+  });
+
+  it('clears a previously offered version when a later check finds nothing', async () => {
+    // A stale pending offer behind an idle state would let start() install a version
+    // the user already skipped.
+    const svc = service();
+    await svc.check([]);
+    expect(pendingOf(svc)).not.toBeNull();
+
+    await svc.check(['1.8.0']);
+    expect(svc.getState()).toEqual({ phase: 'idle' });
+    expect(pendingOf(svc)).toBeNull();
   });
 });
 

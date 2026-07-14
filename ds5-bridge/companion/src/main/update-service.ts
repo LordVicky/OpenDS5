@@ -106,9 +106,10 @@ const DEFAULT_DEPS: UpdateServiceDeps = {
   moduleSourceHash,
   installedModuleVersion,
   fetchText: async (url) => (await fetch(url)).text(),
-  // resourcesPath only exists inside Electron; outside it (tests, plain node) the
-  // path resolves nowhere and moduleSourceHash returns '' → nothing to rebuild.
-  moduleSourceRoot: () => path.join(process.resourcesPath ?? '', 'vds-module'),
+  // resourcesPath only exists inside Electron; outside it (tests, plain node) there is
+  // no bundled module. Return '' rather than a cwd-relative 'vds-module', which a stray
+  // directory of that name would turn into a live rebuild gate.
+  moduleSourceRoot: () => (process.resourcesPath ? path.join(process.resourcesPath, 'vds-module') : ''),
 };
 
 export class UpdateService {
@@ -153,6 +154,7 @@ export class UpdateService {
       skippedVersions,
     });
     if (decision.kind === 'none') {
+      this.pending = null;
       this.set({ phase: 'idle' });
       return this.state;
     }
