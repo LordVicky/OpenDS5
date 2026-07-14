@@ -44,10 +44,18 @@ export async function downloadTo(opts: {
       onProgress(received, total);
     }
   } catch (error) {
-    await handle.close();
+    // Close must not be able to skip the rm, nor replace the original error.
+    try {
+      await handle.close();
+    } catch {
+      /* ignore */
+    }
     await fs.promises.rm(tempPath, { force: true });
     throw error;
   }
+  // Flush before the rename can publish this file, so a power loss cannot
+  // install a partially-materialized AppImage.
+  await handle.sync();
   await handle.close();
 }
 
@@ -61,9 +69,13 @@ export function sha256File(filePath: string): Promise<string> {
   });
 }
 
-/** A sha256sum line is "<hex>  <filename>". */
+/**
+ * A sha256sum line is "<hex>  <filename>". Anything else (an HTML 404 body, an
+ * empty asset) yields '', which callers treat as "cannot verify → refuse".
+ */
 export function parseSha256Asset(text: string): string {
-  return text.trim().split(/\s+/)[0] ?? '';
+  const first = text.trim().split(/\s+/)[0] ?? '';
+  return /^[0-9a-fA-F]{64}$/.test(first) ? first : '';
 }
 
 /**
@@ -73,5 +85,12 @@ export function parseSha256Asset(text: string): string {
  */
 export function swapInPlace(tempPath: string, target: string): void {
   fs.chmodSync(tempPath, 0o755);
-  fs.renameSync(tempPath, target);
+  try {
+    fs.renameSync(tempPath, target);
+  } catch (error) {
+    // EXDEV/ENOSPC: the target is untouched, but the temp must not be left
+    // sitting next to the AppImage.
+    fs.rmSync(tempPath, { force: true });
+    throw error;
+  }
 }

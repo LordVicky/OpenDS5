@@ -5,10 +5,25 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   canSelfReplace,
+  downloadTo,
   parseSha256Asset,
   sha256File,
   swapInPlace,
 } from './appimage-updater';
+
+function fakeFetch(
+  body: AsyncIterable<Uint8Array> | null,
+  init: { ok?: boolean; status?: number; total?: number } = {},
+): typeof fetch {
+  const { ok = true, status = 200, total = 0 } = init;
+  return (async () =>
+    ({
+      ok,
+      status,
+      body,
+      headers: { get: () => String(total) },
+    }) as unknown as Response) as unknown as typeof fetch;
+}
 
 let dir: string;
 
@@ -50,7 +65,75 @@ describe('sha256File and parseSha256Asset', () => {
   });
 
   it('reads the hash out of a sha256sum line', () => {
-    expect(parseSha256Asset('abc123  OpenDS5-Companion-Setup-1.8.0.AppImage\n')).toBe('abc123');
+    const hex = 'a'.repeat(64);
+    expect(parseSha256Asset(`${hex}  OpenDS5-Companion-Setup-1.8.0.AppImage\n`)).toBe(hex);
+  });
+
+  it('rejects a body that is not a 64-hex digest', () => {
+    expect(parseSha256Asset('<!DOCTYPE html><html><body>404</body></html>')).toBe('');
+    expect(parseSha256Asset('abc123  OpenDS5.AppImage\n')).toBe('');
+    expect(parseSha256Asset(`${'a'.repeat(65)}  OpenDS5.AppImage`)).toBe('');
+    expect(parseSha256Asset('   ')).toBe('');
+  });
+});
+
+describe('downloadTo', () => {
+  it('writes the downloaded bytes and reports progress', async () => {
+    const tempPath = path.join(dir, 'OpenDS5.AppImage.download');
+    const chunks = [Buffer.from('hello '), Buffer.from('world')];
+    const progress: Array<[number, number]> = [];
+
+    await downloadTo({
+      url: 'https://example.invalid/x',
+      tempPath,
+      onProgress: (received, total) => progress.push([received, total]),
+      fetchImpl: fakeFetch(
+        (async function* () {
+          yield* chunks;
+        })(),
+        { total: 11 },
+      ),
+    });
+
+    expect(fs.readFileSync(tempPath, 'utf8')).toBe('hello world');
+    expect(progress).toEqual([
+      [6, 11],
+      [11, 11],
+    ]);
+  });
+
+  it('leaves no temp file behind when the stream fails partway', async () => {
+    const tempPath = path.join(dir, 'OpenDS5.AppImage.download');
+
+    await expect(
+      downloadTo({
+        url: 'https://example.invalid/x',
+        tempPath,
+        onProgress: () => {},
+        fetchImpl: fakeFetch(
+          (async function* () {
+            yield Buffer.from('partial');
+            throw new Error('stream reset');
+          })(),
+          { total: 999 },
+        ),
+      }),
+    ).rejects.toThrow('stream reset');
+
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  it('rejects a non-ok response without creating a temp file', async () => {
+    const tempPath = path.join(dir, 'OpenDS5.AppImage.download');
+    await expect(
+      downloadTo({
+        url: 'https://example.invalid/x',
+        tempPath,
+        onProgress: () => {},
+        fetchImpl: fakeFetch(null, { ok: false, status: 404 }),
+      }),
+    ).rejects.toThrow('download failed (404)');
+    expect(fs.existsSync(tempPath)).toBe(false);
   });
 });
 
@@ -61,11 +144,48 @@ describe('swapInPlace', () => {
     fs.writeFileSync(target, 'old');
     fs.writeFileSync(temp, 'new');
 
+    const tempIno = fs.statSync(temp).ino;
+    const targetIno = fs.statSync(target).ino;
+
     swapInPlace(temp, target);
 
     expect(fs.readFileSync(target, 'utf8')).toBe('new');
     expect(fs.existsSync(temp)).toBe(false);
     expect(fs.statSync(target).mode & 0o111).toBeTruthy();
+    // Only a rename() moves the temp's inode onto the target path. A
+    // copy-into-target implementation would keep the target's original inode.
+    expect(fs.statSync(target).ino).toBe(tempIno);
+    expect(fs.statSync(target).ino).not.toBe(targetIno);
+  });
+
+  it('leaves an already-open fd on the old target reading the old bytes', () => {
+    const target = path.join(dir, 'OpenDS5.AppImage');
+    const temp = path.join(dir, 'OpenDS5.AppImage.download');
+    fs.writeFileSync(target, 'old');
+    fs.writeFileSync(temp, 'new');
+
+    // The running AppImage holds exactly such an fd on its own inode.
+    const fd = fs.openSync(target, 'r');
+    try {
+      swapInPlace(temp, target);
+
+      const buf = Buffer.alloc(3);
+      const read = fs.readSync(fd, buf, 0, 3, 0);
+      expect(buf.subarray(0, read).toString('utf8')).toBe('old');
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    expect(fs.readFileSync(target, 'utf8')).toBe('new');
+  });
+
+  it('removes the temp file when the rename fails', () => {
+    const target = path.join(dir, 'sub', 'OpenDS5.AppImage'); // 'sub' does not exist
+    const temp = path.join(dir, 'OpenDS5.AppImage.download');
+    fs.writeFileSync(temp, 'new');
+
+    expect(() => swapInPlace(temp, target)).toThrow();
+    expect(fs.existsSync(temp)).toBe(false);
   });
 
   it('leaves the installed version alone when the swap fails', () => {
