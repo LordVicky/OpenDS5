@@ -1543,7 +1543,6 @@ app.whenReady().then(async () => {
   // One installer service for both the first-launch wizard and the post-update
   // driver rebuild: it is inert until install() runs.
   const setupService = new SetupService(resolveInstallerScriptPath(), app.getVersion());
-  registerUpdateIpc(settingsStore, setupService);
 
   // Linux first launch: run the system setup wizard to completion (or skip)
   // before the main window exists, so the app never starts against a
@@ -1551,6 +1550,12 @@ app.whenReady().then(async () => {
   await runSetupWizardIfNeeded(settingsStore, setupService);
 
   mainWindow = createWindow(settingsStore.get().uiScalePercent);
+
+  // Only now: the update handlers share setupService with the wizard, and
+  // SetupService.install() is not re-entrant, so they must not be callable
+  // while the wizard may be mid-install.
+  registerUpdateIpc(settingsStore, setupService);
+
   mainWindow.on('maximize', sendWindowMaximizedState);
   mainWindow.on('unmaximize', sendWindowMaximizedState);
   mainWindow.on('show', () => scheduleMainWindowScaleRestore(false));
