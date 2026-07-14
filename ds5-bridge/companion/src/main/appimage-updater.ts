@@ -37,26 +37,35 @@ export async function downloadTo(opts: {
   let received = 0;
 
   const handle = await fs.promises.open(tempPath, 'w');
+  let closed = false;
   try {
-    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-      await handle.write(chunk);
-      received += chunk.byteLength;
-      onProgress(received, total);
+    try {
+      for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+        await handle.write(chunk);
+        received += chunk.byteLength;
+        onProgress(received, total);
+      }
+      // Flush before the rename can publish this file, so a power loss cannot
+      // install a partially-materialized AppImage. ENOSPC/EIO surface here.
+      await handle.sync();
+      await handle.close();
+      closed = true;
+    } finally {
+      // A failing close() must not replace the original error nor skip the rm,
+      // so it is swallowed here and the outer catch still runs.
+      if (!closed) {
+        try {
+          await handle.close();
+          closed = true;
+        } catch {
+          /* ignore */
+        }
+      }
     }
   } catch (error) {
-    // Close must not be able to skip the rm, nor replace the original error.
-    try {
-      await handle.close();
-    } catch {
-      /* ignore */
-    }
     await fs.promises.rm(tempPath, { force: true });
     throw error;
   }
-  // Flush before the rename can publish this file, so a power loss cannot
-  // install a partially-materialized AppImage.
-  await handle.sync();
-  await handle.close();
 }
 
 export function sha256File(filePath: string): Promise<string> {

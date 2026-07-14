@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   canSelfReplace,
   downloadTo,
@@ -119,6 +119,42 @@ describe('downloadTo', () => {
         ),
       }),
     ).rejects.toThrow('stream reset');
+
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  it('leaves no temp file behind when the fsync fails', async () => {
+    const tempPath = path.join(dir, 'OpenDS5.AppImage.download');
+    const open = fs.promises.open;
+    const spy = vi
+      .spyOn(fs.promises, 'open')
+      .mockImplementation(async (...args: Parameters<typeof open>) => {
+        const handle = await open(...args);
+        // Simulates ENOSPC surfacing at fsync: the bytes streamed fine, but the
+        // flush to disk failed.
+        handle.sync = async () => {
+          throw new Error('ENOSPC: no space left on device, fsync');
+        };
+        return handle;
+      });
+
+    try {
+      await expect(
+        downloadTo({
+          url: 'https://example.invalid/x',
+          tempPath,
+          onProgress: () => {},
+          fetchImpl: fakeFetch(
+            (async function* () {
+              yield Buffer.from('hello world');
+            })(),
+            { total: 11 },
+          ),
+        }),
+      ).rejects.toThrow('ENOSPC');
+    } finally {
+      spy.mockRestore();
+    }
 
     expect(fs.existsSync(tempPath)).toBe(false);
   });
