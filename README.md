@@ -88,16 +88,16 @@ classic V1 command.
   JSON files. Import always creates a *fresh copy*: the profile is re-validated,
   given a new id and a collision-free display name, and stamped with
   `meta.source` recording where it came from (`import` or `library`).
-- **Profile library:** curated per-game profiles live on the dedicated
-  [`Profiles-Library` branch](https://github.com/LordVicky/OpenDS5/tree/Profiles-Library)
-  under `profiles/library/`, so new game support ships without an app release.
-  To add a game, open a PR **against the `Profiles-Library` branch** that adds
-  your profile JSON to `profiles/library/` and run `node scripts/build-index.mjs`
-  to regenerate the library index (CI verifies the index is in sync). The in-app
-  library browser fetches that branch's index and installs profiles as fresh
-  copies. Maintainer note: update the library branch via PRs or cherry-picks —
-  don't merge `dev` into it wholesale (the code branches no longer carry
-  `profiles/library/`, so a merge would delete the library).
+- **Profile library:** per-game profiles live in their own public repo,
+  [OpenDS5-Profiles](https://github.com/LordVicky/OpenDS5-Profiles), which the
+  in-app library browser fetches at runtime — so new game support ships without
+  an app release. To add a game, export the profile from the app and open a PR
+  there; its contributor guide has the details. Profiles install as fresh copies.
+- **Validator:** the profiles repo vendors this repo's `trigger-profiles.ts`,
+  `profile-capabilities.ts`, and `protocol.ts` under `validator/`, so its CI
+  gates contributions on exactly the rules the app enforces at install time.
+  `node scripts/sync-validator.mjs` republishes them after a schema change;
+  `--check` runs in CI and fails if the published copy has drifted.
 
 ### Full-surface modes need a current vdsd
 

@@ -2,9 +2,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { MAX_PROFILE_FILE_BYTES } from './trigger-profile-store';
 
-// The library is served from the public OpenDS5-Profiles mirror: raw.githubusercontent.com
-// only serves public repos anonymously, and this repo is private. Profiles are authored and
-// validated here, then published there by scripts/publish-library.mjs.
+// The library lives in the public OpenDS5-Profiles repo, which is both where contributors open
+// pull requests and what the app fetches: raw.githubusercontent.com only serves public repos
+// anonymously, and this repo is private. That repo's CI validates each profile using this repo's
+// validator, vendored there by scripts/sync-validator.mjs.
 export const LIBRARY_INDEX_URL =
   'https://raw.githubusercontent.com/LordVicky/OpenDS5-Profiles/main/profiles/library/index.json';
 // Games that drive the adaptive triggers themselves. Native support is a property of the
@@ -30,8 +31,9 @@ export interface LibraryEntry {
   game: string;
   author: string;
   description: string;
-  // Derived from the profile at publish time by scripts/build-index.mjs, so the app can
-  // describe a profile without downloading it.
+  // Derived from the profile by the profiles repo's CI, using this app's own
+  // describeCapabilities, so the app can describe a profile without downloading it -- and so the
+  // line cannot claim an effect the profile does not have.
   capabilities: string;
   tier: LibraryTier;
   origin?: LibraryOrigin;

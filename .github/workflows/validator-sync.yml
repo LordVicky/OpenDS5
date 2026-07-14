@@ -1,0 +1,31 @@
+name: validator-sync
+
+# The OpenDS5-Profiles repo vendors this repo's validator and gates every contributed profile on
+# it. If the published copy drifts from the schema here, its CI would admit profiles the app then
+# rejects at install time -- so any change to those files must be republished.
+on:
+  pull_request:
+    paths:
+      - 'ds5-bridge/companion/src/shared/trigger-profiles.ts'
+      - 'ds5-bridge/companion/src/shared/profile-capabilities.ts'
+      - 'ds5-bridge/companion/src/shared/protocol.ts'
+      - 'scripts/sync-validator.mjs'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'ds5-bridge/companion/src/shared/trigger-profiles.ts'
+      - 'ds5-bridge/companion/src/shared/profile-capabilities.ts'
+      - 'ds5-bridge/companion/src/shared/protocol.ts'
+      - 'scripts/sync-validator.mjs'
+
+jobs:
+  validator-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # Reads the published copy over HTTPS -- OpenDS5-Profiles is public, so no token is needed.
+      - name: Verify the published validator matches this repo
+        run: node scripts/sync-validator.mjs --check
