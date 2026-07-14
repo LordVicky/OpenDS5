@@ -58,4 +58,12 @@ describe('fetchLatestRelease', () => {
     const fake = vi.fn().mockRejectedValue(new Error('ENOTFOUND'));
     await expect(fetchLatestRelease(fake as unknown as typeof fetch)).resolves.toBeNull();
   });
+
+  it('resolves null when json() throws despite ok response', async () => {
+    const fake = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockRejectedValue(new Error('Invalid JSON')),
+    });
+    await expect(fetchLatestRelease(fake as unknown as typeof fetch)).resolves.toBeNull();
+  });
 });
