@@ -150,6 +150,7 @@ import type {
 } from '../shared/trigger-profiles';
 import type { GameProcessCandidate } from '../main/game-watcher';
 import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
+import { profileVariantLabel } from './library-entry';
 import { filterLibrary } from './library-search';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
 
@@ -9608,10 +9609,15 @@ export function App() {
                               <span className="trigger-profiles-library-entry-title">
                                 <strong>{row.entry.game}</strong>
                                 <span className="trigger-profiles-library-entry-author">
-                                  {row.entry.name}
-                                  {row.entry.origin
-                                    ? ` · Ported from ${row.entry.origin.from}`
-                                    : ` · by ${row.entry.author}`}
+                                  {[
+                                    profileVariantLabel(row.entry.game, row.entry.name),
+                                    row.entry.author ? `by ${row.entry.author}` : null,
+                                    row.entry.origin
+                                      ? `ported from ${row.entry.origin.from}`
+                                      : null
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · ')}
                                 </span>
                               </span>
                               <p className="trigger-profiles-library-entry-description">

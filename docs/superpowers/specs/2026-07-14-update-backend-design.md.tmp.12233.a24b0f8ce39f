@@ -204,6 +204,7 @@ normalized in `settings-store.ts` in the existing style:
 
 - `lastUpdateCheckAt: number` — epoch ms, `0` meaning never.
 - `skippedUpdateVersions: string[]`
+- `installedModuleSourceHash: string` — `''` meaning unknown (see the fallback above).
 
 Both must survive a settings file that predates them; the store's existing
 normalization path covers this and gets test coverage for these fields.
