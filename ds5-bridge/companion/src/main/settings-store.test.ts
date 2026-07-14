@@ -9,7 +9,7 @@ import {
   MAX_CHORD_FUNCTION_NAME_LENGTH
 } from '../shared/protocol';
 import type { ChordAssignment } from '../shared/protocol';
-import { DEFAULT_SETTINGS, SettingsStore } from './settings-store';
+import { DEFAULT_SETTINGS, SettingsStore, normalizeSkippedUpdateVersions } from './settings-store';
 
 describe('SettingsStore', () => {
   const tempDirs: string[] = [];
@@ -542,5 +542,28 @@ describe('SettingsStore', () => {
     expect(updated.uiThemePreset).toBe('kiwi');
     expect(persistedSettings(userDataPath).uiThemePreset).toBe('kiwi');
     expect(new SettingsStore(userDataPath).get().uiThemePreset).toBe('kiwi');
+  });
+});
+
+describe('update settings', () => {
+  it('defaults to never-checked with nothing skipped and no known module hash', () => {
+    expect(DEFAULT_SETTINGS.lastUpdateCheckAt).toBe(0);
+    expect(DEFAULT_SETTINGS.skippedUpdateVersions).toEqual([]);
+    expect(DEFAULT_SETTINGS.installedModuleSourceHash).toBe('');
+  });
+
+  it('normalizes a settings file written before this feature existed', () => {
+    expect(normalizeSkippedUpdateVersions(undefined)).toEqual([]);
+  });
+
+  it('drops non-string and empty entries from the skip list', () => {
+    expect(normalizeSkippedUpdateVersions(['1.8.0', 42, '', null, '1.9.0'])).toEqual([
+      '1.8.0',
+      '1.9.0',
+    ]);
+  });
+
+  it('rejects a non-array skip list', () => {
+    expect(normalizeSkippedUpdateVersions('1.8.0')).toEqual([]);
   });
 });
