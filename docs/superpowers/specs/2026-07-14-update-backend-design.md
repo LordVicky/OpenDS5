@@ -32,19 +32,40 @@ Rate limiting (60/hr/IP unauthenticated) is irrelevant at one request per two da
 The parser is strict: unknown fields ignored, required fields (`tag_name`, `assets`)
 absent or malformed means "no update", never a crash and never a partial offer.
 
-### The version *is* the module version
+### Deciding when the driver really needs rebuilding
 
-`release.yml` stamps `dkms.conf` from `package.json`, so the app version and the
-`vds_hcd` module version are the same string. That means we can decide whether a
-release needs the kernel module rebuilt without any extra metadata in the release:
-compare the installed module version against the new app version.
+The tempting gate — "installed module version ≠ app version" — is wrong. `dkms.conf`
+is stamped from `package.json`, so the module version *is* the app version, and it
+differs after **every** release. That gate would demand a password on every update,
+including a pure UI release that never touched a line of driver code.
 
-The installed version is read with **`modinfo -F version vds_hcd`**, which needs no
-privileges and returns the exact stamp (verified: returns `1.7.0-beta.1` on this
-machine). If `modinfo` fails or returns nothing — module not installed, or a
-user-mode-only setup — we treat the module as absent and **skip the installer step**
-rather than running it: a user who never installed the driver should not be handed a
-password prompt by an app update.
+Gate on the **module sources** instead. The sources are already bundled into the app
+(`package.json` ships `vds/module` and `vds/include` as `extraResources` under
+`vds-module/`), so the running app can hash the sources it carries — no new build step
+and no new release asset:
+
+- **`moduleSourceHash()`** — sha256 over the bundled module sources under
+  `path.join(process.resourcesPath, 'vds-module')`: every file, walked in sorted path
+  order, hashing the relative path and then the bytes, so a rename counts as a change.
+- **`installedModuleSourceHash`** — a settings field recording the hash that was in the
+  bundle the last time the installer completed successfully.
+
+**Rebuild if and only if the module is installed and the bundled hash differs from the
+recorded one.** A UI-only release leaves the hash unchanged and asks for nothing.
+
+Two cases need care:
+
+- **No module installed** (`modinfo -F version vds_hcd` returns nothing — a fresh or
+  user-mode-only setup). Skip the installer entirely. Someone who never installed the
+  driver must not be handed a password prompt by an app update.
+- **Module installed but no recorded hash** (every existing user, upgrading into the
+  first release that has this feature). Fall back to the version comparison: if
+  `modinfo -F version vds_hcd` differs from `app.getVersion()`, rebuild; otherwise
+  adopt the current bundle hash without rebuilding. After that one release, everyone
+  is on the hash gate.
+
+`modinfo -F version vds_hcd` needs no privileges and returns the exact stamp (verified:
+returns `1.7.0-beta.1` on this machine).
 
 ## Release workflow change
 
@@ -74,12 +95,37 @@ as a hard failure and does not install.
 7. **Verify.** sha256 the downloaded file against the `.sha256` asset. Mismatch →
    delete the temp file, show "Download failed", leave the installed version alone.
 8. **Swap.** `chmod +x`, then `rename()` the temp file over `process.env.APPIMAGE`.
-9. **Install (conditional).** If the new version differs from the installed DKMS
-   module version, run the existing installer via `SetupService` and stream its
-   `--json-progress` output into the toast. No confirmation is asked — the polkit
-   password dialog *is* the confirmation.
-10. **Restart.** Offer "Restart now" or "On next launch". Either way the new
-    AppImage is already on disk.
+9. **Restart.** Offer "Restart now" or "On next launch". Either way the new
+   AppImage is already on disk.
+10. **Install, on the next launch.** See below.
+
+### The installer must run *after* the relaunch, not before
+
+The obvious ordering — swap, rebuild the module, then restart — is wrong, and
+silently so.
+
+`SetupService` resolves the installer through `resolveInstallerPath(process.resourcesPath)`
+(`main.ts:1398`), and `process.resourcesPath` points inside the **currently mounted**
+AppImage: the old one. It is also constructed with `app.getVersion()`, which is still
+the old version. Running the installer before the relaunch would therefore rebuild the
+**old** module from the **old** bundle's sources and stamp it with the **old** version —
+the new module would never be installed, while every test still passed.
+
+So the rebuild happens on the *next* launch, from the new mount, where
+`process.resourcesPath` and `app.getVersion()` both describe the new release:
+
+> On launch, before the update check, if a `vds_hcd` module is installed and the
+> bundled module-source hash differs from `installedModuleSourceHash`, run the
+> installer and show the "Installing" toast. No confirmation is asked — the polkit
+> password dialog *is* the confirmation. On success, record the new hash.
+
+This needs no persisted "update pending" flag: the mismatch between the sources the
+app carries and the sources the installed driver was built from *is* the flag, and it
+is self-healing — if the rebuild fails or the user dismisses the password prompt, the
+hash is not recorded and the next launch simply tries again.
+
+The user-visible order is therefore: download → verify → restart → installing → done —
+and for a release that doesn't touch the driver, just download → verify → restart.
 
 ## The three actions
 
@@ -146,9 +192,13 @@ stated.
 - **`src/main/appimage-updater.ts`** — download, sha256 verify, chmod, atomic rename,
   writability probe, relaunch. Takes the AppImage path by injection so tests drive a
   temp directory instead of the real one.
+- **`src/main/module-source-hash.ts`** — `moduleSourceHash(root: string): string`, the
+  sorted-walk sha256 above. Pure filesystem, no Electron.
 - **`src/main/update-service.ts`** — orchestrates the flow above and owns the state
   machine the toast renders. Delegates the installer run to the existing
-  `SetupService` rather than spawning the installer a second way.
+  `SetupService` rather than spawning the installer a second way. Every collaborator
+  (download, hash, verify, swap, installer) is injected, so `start()` and the
+  post-relaunch rebuild are both testable against a temp directory.
 - **`src/renderer/UpdateToast.tsx`** — presentational; renders a state, emits actions.
 
 ## Settings
@@ -158,6 +208,7 @@ normalized in `settings-store.ts` in the existing style:
 
 - `lastUpdateCheckAt: number` — epoch ms, `0` meaning never.
 - `skippedUpdateVersions: string[]`
+- `installedModuleSourceHash: string` — `''` meaning unknown (see the fallback above).
 
 Both must survive a settings file that predates them; the store's existing
 normalization path covers this and gets test coverage for these fields.
@@ -186,10 +237,10 @@ Every failure leaves the currently installed version working. That is the invari
   toast with Try again. Nothing has been swapped at this point.
 - `rename()` fails → the temp file is removed and the old AppImage is untouched;
   surface as a failed update.
-- Installer fails or the user cancels the polkit prompt → the **new AppImage is
-  already in place** but the module was not rebuilt. Surface this honestly and offer
-  to re-run the installer; do not pretend the update succeeded and do not attempt to
-  roll the AppImage back.
+- Installer fails or the user cancels the polkit prompt → the new app is already
+  running; only the driver rebuild failed. Say so honestly and offer to retry.
+  `installedModuleSourceHash` is **not** recorded, so the next launch retries by
+  itself. Never pretend the update succeeded, and never roll the AppImage back.
 
 ## Testing
 
@@ -200,6 +251,13 @@ Unit tests (vitest, alongside the source as this codebase does):
   offered while its successor is; missing assets → no offer.
 - `appimage-updater.test.ts` — against a temp dir: checksum mismatch does not swap;
   rename is atomic; a non-writable directory is detected before any download.
+- `module-source-hash.test.ts` — identical trees hash equal; a changed byte, an added
+  file, and a renamed file each change the hash.
+- `update-service.test.ts` — the two-day gate; **`start()` driven end to end against a
+  temp dir with a mocked installer** (this is the riskiest code in the feature and
+  must not be left untested); the rebuild gate: unchanged hash asks for nothing,
+  changed hash runs the installer, absent module never runs it, and a failed installer
+  leaves the recorded hash alone so the next launch retries.
 - `settings-store.test.ts` — the two new fields default correctly and a settings file
   written before this feature still loads.
 - `ipc-contract.test.ts` — passes with the new channels (it will fail loudly if a
