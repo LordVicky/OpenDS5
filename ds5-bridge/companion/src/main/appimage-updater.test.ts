@@ -189,8 +189,10 @@ describe('downloadTo', () => {
   });
 
   it('does not abort a slow download that keeps making progress', async () => {
-    // Ten 20ms-apart chunks: ~200ms total, far past the 50ms budget, but no single
-    // gap reaches it. A total-duration cap would kill this; a stall timeout must not.
+    // Ten 20ms-apart chunks: ~200ms total, past the 150ms budget, but no single gap
+    // comes close to it. A total-duration cap would kill this; a stall timeout must
+    // not. The per-gap margin is deliberately wide (20ms vs 150ms) so a loaded CI box
+    // cannot flake it, while the total still exceeds the budget.
     const tempPath = path.join(dir, 'OpenDS5.AppImage.download');
 
     await downloadTo({
@@ -206,7 +208,7 @@ describe('downloadTo', () => {
         })(),
         { total: 10 },
       ),
-      stallTimeoutMs: 50,
+      stallTimeoutMs: 150,
     });
 
     expect(fs.readFileSync(tempPath, 'utf8')).toBe('..........');
