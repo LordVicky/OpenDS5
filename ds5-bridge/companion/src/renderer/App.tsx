@@ -5729,14 +5729,27 @@ export function App() {
 
   // Opening a game lands on its hub and switches into "Game settings" scope, so every
   // tab edits the game's snapshot until the scope is flipped back or the hub is closed.
+  // Game scope is the default while a game hub is open. The scope pill derives
+  // from gameSettingsStatus, so flip it optimistically — waiting for the IPC
+  // round-trip made the pill start on Global and visibly jump to Game Settings.
+  function setScopeOptimistically(editingProfileId: string | null) {
+    setGameSettingsStatus((previous) => ({
+      appliedProfileId: previous?.appliedProfileId ?? null,
+      appliedBy: previous?.appliedBy ?? null,
+      editingProfileId
+    }));
+  }
+
   async function openGameProfile(id: string) {
     setOpenGameProfileId(id);
+    setScopeOptimistically(id);
     const status = await window.bridge.enterGameSettingsScope(id);
     setGameSettingsStatus(status);
   }
 
   async function setGameSettingsScope(scope: 'game' | 'global') {
     if (!openGameProfileId) return;
+    setScopeOptimistically(scope === 'game' ? openGameProfileId : null);
     const status = scope === 'game'
       ? await window.bridge.enterGameSettingsScope(openGameProfileId)
       : await window.bridge.exitGameSettingsScope();
