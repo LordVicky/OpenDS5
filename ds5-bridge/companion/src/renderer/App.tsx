@@ -6491,15 +6491,15 @@ export function App() {
                       style={gameArtwork[openGameProfileEntry.id]
                         ? { backgroundImage: `url("${gameArtwork[openGameProfileEntry.id]}")` }
                         : undefined}
-                      aria-label="Set cover art"
-                      onClick={() => openGameArtworkDialog(openGameProfileEntry.id, gameProfileTitle(openGameProfileEntry))}
+                      aria-label="Back to all games"
+                      onClick={() => void closeGameProfile()}
                     >
                       {!gameArtwork[openGameProfileEntry.id] && (
                         <span className="game-tile-monogram">{gameTileMonogram(gameProfileTitle(openGameProfileEntry))}</span>
                       )}
                       <span className="game-detail-art-overlay">
-                        <IconPhoto size={16} />
-                        Set Cover
+                        <IconArrowLeft size={16} />
+                        All Games
                       </span>
                     </button>
                     <div className="game-detail-copy">

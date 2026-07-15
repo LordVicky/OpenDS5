@@ -107,24 +107,35 @@ export class GameSettingsCoordinator extends EventEmitter {
    * Enters "Game settings" scope for a game: creates the game-owned profiles from the
    * current settings if this is the game's first edit, then selects them so the regular
    * tabs edit the game snapshot.
+   *
+   * The scope flips synchronously and the returned status already reflects it — profile
+   * selection round-trips to the daemon take long enough that awaiting them made the
+   * scope toggle feel dead. The queued apply emits a follow-up status when selections
+   * have actually settled, and applyTarget reads editingProfileId at run time, so rapid
+   * toggles converge on the last state.
    */
   enterEditScope(triggerProfileId: string, name: string): Promise<GameSettingsStatus> {
-    return this.enqueue(async () => {
+    this.editingProfileId = triggerProfileId;
+    this.emitStatus();
+    void this.enqueue(async () => {
       await this.service.ensureGameSettings(triggerProfileId, name);
-      this.editingProfileId = triggerProfileId;
       await this.applyTarget();
       this.emitStatus();
-    }).then(() => this.getStatus());
+    });
+    return Promise.resolve(this.getStatus());
   }
 
   /** Leaves "Game settings" scope; global selections come back unless the game is live. */
   exitEditScope(): Promise<GameSettingsStatus> {
-    return this.enqueue(async () => {
-      if (this.editingProfileId === null) return;
+    if (this.editingProfileId !== null) {
       this.editingProfileId = null;
-      await this.applyTarget();
       this.emitStatus();
-    }).then(() => this.getStatus());
+      void this.enqueue(async () => {
+        await this.applyTarget();
+        this.emitStatus();
+      });
+    }
+    return Promise.resolve(this.getStatus());
   }
 
   /** Cleanup hook for trigger profile deletion. */

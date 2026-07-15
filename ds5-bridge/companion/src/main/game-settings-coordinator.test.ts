@@ -94,18 +94,43 @@ describe('GameSettingsCoordinator', () => {
 
   it('creates game settings on first edit scope entry and restores them on exit', async () => {
     const coordinator = new GameSettingsCoordinator(service, dir);
+    // The scope flips in the returned status immediately; selections settle behind it.
     const status = await coordinator.enterEditScope('cyberpunk', 'Cyberpunk 2077');
+    expect(status.editingProfileId).toBe('cyberpunk');
+    await settle(coordinator);
     expect(service.ensured).toEqual([{ id: 'cyberpunk', name: 'Cyberpunk 2077' }]);
     expect(service.controllerProfileId).toBe('game:cyberpunk');
-    expect(status).toEqual({
+    expect(coordinator.getStatus()).toEqual({
       appliedProfileId: 'cyberpunk',
       appliedBy: 'editing',
       editingProfileId: 'cyberpunk'
     });
 
-    await coordinator.exitEditScope();
+    const exited = await coordinator.exitEditScope();
+    expect(exited.editingProfileId).toBeNull();
+    await settle(coordinator);
     expect(service.controllerProfileId).toBe('default');
     expect(coordinator.getStatus().editingProfileId).toBeNull();
+  });
+
+  it('flips the edit scope in the status before selections have settled', async () => {
+    const coordinator = new GameSettingsCoordinator(service, dir);
+    let releaseSelect: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { releaseSelect = resolve; });
+    const slowSelect = service.selectControllerProfile.bind(service);
+    service.selectControllerProfile = async (profileId: string) => {
+      await gate;
+      await slowSelect(profileId);
+    };
+
+    const status = await coordinator.enterEditScope('cyberpunk', 'Cyberpunk 2077');
+    // The daemon round-trip has not finished, but the UI already knows the scope.
+    expect(status.editingProfileId).toBe('cyberpunk');
+    expect(service.controllerProfileId).toBe('default');
+
+    releaseSelect();
+    await settle(coordinator);
+    expect(service.controllerProfileId).toBe('game:cyberpunk');
   });
 
   it('keeps the edited game selected over the running game, then falls back to the running game', async () => {
@@ -116,9 +141,11 @@ describe('GameSettingsCoordinator', () => {
     coordinator.onEngineStatus(engineStatus('cyberpunk'));
     await settle(coordinator);
     await coordinator.enterEditScope('elden-ring', 'Elden Ring');
+    await settle(coordinator);
     expect(service.controllerProfileId).toBe('game:elden-ring');
 
     await coordinator.exitEditScope();
+    await settle(coordinator);
     expect(service.controllerProfileId).toBe('game:cyberpunk');
     expect(coordinator.getStatus().appliedBy).toBe('game-active');
   });
