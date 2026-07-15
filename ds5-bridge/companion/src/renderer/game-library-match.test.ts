@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isNativeGame, matchGameInLibrary, nativeGameNameSet } from './game-library-match';
+import {
+  isNativeGame,
+  matchGameInLibrary,
+  nativeGameFeatureMap,
+  nativeGameFeatures
+} from './game-library-match';
 import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
 
 function entry(overrides: Partial<LibraryEntry>): LibraryEntry {
@@ -53,11 +58,27 @@ describe('matchGameInLibrary', () => {
   });
 });
 
-describe('isNativeGame', () => {
+describe('nativeGameFeatures', () => {
   it('matches on meta.game first, then the profile name', () => {
-    const names = nativeGameNameSet(catalog({ nativeGames: [{ game: 'Ghost of Tsushima' }] }));
-    expect(isNativeGame(names, { name: 'got-profile', meta: { game: 'Ghost of Tsushima' } })).toBe(true);
-    expect(isNativeGame(names, { name: 'Ghost of Tsushima' })).toBe(true);
-    expect(isNativeGame(names, { name: 'Stray' })).toBe(false);
+    const map = nativeGameFeatureMap(catalog({ nativeGames: [{ game: 'Ghost of Tsushima' }] }));
+    expect(isNativeGame(map, { name: 'got-profile', meta: { game: 'Ghost of Tsushima' } })).toBe(true);
+    expect(isNativeGame(map, { name: 'Ghost of Tsushima' })).toBe(true);
+    expect(isNativeGame(map, { name: 'Stray' })).toBe(false);
+  });
+
+  it('exposes per-feature support and treats legacy entries as triggers-only', () => {
+    const map = nativeGameFeatureMap(catalog({
+      nativeGames: [
+        { game: 'Legacy Game' },
+        { game: 'Full Game', features: { triggers: true, haptics: true, lightbar: true } },
+        { game: 'Triggers Only', features: { triggers: true, haptics: false, lightbar: false } }
+      ]
+    }));
+    expect(nativeGameFeatures(map, { name: 'Legacy Game' }))
+      .toEqual({ triggers: true, haptics: false, lightbar: false });
+    expect(nativeGameFeatures(map, { name: 'Full Game' }))
+      .toEqual({ triggers: true, haptics: true, lightbar: true });
+    expect(nativeGameFeatures(map, { name: 'Triggers Only' })?.haptics).toBe(false);
+    expect(nativeGameFeatures(map, { name: 'Unknown' })).toBeNull();
   });
 });

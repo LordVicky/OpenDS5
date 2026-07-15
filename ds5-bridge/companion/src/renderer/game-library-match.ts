@@ -1,4 +1,4 @@
-import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
+import type { LibraryCatalog, LibraryEntry, NativeGameFeatures } from '../main/profile-library';
 
 /**
  * Matches a game name typed in the Add Game dialog against the OpenDS5-Profiles
@@ -32,14 +32,30 @@ export function matchGameInLibrary(catalog: LibraryCatalog | null, name: string)
   return { kind: 'none' };
 }
 
-/** Normalized native-game name set, for flagging existing tiles as native. */
-export function nativeGameNameSet(catalog: LibraryCatalog | null): ReadonlySet<string> {
-  return new Set((catalog?.nativeGames ?? []).map((native) => normalizeGameName(native.game)));
+// Entries from a pre-annotation native.json carry no features object; the list
+// has always been seeded from adaptive-trigger support, so that is the safe read.
+const LEGACY_FEATURES: NativeGameFeatures = { triggers: true, haptics: false, lightbar: false };
+
+/** Normalized game name → native feature support, for flagging tiles and cards. */
+export function nativeGameFeatureMap(catalog: LibraryCatalog | null): ReadonlyMap<string, NativeGameFeatures> {
+  const map = new Map<string, NativeGameFeatures>();
+  for (const native of catalog?.nativeGames ?? []) {
+    map.set(normalizeGameName(native.game), native.features ?? LEGACY_FEATURES);
+  }
+  return map;
+}
+
+/** The game's native feature support, or null when it isn't a native game. */
+export function nativeGameFeatures(
+  features: ReadonlyMap<string, NativeGameFeatures>,
+  profile: { name: string; meta?: { game?: string } }
+): NativeGameFeatures | null {
+  return features.get(normalizeGameName(profile.meta?.game ?? profile.name)) ?? null;
 }
 
 export function isNativeGame(
-  nativeNames: ReadonlySet<string>,
+  features: ReadonlyMap<string, NativeGameFeatures>,
   profile: { name: string; meta?: { game?: string } }
 ): boolean {
-  return nativeNames.has(normalizeGameName(profile.meta?.game ?? profile.name));
+  return nativeGameFeatures(features, profile) !== null;
 }

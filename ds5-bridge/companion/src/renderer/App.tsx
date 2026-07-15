@@ -161,7 +161,7 @@ import type { GameArtworkSearchResult } from '../main/game-artwork';
 import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
 import { profileVariantLabel } from './library-entry';
 import { filterLibrary } from './library-search';
-import { isNativeGame, matchGameInLibrary, nativeGameNameSet } from './game-library-match';
+import { matchGameInLibrary, nativeGameFeatureMap, nativeGameFeatures } from './game-library-match';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
 
 type ControlTab = 'game-profile' | 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
@@ -2954,8 +2954,8 @@ export function App() {
       .then(setTriggerProfileLibraryCatalog)
       .catch(() => undefined);
   }, []);
-  const nativeGameNames = useMemo(
-    () => nativeGameNameSet(triggerProfileLibraryCatalog),
+  const nativeFeatureMap = useMemo(
+    () => nativeGameFeatureMap(triggerProfileLibraryCatalog),
     [triggerProfileLibraryCatalog]
   );
   const openGameProfileEntry = openGameProfileId
@@ -5893,8 +5893,9 @@ export function App() {
   }
 
   function openGameTriggerEditor(profile: TriggerProfile) {
-    // Native games drive the triggers themselves; custom settings stay disabled.
-    if (isNativeGame(nativeGameNames, profile)) return;
+    // Games with native trigger support drive the triggers themselves; custom
+    // settings stay disabled for those.
+    if (nativeGameFeatures(nativeFeatureMap, profile)?.triggers) return;
     loadTriggerProfileDraft(profile);
     selectControlTab('trigger-profiles');
   }
@@ -6399,7 +6400,7 @@ export function App() {
                     {gameProfiles.map((profile) => {
                       const title = gameProfileTitle(profile);
                       const art = gameArtwork[profile.id];
-                      const native = isNativeGame(nativeGameNames, profile);
+                      const native = nativeGameFeatures(nativeFeatureMap, profile);
                       const live = Boolean(
                         triggerProfileEngineStatus?.enabled
                         && triggerProfileEngineStatus.activeProfileId === profile.id
@@ -6428,13 +6429,15 @@ export function App() {
                           <span className="game-tile-meta">
                             <strong>{title}</strong>
                             <span className="game-tile-chips">
-                              {native ? (
+                              {native?.triggers ? (
                                 <span className="game-tile-chip native on">Native triggers</span>
                               ) : (
                                 <span className={`game-tile-chip ${triggerProfileHasEffects(profile) ? 'on' : ''}`}>
                                   Triggers
                                 </span>
                               )}
+                              {native?.haptics && <span className="game-tile-chip native on">Haptics</span>}
+                              {native?.lightbar && <span className="game-tile-chip native on">LED</span>}
                               <span className={`game-tile-chip ${gameHasSettings(profile.id) ? 'on' : ''}`}>
                                 Settings
                               </span>
@@ -6566,7 +6569,7 @@ export function App() {
                     </div>
                   </section>
                   <div className="overview-card-grid game-detail-nav">
-                    {isNativeGame(nativeGameNames, openGameProfileEntry) ? (
+                    {nativeGameFeatures(nativeFeatureMap, openGameProfileEntry)?.triggers ? (
                       <div className="overview-card game-detail-nav-native">
                         <div className="overview-card-title">
                           <span className="feature-icon overview-icon"><IconTargetArrow size={19} /></span>
@@ -6602,8 +6605,15 @@ export function App() {
                       <div className="overview-card-title">
                         <span className="feature-icon overview-icon"><Sparkles size={19} /></span>
                         <h3>Haptics</h3>
+                        {nativeGameFeatures(nativeFeatureMap, openGameProfileEntry)?.haptics && (
+                          <span className="game-tile-chip native on">Native</span>
+                        )}
                       </div>
-                      <p className="game-detail-nav-copy">HD haptics, rumble and audio-reactive feedback.</p>
+                      <p className="game-detail-nav-copy">
+                        {nativeGameFeatures(nativeFeatureMap, openGameProfileEntry)?.haptics
+                          ? 'This game has native HD haptics — tune intensity and audio-reactive feedback here.'
+                          : 'HD haptics, rumble and audio-reactive feedback.'}
+                      </p>
                     </button>
                     <button className="overview-card" type="button" onClick={() => selectControlTab('triggers')}>
                       <div className="overview-card-title">
@@ -6616,8 +6626,15 @@ export function App() {
                       <div className="overview-card-title">
                         <span className="feature-icon overview-icon"><IconBulb size={19} /></span>
                         <h3>Lighting</h3>
+                        {nativeGameFeatures(nativeFeatureMap, openGameProfileEntry)?.lightbar && (
+                          <span className="game-tile-chip native on">Native</span>
+                        )}
                       </div>
-                      <p className="game-detail-nav-copy">Lightbar color, brightness and player LEDs.</p>
+                      <p className="game-detail-nav-copy">
+                        {nativeGameFeatures(nativeFeatureMap, openGameProfileEntry)?.lightbar
+                          ? 'This game syncs the lightbar itself — a lightbar override here would hide its effects.'
+                          : 'Lightbar color, brightness and player LEDs.'}
+                      </p>
                     </button>
                     <button className="overview-card" type="button" onClick={() => selectControlTab('remapping')}>
                       <div className="overview-card-title">

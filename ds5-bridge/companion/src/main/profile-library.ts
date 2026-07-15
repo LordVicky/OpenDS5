@@ -39,8 +39,16 @@ export interface LibraryEntry {
   origin?: LibraryOrigin;
 }
 
+export interface NativeGameFeatures {
+  triggers: boolean;
+  haptics: boolean;
+  lightbar: boolean;
+}
+
 export interface NativeGame {
   game: string;
+  /** Per-feature support from PCGamingWiki; absent in pre-annotation lists (treated as triggers-only). */
+  features?: NativeGameFeatures;
 }
 
 export interface LibraryCatalog {
@@ -115,7 +123,19 @@ function sanitizeNativeGames(parsed: unknown): NativeGame[] {
         typeof (value as Record<string, unknown>).game === 'string' &&
         ((value as Record<string, unknown>).game as string).length > 0
     )
-    .map((value) => ({ game: value.game as string }));
+    .map((value) => {
+      const game: NativeGame = { game: value.game as string };
+      const features = value.features;
+      if (typeof features === 'object' && features !== null) {
+        const f = features as Record<string, unknown>;
+        game.features = {
+          triggers: f.triggers === true,
+          haptics: f.haptics === true,
+          lightbar: f.lightbar === true
+        };
+      }
+      return game;
+    });
 }
 
 export class ProfileLibrary {
