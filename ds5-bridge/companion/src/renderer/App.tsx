@@ -2985,6 +2985,18 @@ export function App() {
     () => nativeGameFeatureMap(triggerProfileLibraryCatalog),
     [triggerProfileLibraryCatalog]
   );
+  // Game entries without custom effects ride the Default profile: they exist
+  // for detection/settings/artwork and are managed from the Game Profile tab.
+  // Showing them here would read as "adding a game created a trigger profile".
+  // The one exception is the profile currently selected for editing — that is
+  // exactly how a (non-native) game gets its first effects.
+  const triggerStripProfiles = useMemo(() => (
+    triggerProfiles.filter((profile) => (
+      !profile.meta?.game
+      || triggerProfileHasEffects(profile)
+      || profile.id === selectedTriggerProfileId
+    ))
+  ), [triggerProfiles, selectedTriggerProfileId]);
   const openGameProfileEntry = openGameProfileId
     ? gameProfiles.find((profile) => profile.id === openGameProfileId) ?? null
     : null;
@@ -8641,7 +8653,7 @@ export function App() {
             <div className="trigger-profiles-strip" ref={triggerStripRef}>
               {(() => {
                 const { chips, overflow } = pickTriggerStripChips(
-                  triggerProfiles,
+                  triggerStripProfiles,
                   selectedTriggerProfileId,
                   triggerStripWidth > 0 && triggerStripActionsWidth > 0
                     ? triggerStripMaxChips(triggerStripWidth - triggerStripActionsWidth)
