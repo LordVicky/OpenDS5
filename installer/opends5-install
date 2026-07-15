@@ -52,6 +52,9 @@ detect_kernel_flavor() {
     # CachyOS ships per-variant packages (linux-cachyos-bore, kernel-cachyos-lts…),
     # so keep the full variant suffix instead of collapsing to "cachyos".
     *cachyos*)  echo "$KERNEL_RELEASE" | sed -n 's/.*-\(cachyos[a-z-]*\).*/\1/p' | sed 's/-$//' ;;
+    *xanmod*)   echo xanmod ;;
+    *-lqx*)     echo lqx ;;
+    *fsync*)    echo fsync ;;
     *zen*)      echo zen ;;
     *hardened*) echo hardened ;;
     *-rt*)      echo rt ;;
@@ -73,6 +76,8 @@ headers_package() { # platform flavor
         # COPR devel packages hyphenate the variant (kernel-cachyos-lts-devel)
         # even when the uname runs it together (…-cachyoslts1.fc44).
         cachyos*) echo "kernel-$(echo "$flavor" | sed 's/^cachyos/cachyos-/; s/--/-/; s/-$//')-devel" ;;
+        # Nobara / sentry COPR gaming kernel.
+        fsync)    echo kernel-fsync-devel ;;
         *)        echo kernel-devel ;;
       esac ;;
     debian) echo "linux-headers-${KERNEL_RELEASE}" ;;
