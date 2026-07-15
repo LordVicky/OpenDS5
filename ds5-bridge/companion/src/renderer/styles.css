@@ -9114,47 +9114,58 @@ button.trigger-lab-chip {
 }
 
 /* Game / Global scope toggle (hub + banner) */
-/* Back navigation: a circled arrow with a bare label, so it reads as a
-   breadcrumb step back rather than one more boxed action button. */
+/* Back navigation: chevron + stacked "Back to / <destination>" breadcrumb in
+   one softly bordered box. Mouse button 4 (back) triggers the same move. */
 .nav-back {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  border: 0;
-  background: transparent;
-  padding: 4px 6px 4px 4px;
-  border-radius: 999px;
-  color: var(--text-secondary);
+  gap: 8px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-control);
+  padding: 6px 14px 6px 8px;
+  border-radius: 7px;
+  text-align: left;
+  color: var(--text-strong);
   font: inherit;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   cursor: pointer;
-  transition: color 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 
-.nav-back-disc {
+.nav-back-arrow {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 1px solid var(--accent-border);
-  background: var(--accent-muted);
   color: var(--accent-strong);
-  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+  transition: transform 140ms ease;
+}
+
+.nav-back-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nav-back-lines i {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.nav-back-lines b {
+  font-size: 13px;
+  font-weight: 750;
 }
 
 .nav-back:hover {
-  color: var(--text-strong);
+  background: var(--accent-muted);
+  border-color: var(--accent-border);
 }
 
-.nav-back:hover .nav-back-disc {
-  background: var(--accent-selected);
-  color: var(--accent-text);
-  transform: translateX(-2px);
+.nav-back:hover .nav-back-arrow {
+  transform: translateX(-3px);
 }
 
 .nav-back:focus-visible {

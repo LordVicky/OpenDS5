@@ -18,6 +18,7 @@ import {
   IconBulb,
   IconCheck as Check,
   IconChevronDown as ChevronDown,
+  IconChevronLeft as ChevronLeft,
   IconCircleCheck,
   IconCpu,
   IconDeviceFloppy as Save,
@@ -2802,6 +2803,27 @@ export function App() {
   const [startupTutorialFeatureActive, setStartupTutorialFeatureActive] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState>({ phase: 'idle' });
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const navHistoryRef = useRef<Array<{ tab: ControlTab; gameId: string | null }>>([
+    { tab: 'game-profile', gameId: null }
+  ]);
+  const navIndexRef = useRef(0);
+  const navApplyingRef = useRef(false);
+  const applyNavStateRef = useRef<(state: { tab: ControlTab; gameId: string | null }) => void>(() => undefined);
+
+  useEffect(() => {
+    const onMouseUp = (event: MouseEvent) => {
+      // 3 = browser-back thumb button, 4 = browser-forward.
+      if (event.button !== 3 && event.button !== 4) return;
+      event.preventDefault();
+      const nextIndex = navIndexRef.current + (event.button === 3 ? -1 : 1);
+      const history = navHistoryRef.current;
+      if (nextIndex < 0 || nextIndex >= history.length) return;
+      navIndexRef.current = nextIndex;
+      applyNavStateRef.current(history[nextIndex]);
+    };
+    window.addEventListener('mouseup', onMouseUp);
+    return () => window.removeEventListener('mouseup', onMouseUp);
+  }, []);
   const [deviceCleanupMessage, setDeviceCleanupMessage] = useState<string | null>(null);
   const [deviceCleanupError, setDeviceCleanupError] = useState<string | null>(null);
 
@@ -5743,6 +5765,7 @@ export function App() {
   async function openGameProfile(id: string) {
     setOpenGameProfileId(id);
     setScopeOptimistically(id);
+    recordNavState('game-profile', id);
     const status = await window.bridge.enterGameSettingsScope(id);
     setGameSettingsStatus(status);
   }
@@ -5757,10 +5780,12 @@ export function App() {
   }
 
   async function closeGameProfile() {
+    setOpenGameProfileId(null);
+    setScopeOptimistically(null);
+    recordNavState('game-profile', null);
+    selectControlTab('game-profile');
     const status = await window.bridge.exitGameSettingsScope();
     setGameSettingsStatus(status);
-    setOpenGameProfileId(null);
-    selectControlTab('game-profile');
   }
 
   function openGameCreateDialog() {
@@ -6082,7 +6107,39 @@ export function App() {
     setShowBridgeSettings(false);
     setShowNotificationsMenu(false);
     setActiveControlTab(tab);
+    recordNavState(tab, openGameProfileId);
   }
+
+  // Mouse back/forward buttons walk a small in-app history over
+  // (control tab, open game hub) — the two axes of navigation the app has.
+  function recordNavState(tab: ControlTab, gameId: string | null) {
+    if (navApplyingRef.current) return;
+    const history = navHistoryRef.current;
+    const current = history[navIndexRef.current];
+    if (current && current.tab === tab && current.gameId === gameId) return;
+    history.splice(navIndexRef.current + 1);
+    history.push({ tab, gameId });
+    if (history.length > 50) history.shift();
+    navIndexRef.current = history.length - 1;
+  }
+
+  applyNavStateRef.current = (state: { tab: ControlTab; gameId: string | null }) => {
+    navApplyingRef.current = true;
+    try {
+      if (state.gameId !== openGameProfileId) {
+        setOpenGameProfileId(state.gameId);
+        setScopeOptimistically(state.gameId);
+        if (state.gameId === null) {
+          void window.bridge.exitGameSettingsScope().then(setGameSettingsStatus);
+        } else {
+          void window.bridge.enterGameSettingsScope(state.gameId).then(setGameSettingsStatus);
+        }
+      }
+      selectControlTab(state.tab);
+    } finally {
+      navApplyingRef.current = false;
+    }
+  };
 
   const activeTheme = snapshot?.settings.uiThemePreset ?? startupTheme;
 
@@ -6326,8 +6383,11 @@ export function App() {
               type="button"
               onClick={() => selectControlTab('game-profile')}
             >
-              <span className="nav-back-disc" aria-hidden="true"><IconArrowLeft size={15} /></span>
-              Game Profile
+              <span className="nav-back-arrow" aria-hidden="true"><ChevronLeft size={22} /></span>
+              <span className="nav-back-lines">
+                <i>Back to</i>
+                <b>Game Profile</b>
+              </span>
             </button>
           </div>
         )}
@@ -6495,8 +6555,11 @@ export function App() {
                     type="button"
                     onClick={() => void closeGameProfile()}
                   >
-                    <span className="nav-back-disc" aria-hidden="true"><IconArrowLeft size={15} /></span>
-                    All Games
+                    <span className="nav-back-arrow" aria-hidden="true"><ChevronLeft size={22} /></span>
+                    <span className="nav-back-lines">
+                      <i>Back to</i>
+                      <b>All Games</b>
+                    </span>
                   </button>
                 </div>
                 <div className="game-profile-content">
