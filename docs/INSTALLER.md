@@ -95,8 +95,10 @@ Add the input and enable the service in your flake-based configuration:
     {
       services.opends5 = {
         enable = true;
-        users = [ "YOURNAME" ];   # members of the vds group (/dev/vds* access)
+        maxPorts = 4;
       };
+
+      users.users.YOURNAME.extraGroups = [ "input" ];
     }
   ];
 }
@@ -110,23 +112,20 @@ everything the installer does on other distributions:
   signing; kernel bumps rebuild it automatically,
 - builds `vdsd`/`vdsctl` from the `vds/` source tree (no glibc-prebuilt
   binaries, no nix-ld),
-- installs the udev rules, the system-wide wireplumber config, the `vds`
-  group, and the `vdsd` systemd unit,
+- installs the udev rules, the system-wide wireplumber config, and the
+  `vdsd` systemd unit,
 - enables Bluetooth and runs bluetoothd with `--noplugin=input` so vds can
   own the controller's HID channels — without this, BlueZ claims the
   DualSense first and the app never sees it. While active, other Bluetooth
   input devices (keyboards, mice) will not work; opt out with
   `services.opends5.disableBluetoothInputPlugin = false;` and use USB.
 
-To run the companion app itself, enable AppImage support
-(`programs.appimage = { enable = true; binfmt = true; };`) and run the
-release AppImage; the setup wizard will detect a working system and skip
-installation.
+The companion application is installed into the system profile. Launch it
+with `opends5` or from your desktop application menu.
 
-**Updates**: the AppImage swap updates the app normally, but the driver is
-pinned by your flake lock — after an app update, run
-`nix flake update opends5 && sudo nixos-rebuild switch` to match. Until then
-the running module is the locked version.
+**Updates**: OpenDS5 only notifies NixOS users when a newer release is
+available. Update the flake input and rebuild declaratively:
+`nix flake update opends5 && sudo nixos-rebuild switch`.
 
 Smoke-test the packages without a NixOS machine (any box with Nix):
 `nix build .#vds` and `nix build .#vds-module`.

@@ -104,7 +104,7 @@ platform:
 | **Debian / Ubuntu** | `apt` installs `dkms` + `linux-headers-$(uname -r)` |
 | **openSUSE** | `zypper` installs `dkms` + `kernel-default-devel` |
 | **Bazzite / Silverblue** | `rpm-ostree install dkms kernel-devel` layers the packages; one reboot, then re-run the wizard |
-| **NixOS** | No system changes — the wizard writes a ready-to-use Nix snippet (`opends5-vds.nix`) for `boot.extraModulePackages`; apply with `nixos-rebuild switch` |
+| **NixOS** | Declarative flake module — add `inputs.opends5.nixosModules.default`, enable `services.opends5`, then apply with `nixos-rebuild switch` |
 
 On every DKMS platform the installer then registers the module source under
 `/usr/src/`, builds it, and enables autoload — after that, kernel updates are
