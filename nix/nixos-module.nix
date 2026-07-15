@@ -1,4 +1,7 @@
-self: {
+{
+  self,
+  version,
+}: {
   config,
   lib,
   pkgs,
@@ -71,7 +74,7 @@ in {
     boot.extraModulePackages = [
       (pkgs.callPackage ./vds-module.nix {
         kernel = config.boot.kernelPackages.kernel;
-        version = self.opends5Version;
+        inherit version;
       })
     ];
 

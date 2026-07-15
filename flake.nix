@@ -23,9 +23,6 @@
           f nixpkgs.legacyPackages.${system}
       );
   in {
-    # Single source of truth for all OpenDS5 package/module versions.
-    opends5Version = version;
-
     packages = forAllSystems (
       pkgs: rec {
         vds = pkgs.callPackage ./nix/vds.nix {
@@ -36,8 +33,6 @@
           inherit version;
         };
 
-        # Standalone smoke-test build against nixpkgs' default kernel.
-        # The NixOS module builds against the configured host kernel.
         vds-module = pkgs.callPackage ./nix/vds-module.nix {
           kernel = pkgs.linuxPackages.kernel;
           inherit version;
@@ -48,7 +43,10 @@
     );
 
     nixosModules = rec {
-      opends5 = import ./nix/nixos-module.nix self;
+      opends5 = import ./nix/nixos-module.nix {
+        inherit self version;
+      };
+
       default = opends5;
     };
 

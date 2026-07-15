@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Userspace stack: the vdsd daemon and vdsctl CLI, built from the in-tree
 # vds/ source. Also installs the udev rules and wireplumber config so the
 # NixOS module can reference them from one package.
@@ -13,26 +12,12 @@
 , version
 }:
 
-=======
-{
-  lib,
-  stdenv,
-  cmake,
-  pkg-config,
-  bluez,
-  dbus,
-  libopus,
-  udev,
-  version,
-}:
->>>>>>> 9dc1369 (Add native Nix and NixOS support)
 stdenv.mkDerivation {
   pname = "vds";
   inherit version;
 
   src = ../vds;
 
-<<<<<<< HEAD
   nativeBuildInputs = [ cmake pkg-config ];
   buildInputs = [ bluez dbus libopus udev ];
 
@@ -65,38 +50,5 @@ stdenv.mkDerivation {
     license = licenses.mit;
     platforms = platforms.linux;
     mainProgram = "vdsd";
-=======
-  nativeBuildInputs = [
-    cmake
-    pkg-config
-  ];
-
-  buildInputs = [
-    bluez
-    dbus
-    libopus
-    udev
-  ];
-
-  cmakeFlags = [
-    "-DINSTALL_SERVICE=OFF"
-  ];
-
-  postInstall = ''
-    install -Dm644 \
-      ${../vds/99-vds-dualsense-udev.rules} \
-      "$out/lib/udev/rules.d/99-vds-dualsense-udev.rules"
-
-    install -Dm644 \
-      ${../vds/99-vds-dualsense-wireplumber.conf} \
-      "$out/share/wireplumber/wireplumber.conf.d/99-vds-dualsense.conf"
-  '';
-
-  meta = {
-    description = "Virtual DualSense userspace bridge";
-    homepage = "https://github.com/LordVicky/OpenDS5";
-    license = lib.licenses.mit;
-    platforms = lib.platforms.linux;
->>>>>>> 9dc1369 (Add native Nix and NixOS support)
   };
 }
