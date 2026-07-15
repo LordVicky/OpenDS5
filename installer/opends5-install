@@ -49,7 +49,9 @@ detect_platform() {
 
 detect_kernel_flavor() {
   case "$KERNEL_RELEASE" in
-    *cachyos*)  echo cachyos ;;
+    # CachyOS ships per-variant packages (linux-cachyos-bore, kernel-cachyos-lts…),
+    # so keep the full variant suffix instead of collapsing to "cachyos".
+    *cachyos*)  echo "$KERNEL_RELEASE" | sed -n 's/.*-\(cachyos[a-z-]*\).*/\1/p' | sed 's/-$//' ;;
     *zen*)      echo zen ;;
     *hardened*) echo hardened ;;
     *-rt*)      echo rt ;;
@@ -68,18 +70,17 @@ headers_package() { # platform flavor
       esac ;;
     fedora|fedora-immutable)
       case "$flavor" in
-        cachyos) echo kernel-cachyos-devel ;;
-        *)       echo kernel-devel ;;
+        # COPR devel packages hyphenate the variant (kernel-cachyos-lts-devel)
+        # even when the uname runs it together (…-cachyoslts1.fc44).
+        cachyos*) echo "kernel-$(echo "$flavor" | sed 's/^cachyos/cachyos-/; s/--/-/; s/-$//')-devel" ;;
+        *)        echo kernel-devel ;;
       esac ;;
     debian) echo "linux-headers-${KERNEL_RELEASE}" ;;
-    suse)   echo kernel-default-devel ;;
+    # SUSE devel packages follow the kernel flavor in the uname suffix
+    # (default, rt, longterm…): kernel-<flavor>-devel.
+    suse)   echo "kernel-${KERNEL_RELEASE##*-}-devel" ;;
     *)      echo "" ;;
   esac
-}
-
-detect_clang_lto() {
-  local cfg="${SYSROOT}/usr/lib/modules/${KERNEL_RELEASE}/build/.config"
-  if grep -qs '^CONFIG_LTO_CLANG=y' "$cfg"; then echo 1; else echo 0; fi
 }
 
 detect_lockdown() {
@@ -162,8 +163,10 @@ plan_source_staging() {
 }
 
 plan_dkms() {
+  # Clang/LTO kernels are handled by the module Makefile's own LLVM auto-detect
+  # (from the headers' compile.h); dkms silently ignores trailing VAR=1 args,
+  # so passing LLVM=1 here would be dead code.
   local mk=""
-  [ "$(detect_clang_lto)" = "1" ] && mk=" LLVM=1"
   # Remove every registered vds_hcd, not just MODULE_VER: an upgrade changes the
   # version, so removing only the incoming one would strand the old registration
   # and leave two DKMS entries fighting over the same /extra/vds_hcd.ko.

@@ -46,11 +46,7 @@ out="$(env OPENDS5_OS_RELEASE=/nonexistent OPENDS5_UNAME_R=1.0 OPENDS5_SYSROOT=/
       OPENDS5_SB_STATE=disabled OPENDS5_DRY_RUN=1 bash "$here/../opends5-install" --yes 2>&1 || true)"
 assert_contains "$out" "unsupported" "unknown distro refuses cleanly"
 
-# LLVM=1 on Clang/LTO kernels
-tmp="$(mktemp -d)"; mkdir -p "$tmp/usr/lib/modules/6.15.4-2-cachyos/build"
-printf 'CONFIG_LTO_CLANG=y\n' > "$tmp/usr/lib/modules/6.15.4-2-cachyos/build/.config"
-out="$(env OPENDS5_OS_RELEASE="$here/fixtures/cachyos/os-release" OPENDS5_UNAME_R=6.15.4-2-cachyos \
-      OPENDS5_SYSROOT="$tmp" OPENDS5_SB_STATE=disabled OPENDS5_DRY_RUN=1 bash "$here/../opends5-install" --yes)"
-assert_contains "$out" "LLVM=1" "clang-lto kernel builds with LLVM=1"
-rm -rf "$tmp"
+# CachyOS variant kernels resolve their own headers package
+out="$(plan_for cachyos 6.15.4-2-cachyos-bore)"
+assert_contains "$out" "pacman -S --needed --noconfirm dkms linux-cachyos-bore-headers" "cachyos-bore pacman"
 finish
