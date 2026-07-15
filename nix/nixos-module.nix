@@ -10,6 +10,8 @@
   cfg = config.services.opends5;
 
   system = pkgs.stdenv.hostPlatform.system;
+  normalUsers = lib.attrNames (lib.filterAttrs (_: user: user.isNormalUser or false) config.users.users);
+  vdsUsers = lib.unique (cfg.users ++ lib.optionals cfg.autoAddNormalUsers normalUsers);
 in {
   options.services.opends5 = {
     enable =
@@ -35,6 +37,23 @@ in {
       type = lib.types.ints.between 1 4;
       default = 4;
       description = "Number of virtual DualSense ports to create.";
+    };
+
+    users = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "alice" ];
+      description = "Users granted access to the vDS socket through the vds group.";
+    };
+
+    autoAddNormalUsers = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Add all users declared with `isNormalUser = true` to the vds group.
+        This avoids repeating usernames in the OpenDS5 configuration while
+        excluding system and service accounts by default.
+      '';
     };
 
     disableBluezInputPlugin = lib.mkOption {
@@ -81,6 +100,11 @@ in {
     boot.kernelModules = [
       "vds_hcd"
     ];
+
+    users.groups.vds = { };
+    users.users = lib.genAttrs vdsUsers (_: {
+      extraGroups = [ "vds" ];
+    });
 
     # Bluetooth is the transport this whole stack exists for.
     hardware.bluetooth.enable = lib.mkDefault true;
@@ -130,23 +154,6 @@ in {
         Type = "simple";
 
         ExecStart = "${cfg.vdsPackage}/bin/vdsd";
-
-        ExecStartPost = [
-          "${pkgs.writeShellScript "vdsd-configure-socket" ''
-            for i in $(${pkgs.coreutils}/bin/seq 1 50); do
-              if [ -S /run/vdsd.sock ]; then
-                ${pkgs.coreutils}/bin/chgrp input /run/vdsd.sock
-                ${pkgs.coreutils}/bin/chmod 0660 /run/vdsd.sock
-                exit 0
-              fi
-
-              ${pkgs.coreutils}/bin/sleep 0.1
-            done
-
-            echo "vdsd socket was not created within 5 seconds" >&2
-            exit 1
-          ''}"
-        ];
 
         Restart = "on-failure";
         RestartSec = "1s";

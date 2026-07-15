@@ -96,9 +96,8 @@ Add the input and enable the service in your flake-based configuration:
       services.opends5 = {
         enable = true;
         maxPorts = 4;
+        autoAddNormalUsers = true;
       };
-
-      users.users.YOURNAME.extraGroups = [ "input" ];
     }
   ];
 }
@@ -112,6 +111,8 @@ everything the installer does on other distributions:
   signing; kernel bumps rebuild it automatically,
 - builds `vdsd`/`vdsctl` from the `vds/` source tree (no glibc-prebuilt
   binaries, no nix-ld),
+- creates the `vds` group and adds explicitly configured users (or all
+  `isNormalUser` users when `autoAddNormalUsers = true`),
 - installs the udev rules, the system-wide wireplumber config, and the
   `vdsd` systemd unit,
 - enables Bluetooth and runs bluetoothd with `--noplugin=input` so vds can
