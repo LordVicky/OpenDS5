@@ -156,6 +156,45 @@ describe('GameArtworkStore', () => {
     expect(existsSync(path.join(dir, '___weird_id.png'))).toBe(true);
   });
 
+  it('fetches a cover keylessly through the Bottles steamgrid proxy', async () => {
+    const { fetch, calls } = makeFetch({
+      'https://steamgrid.usebottles.com/api/search/': {
+        status: 200,
+        body: JSON.stringify('https://cdn2.steamgriddb.com/grid/abc.jpg')
+      },
+      'https://cdn2.steamgriddb.com/grid/abc.jpg': { status: 200, body: PNG_BYTES }
+    });
+    const store = new GameArtworkStore(dir, fetch);
+    const entry = await store.autoFetchKeyless('stray', 'Stray');
+    expect(entry).not.toBeNull();
+    expect(entry?.fileName).toBe('stray.jpg');
+    expect(entry?.gameName).toBe('Stray');
+    expect(existsSync(path.join(dir, 'stray.jpg'))).toBe(true);
+    expect(calls[0]).toBe('https://steamgrid.usebottles.com/api/search/Stray');
+    expect(readFileSync(path.join(dir, 'stray.jpg'))).toEqual(PNG_BYTES);
+  });
+
+  it('keyless fetch returns null on proxy miss, junk payloads and non-https urls', async () => {
+    const missing = new GameArtworkStore(dir, makeFetch({
+      'https://steamgrid.usebottles.com/api/search/': { status: 404, body: 'nope' }
+    }).fetch);
+    expect(await missing.autoFetchKeyless('a', 'Unknown Game')).toBeNull();
+
+    const junk = new GameArtworkStore(dir, makeFetch({
+      'https://steamgrid.usebottles.com/api/search/': { status: 200, body: 'not json {' }
+    }).fetch);
+    expect(await junk.autoFetchKeyless('a', 'Unknown Game')).toBeNull();
+
+    const insecure = new GameArtworkStore(dir, makeFetch({
+      'https://steamgrid.usebottles.com/api/search/': {
+        status: 200,
+        body: JSON.stringify('http://cdn2.steamgriddb.com/grid/abc.jpg')
+      }
+    }).fetch);
+    expect(await insecure.autoFetchKeyless('a', 'Unknown Game')).toBeNull();
+    expect(await insecure.autoFetchKeyless('a', '   ')).toBeNull();
+  });
+
   it('ignores index entries whose file names carry path separators', () => {
     const store = new GameArtworkStore(dir, makeFetch({}).fetch);
     const indexPath = path.join(dir, 'artwork-index.json');

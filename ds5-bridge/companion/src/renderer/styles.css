@@ -8843,6 +8843,39 @@ button.trigger-lab-chip {
   text-transform: uppercase;
 }
 
+.game-tile-native-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--control-radius);
+  background: #17a566;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Playing takes precedence over the Native badge in the same corner. */
+.game-tile-live ~ .game-tile-native-badge,
+.game-tile-native-badge:has(~ .game-tile-live) {
+  display: none;
+}
+
+.game-tile-chip.native.on {
+  border-color: rgba(23, 165, 102, 0.55);
+  background: rgba(23, 165, 102, 0.16);
+  color: #35c98a;
+}
+
+.game-detail-nav-native {
+  opacity: 0.85;
+  cursor: default;
+}
+
 .game-tile-live .dot {
   width: 6px;
   height: 6px;

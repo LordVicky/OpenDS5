@@ -1120,10 +1120,18 @@ function registerIpc(
       const profile = triggerProfileStore.get(id);
       if (!profile) return { ok: false, error: 'Unknown game profile' };
       const apiKey = service.getSnapshot().settings.steamGridDbApiKey;
-      const entry = game
-        ? await gameArtworkStore.apply(apiKey, profile.id, { id: game.id, name: game.name })
-        : await gameArtworkStore.autoFetch(apiKey, profile.id, profile.meta?.game ?? profile.name);
-      if (!entry) return { ok: false, error: `No SteamGridDB match for ${profile.name}` };
+      if (game) {
+        const entry = await gameArtworkStore.apply(apiKey, profile.id, { id: game.id, name: game.name });
+        return { ok: true, entry };
+      }
+      // Auto path: the keyless proxy first (no setup needed), the key-based
+      // API only as a fallback for users who configured one.
+      const term = profile.meta?.game ?? profile.name;
+      let entry = await gameArtworkStore.autoFetchKeyless(profile.id, term).catch(() => null);
+      if (!entry && apiKey) {
+        entry = await gameArtworkStore.autoFetch(apiKey, profile.id, term);
+      }
+      if (!entry) return { ok: false, error: `No cover art match for ${profile.name}` };
       return { ok: true, entry };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };

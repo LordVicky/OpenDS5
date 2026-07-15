@@ -161,6 +161,7 @@ import type { GameArtworkSearchResult } from '../main/game-artwork';
 import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
 import { profileVariantLabel } from './library-entry';
 import { filterLibrary } from './library-search';
+import { isNativeGame, matchGameInLibrary, nativeGameNameSet } from './game-library-match';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
 
 type ControlTab = 'game-profile' | 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
@@ -2945,6 +2946,18 @@ export function App() {
       profile.id !== DEFAULT_PROFILE_ID && !isProvisionalTriggerProfileId(profile.id)
     ))
   ), [triggerProfiles]);
+  // The OpenDS5-Profiles catalog drives what a new game gets (native / published
+  // profile / nothing) and the NATIVE badge on existing tiles. Loaded once here;
+  // the library dialog refreshes it when opened.
+  useEffect(() => {
+    void window.bridge.getProfileLibraryCatalog()
+      .then(setTriggerProfileLibraryCatalog)
+      .catch(() => undefined);
+  }, []);
+  const nativeGameNames = useMemo(
+    () => nativeGameNameSet(triggerProfileLibraryCatalog),
+    [triggerProfileLibraryCatalog]
+  );
   const openGameProfileEntry = openGameProfileId
     ? gameProfiles.find((profile) => profile.id === openGameProfileId) ?? null
     : null;
@@ -5521,6 +5534,28 @@ export function App() {
   async function confirmDeleteTriggerProfile() {
     if (!triggerProfileDeleteConfirm) return;
     const deletedId = triggerProfileDeleteConfirm.id;
+    const target = triggerProfiles.find((profile) => profile.id === deletedId);
+    // A game's trigger profile is only one facet of its Game Profile (settings,
+    // artwork, detection ride on the same entry). Deleting the triggers strips
+    // the effects and library linkage but keeps the game itself.
+    if (target?.meta?.game) {
+      await window.bridge.saveTriggerProfile({
+        ...target,
+        triggers: {
+          l2: { base: null, modifiers: [] },
+          r2: { base: null, modifiers: [] }
+        },
+        meta: { game: target.meta.game },
+        updatedAtMs: Date.now()
+      });
+      setTriggerProfileDeleteConfirm(null);
+      await refreshTriggerProfiles(deletedId);
+      showTriggerProfileTransferStatus(
+        'good',
+        `Removed "${triggerProfileDeleteConfirm.name}"'s trigger effects — the game profile is kept`
+      );
+      return;
+    }
     await window.bridge.deleteTriggerProfile(deletedId);
     setTriggerProfileDeleteConfirm(null);
     await refreshTriggerProfiles(undefined, deletedId);
@@ -5735,28 +5770,52 @@ export function App() {
     const name = gameCreateName.trim();
     if (!name || gameCreateBusy) return;
     const processNames = parseProcessNamesInput(gameCreateProcessesInput);
-    const id = uniqueTriggerProfileId(name, triggerProfiles.map((profile) => profile.id));
-    const base = createDefaultProfile();
-    const profile: TriggerProfile = {
-      ...base,
-      id,
-      name,
-      match: { processNames, windowTitles: [] },
-      meta: { game: name },
-      updatedAtMs: Date.now()
-    };
     setGameCreateBusy(true);
     try {
-      const saved = await window.bridge.saveTriggerProfile(profile);
-      await refreshTriggerProfiles(saved.id);
-      setGameCreateOpen(false);
-      // Cover art is decoration: fetch in the background and never block creation on it.
-      if (snapshot?.settings.steamGridDbApiKey) {
-        void window.bridge.applyGameArtwork(saved.id, null).then(async (result) => {
-          if (result.ok) await refreshGameArtwork();
+      // The OpenDS5-Profiles catalog decides what the new game gets: a published
+      // profile installs as-is, a native game keeps the default feel, anything
+      // else starts without custom triggers. New blank trigger profiles are
+      // never created here.
+      const catalog = triggerProfileLibraryCatalog
+        ?? await window.bridge.getProfileLibraryCatalog().catch(() => null);
+      const match = matchGameInLibrary(catalog, name);
+
+      let saved: TriggerProfile | null = null;
+      if (match.kind === 'profile') {
+        const installed = await window.bridge.installLibraryProfile(match.entry);
+        if (installed.ok) {
+          saved = installed.profile;
+          if (processNames.length > 0) {
+            const mergedProcesses = [...new Set([...saved.match.processNames, ...processNames])];
+            saved = await window.bridge.saveTriggerProfile({
+              ...saved,
+              match: { ...saved.match, processNames: mergedProcesses },
+              updatedAtMs: Date.now()
+            });
+          }
+        }
+      }
+      if (!saved) {
+        const id = uniqueTriggerProfileId(name, triggerProfiles.map((profile) => profile.id));
+        const base = createDefaultProfile();
+        saved = await window.bridge.saveTriggerProfile({
+          ...base,
+          id,
+          name,
+          match: { processNames, windowTitles: [] },
+          meta: { game: name },
+          updatedAtMs: Date.now()
         });
       }
-      await openGameProfile(saved.id);
+      await refreshTriggerProfiles(saved.id);
+      setGameCreateOpen(false);
+      // Cover art is decoration: fetch in the background (keyless, Heroic-style)
+      // and never block creation on it.
+      const savedId = saved.id;
+      void window.bridge.applyGameArtwork(savedId, null).then(async (result) => {
+        if (result.ok) await refreshGameArtwork();
+      });
+      await openGameProfile(savedId);
     } finally {
       setGameCreateBusy(false);
     }
@@ -5834,6 +5893,8 @@ export function App() {
   }
 
   function openGameTriggerEditor(profile: TriggerProfile) {
+    // Native games drive the triggers themselves; custom settings stay disabled.
+    if (isNativeGame(nativeGameNames, profile)) return;
     loadTriggerProfileDraft(profile);
     selectControlTab('trigger-profiles');
   }
@@ -6338,6 +6399,7 @@ export function App() {
                     {gameProfiles.map((profile) => {
                       const title = gameProfileTitle(profile);
                       const art = gameArtwork[profile.id];
+                      const native = isNativeGame(nativeGameNames, profile);
                       const live = Boolean(
                         triggerProfileEngineStatus?.enabled
                         && triggerProfileEngineStatus.activeProfileId === profile.id
@@ -6356,6 +6418,7 @@ export function App() {
                           >
                             {!art && <span className="game-tile-monogram">{gameTileMonogram(title)}</span>}
                           </span>
+                          {native && <span className="game-tile-native-badge">Native</span>}
                           {live && (
                             <span className="game-tile-live">
                               <span className="dot" />
@@ -6365,9 +6428,13 @@ export function App() {
                           <span className="game-tile-meta">
                             <strong>{title}</strong>
                             <span className="game-tile-chips">
-                              <span className={`game-tile-chip ${triggerProfileHasEffects(profile) ? 'on' : ''}`}>
-                                Triggers
-                              </span>
+                              {native ? (
+                                <span className="game-tile-chip native on">Native triggers</span>
+                              ) : (
+                                <span className={`game-tile-chip ${triggerProfileHasEffects(profile) ? 'on' : ''}`}>
+                                  Triggers
+                                </span>
+                              )}
                               <span className={`game-tile-chip ${gameHasSettings(profile.id) ? 'on' : ''}`}>
                                 Settings
                               </span>
@@ -6499,17 +6566,31 @@ export function App() {
                     </div>
                   </section>
                   <div className="overview-card-grid game-detail-nav">
-                    <button className="overview-card" type="button" onClick={() => openGameTriggerEditor(openGameProfileEntry)}>
-                      <div className="overview-card-title">
-                        <span className="feature-icon overview-icon"><IconTargetArrow size={19} /></span>
-                        <h3>Adaptive Triggers</h3>
+                    {isNativeGame(nativeGameNames, openGameProfileEntry) ? (
+                      <div className="overview-card game-detail-nav-native">
+                        <div className="overview-card-title">
+                          <span className="feature-icon overview-icon"><IconTargetArrow size={19} /></span>
+                          <h3>Adaptive Triggers</h3>
+                          <span className="game-tile-chip native on">Native</span>
+                        </div>
+                        <p className="game-detail-nav-copy">
+                          This game drives the triggers itself — custom trigger settings are
+                          disabled so they can’t fight the game’s own effects.
+                        </p>
                       </div>
-                      <p className="game-detail-nav-copy">
-                        {triggerProfileHasEffects(openGameProfileEntry)
-                          ? 'Edit this game’s trigger effects and process match.'
-                          : 'No trigger effects yet — design some for this game.'}
-                      </p>
-                    </button>
+                    ) : (
+                      <button className="overview-card" type="button" onClick={() => openGameTriggerEditor(openGameProfileEntry)}>
+                        <div className="overview-card-title">
+                          <span className="feature-icon overview-icon"><IconTargetArrow size={19} /></span>
+                          <h3>Adaptive Triggers</h3>
+                        </div>
+                        <p className="game-detail-nav-copy">
+                          {triggerProfileHasEffects(openGameProfileEntry)
+                            ? 'Edit this game’s trigger effects and process match.'
+                            : 'No trigger effects yet — design some for this game.'}
+                        </p>
+                      </button>
+                    )}
                     <button className="overview-card" type="button" onClick={() => selectControlTab('audio')}>
                       <div className="overview-card-title">
                         <span className="feature-icon overview-icon"><IconVolume size={19} /></span>

@@ -10,6 +10,10 @@ import path from 'node:path';
  */
 
 const API_BASE = 'https://www.steamgriddb.com/api/v2';
+// Keyless cover lookup, the way Heroic Games Launcher fetches sideload covers:
+// Bottles' SteamGridDB proxy answers GET /api/search/<name> with a JSON string
+// holding the best grid URL. No API key, no account.
+const KEYLESS_SEARCH_BASE = 'https://steamgrid.usebottles.com/api/search/';
 const FETCH_TIMEOUT_MS = 10000;
 const MAX_RESPONSE_BYTES = 1048576;
 const MAX_IMAGE_BYTES = 4194304;
@@ -91,6 +95,39 @@ export class GameArtworkStore {
       : undefined;
     if (!first) throw new Error(`No ${GRID_DIMENSIONS} artwork found for ${game.name}`);
     const url = first.url as string;
+    return this.downloadAndStore(triggerProfileId, url, game.id, game.name);
+  }
+
+  /**
+   * Keyless auto-fetch via the Bottles steamgrid proxy — one request in, one
+   * cover out. Null when the proxy has no match, so callers can fall through
+   * to the key-based API or the generated monogram.
+   */
+  async autoFetchKeyless(triggerProfileId: string, term: string): Promise<GameArtworkEntry | null> {
+    const query = term.trim();
+    if (!query) return null;
+    const response = await this.fetchImpl(`${KEYLESS_SEARCH_BASE}${encodeURIComponent(query)}`, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    });
+    if (!response.ok) return null;
+    const text = await response.text();
+    if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES) return null;
+    let url: unknown;
+    try {
+      url = JSON.parse(text);
+    } catch {
+      return null;
+    }
+    if (typeof url !== 'string' || !url.startsWith('https://')) return null;
+    return this.downloadAndStore(triggerProfileId, url, 0, query);
+  }
+
+  private async downloadAndStore(
+    triggerProfileId: string,
+    url: string,
+    gameId: number,
+    gameName: string
+  ): Promise<GameArtworkEntry> {
     if (!url.startsWith('https://')) throw new Error('Artwork must be served over HTTPS');
 
     const response = await this.fetchImpl(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
@@ -103,7 +140,7 @@ export class GameArtworkStore {
     this.remove(triggerProfileId);
     const fileName = `${safeFileBase(triggerProfileId)}${imageExtensionFromUrl(url)}`;
     writeFileSync(path.join(this.directory, fileName), bytes);
-    const entry: GameArtworkEntry = { fileName, gameId: game.id, gameName: game.name };
+    const entry: GameArtworkEntry = { fileName, gameId, gameName };
     const index = this.readIndex();
     index[triggerProfileId] = entry;
     this.writeIndex(index);
