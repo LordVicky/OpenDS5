@@ -9150,16 +9150,16 @@ button.trigger-lab-chip {
 }
 
 /* Scope banner shown on every tab while a game hub is open */
+/* Mirrors the game detail heading (title left, bordered back action right) so
+   navigation reads the same everywhere in the Game Profile flow. */
 .game-scope-banner {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   margin-bottom: 14px;
-  padding: 8px 12px;
-  border: 1px solid var(--accent-border);
-  border-radius: var(--card-radius);
-  background: var(--accent-muted);
+  padding: 2px 0 12px;
+  border-bottom: 1px solid var(--surface-border);
 }
 
 /* The pages grid is sized to the panel; with the banner above it the total must be
@@ -9168,28 +9168,21 @@ button.trigger-lab-chip {
   height: auto;
 }
 
-.game-scope-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 0;
-  background: transparent;
-  color: var(--text-strong);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 650;
-  padding: 4px 6px;
-  border-radius: var(--control-radius);
-  cursor: pointer;
-}
-
-.game-scope-back:hover {
-  color: var(--accent-strong);
-}
-
-.game-scope-banner-copy {
+.game-scope-banner-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   flex: 1;
   min-width: 160px;
+}
+
+.game-scope-banner-heading strong {
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--text-strong);
+}
+
+.game-scope-banner-heading span {
   font-size: 12px;
   color: var(--text-secondary);
 }

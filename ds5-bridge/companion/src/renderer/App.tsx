@@ -6282,19 +6282,14 @@ export function App() {
       <section className={`control-panel flat-control-panel ${openGameProfileEntry && activeControlTab !== 'game-profile' ? 'game-scope-active' : ''}`}>
         {openGameProfileEntry && activeControlTab !== 'game-profile' && (
           <div className="game-scope-banner" role="region" aria-label="Game settings scope">
-            <button
-              type="button"
-              className="game-scope-back"
-              onClick={() => selectControlTab('game-profile')}
-            >
-              <IconArrowLeft size={15} />
-              <span>{gameProfileTitle(openGameProfileEntry)}</span>
-            </button>
-            <span className="game-scope-banner-copy">
-              {gameSettingsScope === 'game'
-                ? `Saving to ${gameProfileTitle(openGameProfileEntry)}'s game settings`
-                : 'Saving to your global settings'}
-            </span>
+            <div className="game-scope-banner-heading">
+              <strong>{gameProfileTitle(openGameProfileEntry)}</strong>
+              <span>
+                {gameSettingsScope === 'game'
+                  ? `Saving to ${gameProfileTitle(openGameProfileEntry)}'s game settings`
+                  : 'Saving to your global settings'}
+              </span>
+            </div>
             <div className="game-scope-toggle" role="group" aria-label="Settings scope">
               <button
                 type="button"
@@ -6313,6 +6308,14 @@ export function App() {
                 Global Settings
               </button>
             </div>
+            <button
+              className="heading-action"
+              type="button"
+              onClick={() => selectControlTab('game-profile')}
+            >
+              <IconArrowLeft size={18} />
+              Game Profile
+            </button>
           </div>
         )}
         <div className="control-pages">
