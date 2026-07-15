@@ -10,8 +10,7 @@
   cfg = config.services.opends5;
 
   system = pkgs.stdenv.hostPlatform.system;
-  normalUsers = lib.attrNames (lib.filterAttrs (_: user: user.isNormalUser or false) config.users.users);
-  vdsUsers = lib.unique (cfg.users ++ lib.optionals cfg.autoAddNormalUsers normalUsers);
+  vdsUsers = cfg.users;
 in {
   options.services.opends5 = {
     enable =
@@ -44,16 +43,6 @@ in {
       default = [ ];
       example = [ "alice" ];
       description = "Users granted access to the vDS socket through the vds group.";
-    };
-
-    autoAddNormalUsers = lib.mkOption {
-      type = lib.types.bool;
-      default = false;
-      description = ''
-        Add all users declared with `isNormalUser = true` to the vds group.
-        This avoids repeating usernames in the OpenDS5 configuration while
-        excluding system and service accounts by default.
-      '';
     };
 
     disableBluezInputPlugin = lib.mkOption {
