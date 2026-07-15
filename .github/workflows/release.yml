@@ -121,3 +121,32 @@ jobs:
             ${prerelease} \
             ds5-bridge/companion/artifacts/installer/*.AppImage \
             ds5-bridge/companion/artifacts/installer/*.AppImage.sha256
+
+      # The release above is created with GITHUB_TOKEN, which by design does not
+      # fire the `release: published` event -- so a standalone notifier workflow
+      # would never run. Instead we read the just-published release back and hand
+      # its title/body/url to the action via its manual (workflow_dispatch) inputs.
+      - name: read published release
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "url=$(gh release view "${GITHUB_REF_NAME}" --json url --jq .url)"
+            echo 'body<<RELEASE_BODY_EOF'
+            gh release view "${GITHUB_REF_NAME}" --json body --jq .body
+            echo 'RELEASE_BODY_EOF'
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: notify Discord
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: SethCohen/github-releases-to-discord@v1
+        with:
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK }}
+          username: "OpenDS5 Releases"
+          release_name: "OpenDS5 ${{ github.ref_name }}"
+          release_body: ${{ steps.release.outputs.body }}
+          release_html_url: ${{ steps.release.outputs.url }}
+          reduce_headings: true
+          footer_timestamp: true

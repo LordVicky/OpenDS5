@@ -8749,3 +8749,825 @@ button.trigger-lab-chip {
   transform-origin: left center;
   transition: transform 200ms linear;
 }
+
+/* ---------------------------------------------------------------------------
+   Game Profile tab: Nvidia-App-style cover grid + per-game hub. Tiles are the
+   trigger profiles; art comes from SteamGridDB or falls back to a generated
+   gradient monogram. All geometry derives from the shared layout tokens.
+--------------------------------------------------------------------------- */
+
+.game-profile-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  width: 100%;
+}
+
+.game-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: var(--card-gap);
+  width: 100%;
+}
+
+.game-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--card-radius);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 160ms ease;
+}
+
+/* The running game breathes: accent border with a soft layered glow. */
+.game-tile.playing {
+  border-color: var(--accent-border);
+  box-shadow:
+    0 0 0 1px var(--accent-border),
+    0 0 14px rgba(40, 124, 255, 0.35),
+    0 0 34px rgba(40, 124, 255, 0.16);
+  animation: game-tile-glow 2.6s ease-in-out infinite;
+}
+
+@keyframes game-tile-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px var(--accent-border),
+      0 0 14px rgba(40, 124, 255, 0.35),
+      0 0 34px rgba(40, 124, 255, 0.16);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px var(--accent-border),
+      0 0 20px rgba(40, 124, 255, 0.48),
+      0 0 44px rgba(40, 124, 255, 0.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-tile.playing {
+    animation: none;
+  }
+}
+
+.game-tile:hover {
+  border-color: var(--accent-border);
+  background: var(--surface-card-hover);
+}
+
+.game-tile:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.game-tile-art {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+}
+
+.game-tile-monogram {
+  font-size: 42px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: rgba(255, 255, 255, 0.22);
+  user-select: none;
+}
+
+/* Generated tile looks for games without cover art. Deliberately literal colors:
+   these stand in for box art, so they stay constant across UI themes. */
+.game-tile-art-0 { background: radial-gradient(120% 90% at 20% 0%, #f2c14e 0%, #b0413e 45%, #241031 100%); }
+.game-tile-art-1 { background: radial-gradient(120% 90% at 80% 0%, #7ad0ff 0%, #1d5f8a 45%, #06121f 100%); }
+.game-tile-art-2 { background: radial-gradient(120% 90% at 50% 0%, #cdd7a3 0%, #5d7052 45%, #14180d 100%); }
+.game-tile-art-3 { background: radial-gradient(120% 90% at 30% 0%, #ff9d6f 0%, #983a54 50%, #1c0b1e 100%); }
+.game-tile-art-4 { background: radial-gradient(120% 90% at 70% 0%, #b79bff 0%, #4a3d8f 50%, #0b0a24 100%); }
+.game-tile-art-5 { background: radial-gradient(120% 90% at 50% 10%, #9aa7b8 0%, #3d4a5c 55%, #0a0f16 100%); }
+
+.game-tile-live {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--control-radius);
+  background: var(--accent-selected);
+  color: var(--accent-text);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.game-tile-native-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--control-radius);
+  background: #17a566;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Playing takes precedence over the Native badge in the same corner. */
+.game-tile-live ~ .game-tile-native-badge,
+.game-tile-native-badge:has(~ .game-tile-live) {
+  display: none;
+}
+
+.game-tile-chip.native.on {
+  border-color: rgba(23, 165, 102, 0.55);
+  background: rgba(23, 165, 102, 0.16);
+  color: #35c98a;
+}
+
+.game-detail-nav-native {
+  opacity: 0.85;
+  cursor: default;
+}
+
+.game-tile-live .dot {
+  width: 6px;
+  height: 6px;
+  background: var(--accent-text);
+}
+
+.game-tile-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 11px 11px;
+}
+
+.game-tile-meta strong {
+  font-size: 13px;
+  line-height: 1.25;
+  color: var(--card-heading-text);
+}
+
+.game-tile-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.game-tile-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2.5px 7px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--control-radius);
+  background: var(--surface-control-soft);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.game-tile-chip.on {
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
+  background: var(--accent-muted);
+}
+
+.game-tile-add {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-style: dashed;
+  border-color: var(--surface-border-strong);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  aspect-ratio: 3 / 4.62; /* art ratio + meta row, so it matches populated tiles */
+}
+
+.game-tile-add:hover {
+  color: var(--text-secondary);
+}
+
+.game-profile-empty-hint {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--settings-copy-text);
+  font-size: 13px;
+}
+
+/* Now Playing hero above the grid */
+.game-hero {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: var(--card-padding);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--card-radius);
+  background: var(--overview-accent-gradient), var(--surface-hero-main);
+}
+
+.game-hero-art {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--control-radius);
+  border: 1px solid var(--surface-border-strong);
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+}
+
+.game-hero-art .game-tile-monogram {
+  font-size: 26px;
+}
+
+.game-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.game-hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+}
+
+.game-hero-copy h3 {
+  margin: 0;
+  font-size: 17px;
+  color: var(--card-heading-text);
+}
+
+.game-hero-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.game-hero-actions .primary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--control-height);
+  padding: 0 16px;
+}
+
+/* Per-game hub header */
+.game-detail-header {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: var(--card-padding);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--card-radius);
+  background: var(--surface-card);
+}
+
+.game-detail-art {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 132px;
+  aspect-ratio: 3 / 4;
+  padding: 0;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--card-radius);
+  background-size: cover;
+  background-position: center;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.game-detail-art .game-tile-monogram {
+  font-size: 36px;
+}
+
+.game-detail-art-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 0;
+  background: rgba(2, 6, 12, 0.78);
+  color: var(--text-control);
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.game-detail-art:hover .game-detail-art-overlay,
+.game-detail-art:focus-visible .game-detail-art-overlay {
+  opacity: 1;
+}
+
+.game-detail-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.game-detail-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.game-scope-hint {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 12px;
+  color: var(--settings-copy-text);
+}
+
+.game-detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.game-detail-actions .secondary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+}
+
+.game-detail-nav .overview-card {
+  cursor: pointer;
+}
+
+.game-detail-nav-copy {
+  margin: 0;
+  font-size: 12px;
+  color: var(--settings-copy-text);
+}
+
+/* Game / Global scope toggle (hub + banner) */
+/* Back navigation: chevron + stacked "Back to / <destination>" breadcrumb in
+   one softly bordered box. Mouse button 4 (back) triggers the same move. */
+.nav-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-control);
+  padding: 6px 14px 6px 8px;
+  border-radius: 7px;
+  text-align: left;
+  color: var(--text-strong);
+  font: inherit;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.nav-back-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-strong);
+  transition: transform 140ms ease;
+}
+
+.nav-back-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nav-back-lines i {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.nav-back-lines b {
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.nav-back:hover {
+  background: var(--accent-muted);
+  border-color: var(--accent-border);
+}
+
+.nav-back:hover .nav-back-arrow {
+  transform: translateX(-3px);
+}
+
+.nav-back:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Pill segmented control: deliberately rounder and heavier than the app's
+   rectangular controls so the editing scope is impossible to miss. */
+.game-scope-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--surface-control);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.game-scope-toggle button {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.game-scope-toggle button:hover:not(.active) {
+  color: var(--text-strong);
+  background: var(--surface-control-soft);
+}
+
+.game-scope-toggle button.active {
+  background: var(--accent-selected);
+  color: var(--accent-text);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25), 0 0 0 1px var(--accent-border);
+}
+
+.game-scope-toggle button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* Scope banner shown on every tab while a game hub is open */
+/* Mirrors the game detail heading (title left, bordered back action right) so
+   navigation reads the same everywhere in the Game Profile flow. */
+.game-scope-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding: 2px 0 12px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+/* The pages grid is sized to the panel; with the banner above it the total must be
+   allowed to exceed the viewport and scroll instead of squashing the active page. */
+.control-panel.game-scope-active .control-pages {
+  height: auto;
+}
+
+.game-scope-banner-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 160px;
+}
+
+.game-scope-banner-heading strong {
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--text-strong);
+}
+
+.game-scope-banner-heading span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.game-scope-banner .game-scope-toggle button {
+  padding: 6px 13px;
+  font-size: 11.5px;
+}
+
+/* Add Game + Cover Art dialogs */
+.game-create-modal,
+.game-artwork-modal {
+  width: min(440px, calc(100vw - 48px));
+}
+
+.game-delete-triggers-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid rgba(217, 169, 65, 0.45);
+  border-radius: var(--card-radius);
+  background: rgba(217, 169, 65, 0.1);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.game-delete-triggers-warning strong {
+  color: var(--text-strong);
+  font-size: 12.5px;
+}
+
+/* Installed-games picker inside Add Game */
+.game-create-library {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.game-create-library-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.game-create-library-empty,
+.game-create-library-errors {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.game-create-library-errors {
+  color: var(--warn-text, #d9a941);
+}
+
+.game-create-library-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 88px;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.game-create-library-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-secondary);
+  font: inherit;
+}
+
+.game-create-library-tile.selected {
+  border-color: var(--accent-border);
+  background: var(--accent-muted);
+  color: var(--text-strong);
+}
+
+.game-create-library-art {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 112px;
+  border-radius: 5px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+}
+
+.game-create-library-art .game-tile-monogram {
+  font-size: 22px;
+}
+
+.game-create-library-name {
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.game-create-library-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 1.5px 6px;
+  border-radius: var(--control-radius);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: rgba(10, 22, 36, 0.85);
+}
+
+.game-create-library-badge.heroic {
+  background: rgba(84, 46, 145, 0.9);
+}
+
+.game-create-candidate-ticks {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.game-create-candidate-ticks-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.game-create-candidate-tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.game-create-candidate-tick input {
+  accent-color: var(--accent-strong);
+}
+
+.game-create-detect {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.game-create-detect .secondary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+}
+
+.game-create-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.game-create-detect-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--settings-copy-text);
+}
+
+.game-artwork-key-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.game-artwork-key-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--accent-strong);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.game-artwork-search-row {
+  display: flex;
+  gap: 8px;
+}
+
+.game-artwork-search-row .primary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.game-artwork-search-input {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-height);
+  padding: 0 10px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-control);
+  color: var(--text-control);
+  font: inherit;
+  font-size: 13px;
+}
+
+.game-artwork-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.game-artwork-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.game-artwork-result {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--control-radius);
+  background: var(--surface-control-soft);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.game-artwork-result:hover {
+  border-color: var(--accent-border);
+  background: var(--surface-control-hover);
+}
+
+.game-artwork-result span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.game-artwork-result-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.game-detail-actions .secondary-action.danger,
+.game-artwork-modal .secondary-action.danger {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-tile,
+  .game-detail-art-overlay {
+    transition: none;
+  }
+}

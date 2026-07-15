@@ -25,6 +25,14 @@ import { ProfileLibrary, type LibraryEntry } from './profile-library';
 import { GameWatcher, listCandidateGameProcesses } from './game-watcher';
 import { EvdevInputReader } from './evdev-input-reader';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
+import { GameSettingsCoordinator, type GameSettingsStatus } from './game-settings-coordinator';
+import { GameArtworkStore } from './game-artwork';
+import {
+  InstalledGamesScanner,
+  defaultScannerRoots,
+  isLikelyJunkCandidate,
+  type InstalledGame
+} from './installed-games';
 import type {
   AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
@@ -40,7 +48,7 @@ import type {
   TriggerTestTarget
 } from '../shared/protocol';
 import type { BridgeToast } from './bridge-service';
-import type { TriggerProfile } from '../shared/trigger-profiles';
+import { DEFAULT_PROFILE_ID, type TriggerProfile } from '../shared/trigger-profiles';
 import type {
   AudioHapticsSession,
   BridgeSnapshot,
@@ -1065,22 +1073,157 @@ async function runPicoFirmwareIpcAction(
   }
 }
 
+// Inline thumbnail for the Add Game dialog; oversized or unreadable files just
+// mean the tile falls back to its monogram.
+function fileToDataUrl(filePath: string): string | null {
+  try {
+    const bytes = fs.readFileSync(filePath);
+    if (bytes.byteLength > 4 * 1024 * 1024) return null;
+    const mime = filePath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    return `data:${mime};base64,${bytes.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
 function registerIpc(
   service: BridgeService,
   triggerProfileStore: TriggerProfileStore,
   triggerProfileEngine: TriggerProfileEngine,
-  profileLibrary: ProfileLibrary
+  profileLibrary: ProfileLibrary,
+  gameSettingsCoordinator: GameSettingsCoordinator,
+  gameArtworkStore: GameArtworkStore
 ): void {
   ipcMain.handle('bridge:listTriggerProfiles', () => triggerProfileStore.list());
   ipcMain.handle('bridge:saveTriggerProfile', (_event, profile: TriggerProfile) => {
     const saved = triggerProfileStore.save(profile);
     triggerProfileEngine.refreshProfiles();
+    // Keep the game settings profile pair's display name in step with the game.
+    if (service.hasGameSettings(saved.id)) {
+      void service.ensureGameSettings(saved.id, saved.name);
+    }
     return saved;
   });
-  ipcMain.handle('bridge:deleteTriggerProfile', (_event, id: string) => {
+  ipcMain.handle('bridge:deleteTriggerProfile', async (_event, id: string) => {
     const deleted = triggerProfileStore.delete(id);
     triggerProfileEngine.refreshProfiles();
+    if (deleted) {
+      // A deleted game takes its game settings and cover art with it.
+      await gameSettingsCoordinator.onProfileDeleted(id);
+      await service.removeGameSettings(id);
+      gameArtworkStore.remove(id);
+    }
     return deleted;
+  });
+  // Game Profile deletion with a choice: the game entry, settings and cover
+  // always go; its trigger effects can survive as an ordinary trigger profile.
+  ipcMain.handle('bridge:deleteGameProfile', async (_event, id: string, keepTriggerEffects: boolean) => {
+    const profile = triggerProfileStore.get(id);
+    if (!profile) return false;
+    if (keepTriggerEffects && profile.meta?.game) {
+      const meta = { ...profile.meta };
+      delete meta.game;
+      triggerProfileStore.save({
+        ...profile,
+        meta: Object.keys(meta).length > 0 ? meta : undefined,
+        updatedAtMs: Date.now()
+      });
+    } else {
+      triggerProfileStore.delete(id);
+    }
+    triggerProfileEngine.refreshProfiles();
+    await gameSettingsCoordinator.onProfileDeleted(id);
+    await service.removeGameSettings(id);
+    gameArtworkStore.remove(id);
+    return true;
+  });
+  ipcMain.handle('bridge:getGameSettingsStatus', () => gameSettingsCoordinator.getStatus());
+  ipcMain.handle('bridge:enterGameSettingsScope', (_event, id: string) => {
+    const profile = triggerProfileStore.get(id);
+    if (!profile || profile.id === DEFAULT_PROFILE_ID) return gameSettingsCoordinator.getStatus();
+    return gameSettingsCoordinator.enterEditScope(profile.id, profile.name);
+  });
+  ipcMain.handle('bridge:exitGameSettingsScope', () => gameSettingsCoordinator.exitEditScope());
+  ipcMain.handle('bridge:setSteamGridDbApiKey', (_event, apiKey: string) => (
+    service.setSteamGridDbApiKey(typeof apiKey === 'string' ? apiKey : '')
+  ));
+  ipcMain.handle('bridge:getGameArtwork', () => gameArtworkStore.dataUrls());
+
+  // Installed-games import (Steam + Heroic). Scanned once per session; the cache
+  // also backs applyInstalledGameArtwork so the renderer can never name arbitrary
+  // files — only artwork the scanner itself reported.
+  let installedGamesCache: InstalledGame[] | null = null;
+  ipcMain.handle('bridge:listInstalledGames', (_event, refresh?: boolean) => {
+    let errors: string[] = [];
+    if (installedGamesCache === null || refresh === true) {
+      const scanned = new InstalledGamesScanner(defaultScannerRoots(app.getPath('home'))).scan();
+      installedGamesCache = scanned.games;
+      errors = scanned.errors;
+    }
+    // Punctuation-insensitive, mirroring the renderer's normalizeGameName, so a
+    // profile named "Director's Cut" hides the scanned "DIRECTORS CUT" entry.
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const existing = new Set(
+      triggerProfileStore.list().map((profile) => normalize(profile.meta?.game ?? profile.name))
+    );
+    const games = installedGamesCache
+      .filter((game) => !existing.has(normalize(game.name)))
+      .map((game) => ({
+        ...game,
+        // Steam covers are local files the renderer cannot read; inline them.
+        cover: game.artwork?.kind === 'file' ? fileToDataUrl(game.artwork.path) : game.artwork?.url ?? null,
+        // The renderer cannot import the scanner (node:fs), so junk flags for the
+        // default candidate ticks are computed here.
+        junkCandidates: game.processCandidates.filter((name) => isLikelyJunkCandidate(name))
+      }));
+    return { games, errors };
+  });
+  ipcMain.handle('bridge:applyInstalledGameArtwork', async (_event, profileId: string, sourceId: string) => {
+    try {
+      const game = installedGamesCache?.find((entry) => entry.sourceId === sourceId);
+      const profile = triggerProfileStore.get(profileId);
+      if (!game?.artwork || !profile) return { ok: false, error: 'No artwork for this game' };
+      const entry = game.artwork.kind === 'file'
+        ? gameArtworkStore.applyFromFile(profileId, game.artwork.path, game.name)
+        : await gameArtworkStore.applyFromUrl(profileId, game.artwork.url, game.name);
+      return { ok: true, entry };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle('bridge:searchGameArtwork', async (_event, term: string) => {
+    try {
+      const results = await gameArtworkStore.search(service.getSnapshot().settings.steamGridDbApiKey, term);
+      return { ok: true, results };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle('bridge:applyGameArtwork', async (_event, id: string, game: { id: number; name: string } | null) => {
+    try {
+      const profile = triggerProfileStore.get(id);
+      if (!profile) return { ok: false, error: 'Unknown game profile' };
+      const apiKey = service.getSnapshot().settings.steamGridDbApiKey;
+      if (game) {
+        const entry = await gameArtworkStore.apply(apiKey, profile.id, { id: game.id, name: game.name });
+        return { ok: true, entry };
+      }
+      // Auto path: the keyless proxy first (no setup needed), the key-based
+      // API only as a fallback for users who configured one.
+      const term = profile.meta?.game ?? profile.name;
+      let entry = await gameArtworkStore.autoFetchKeyless(profile.id, term).catch(() => null);
+      if (!entry && apiKey) {
+        entry = await gameArtworkStore.autoFetch(apiKey, profile.id, term);
+      }
+      if (!entry) return { ok: false, error: `No cover art match for ${profile.name}` };
+      return { ok: true, entry };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle('bridge:removeGameArtwork', (_event, id: string) => {
+    gameArtworkStore.remove(id);
+    return gameArtworkStore.dataUrls();
   });
   ipcMain.handle('bridge:setTriggerProfilesEnabled', async (_event, enabled: boolean) => {
     await triggerProfileEngine.setEnabled(enabled);
@@ -1441,6 +1584,8 @@ function registerUpdateIpc(settingsStore: SettingsStore, setupService: SetupServ
     sendToMainWindow('update:state', state)
   ));
 
+  ipcMain.handle('app:version', () => app.getVersion());
+
   ipcMain.handle('update:check', async (): Promise<UpdateState> => {
     // A previous run may have been killed mid-download; drop its leftovers.
     updateService.cleanStaleDownload();
@@ -1526,6 +1671,20 @@ app.whenReady().then(async () => {
     reader: new EvdevInputReader()
   });
   triggerProfileEngine.refreshProfiles();
+  // Game Profile: rides the trigger engine's detection to swap the whole settings set
+  // (controller profile + button remapping) per game. Recovery and subscription happen
+  // before the engine is enabled so a crash's leftover restore point is honored first.
+  const gameSettingsCoordinator = new GameSettingsCoordinator(bridgeService, app.getPath('userData'));
+  void gameSettingsCoordinator.recover();
+  triggerProfileEngine.on('status', (status: EngineStatus) => {
+    gameSettingsCoordinator.onEngineStatus(status);
+  });
+  gameSettingsCoordinator.on('status', (status: GameSettingsStatus) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send('bridge:gameSettingsStatus', status);
+    }
+  });
+  const gameArtworkStore = new GameArtworkStore(path.join(app.getPath('userData'), 'game-artwork'));
   // Restore the engine's persisted enabled/pin state; before this, every
   // launch silently started with the game watcher off while the UI still
   // looked like auto mode.
@@ -1541,7 +1700,14 @@ app.whenReady().then(async () => {
       window.webContents.send('bridge:triggerProfileEngineStatus', status);
     }
   });
-  registerIpc(bridgeService, triggerProfileStore, triggerProfileEngine, profileLibrary);
+  registerIpc(
+    bridgeService,
+    triggerProfileStore,
+    triggerProfileEngine,
+    profileLibrary,
+    gameSettingsCoordinator,
+    gameArtworkStore
+  );
 
   // One installer service for both the first-launch wizard and the post-update
   // driver rebuild: it is inert until install() runs.

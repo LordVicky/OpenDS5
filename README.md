@@ -6,6 +6,7 @@
   <a href="https://github.com/LordVicky/OpenDS5/actions/workflows/release.yml"><img src="https://github.com/LordVicky/OpenDS5/actions/workflows/release.yml/badge.svg" alt="release build"></a>
   <a href="ds5-bridge/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="license: AGPL-3.0-only"></a>
   <a href="https://github.com/LordVicky/OpenDS5/releases"><img src="https://img.shields.io/github/v/release/LordVicky/OpenDS5" alt="latest release"></a>
+  <a href="https://discord.gg/hg5AF3zM5D"><img src="https://img.shields.io/badge/Discord-join%20server-5865F2?logo=discord&logoColor=white" alt="Discord server"></a>
 </p>
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Linux%20AppImage-blue" alt="platform: Linux AppImage">
@@ -98,6 +99,14 @@ see [docs/PORTING.md](docs/PORTING.md) for manual steps.
 2. Run it. The setup wizard shows exactly what it will install (DKMS kernel
    module, `vdsd` service, udev rules) and does it after one password prompt.
 3. Pair your DualSense over Bluetooth and you're done.
+
+> [!NOTE]
+> Setup disables BlueZ's input plugin so vds can own the controller's
+> Bluetooth HID channels — without this the system grabs the DualSense as a
+> plain gamepad and OpenDS5 never sees it. The trade-off (an upstream vds
+> limitation): **other Bluetooth input devices like keyboards and mice won't
+> work while OpenDS5's driver stack is installed.** Revert anytime with
+> `sudo /usr/share/opends5/override-bluetoothd.sh enable-input --restart`.
 
 Prefer the terminal? `./OpenDS5.AppImage --install-system` does the same
 setup. See [docs/INSTALLER.md](docs/INSTALLER.md) for per-platform details,

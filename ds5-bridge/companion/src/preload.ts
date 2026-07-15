@@ -22,6 +22,14 @@ import type {
   WindowsDeviceCleanupResult
 } from './shared/types';
 import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/trigger-profiles';
+import type { GameSettingsStatus } from './main/game-settings-coordinator';
+import type { GameArtworkEntry, GameArtworkSearchResult } from './main/game-artwork';
+import type { InstalledGame } from './main/installed-games';
+
+export interface InstalledGamesList {
+  games: Array<InstalledGame & { cover: string | null; junkCandidates: string[] }>;
+  errors: string[];
+}
 import type { LibraryCatalog, LibraryEntry } from './main/profile-library';
 import type { ImportResult } from './main/trigger-profile-store';
 import type { GameProcessCandidate } from './main/game-watcher';
@@ -272,11 +280,46 @@ const api = {
   listCandidateGameProcesses: (): Promise<GameProcessCandidate[]> => (
     ipcRenderer.invoke('bridge:listCandidateGameProcesses')
   ),
+  deleteGameProfile: (id: string, keepTriggerEffects: boolean): Promise<boolean> => (
+    ipcRenderer.invoke('bridge:deleteGameProfile', id, keepTriggerEffects)
+  ),
+  listInstalledGames: (refresh?: boolean): Promise<InstalledGamesList> => (
+    ipcRenderer.invoke('bridge:listInstalledGames', refresh)
+  ),
+  applyInstalledGameArtwork: (
+    profileId: string,
+    sourceId: string
+  ): Promise<{ ok: true; entry: GameArtworkEntry } | { ok: false; error: string }> => (
+    ipcRenderer.invoke('bridge:applyInstalledGameArtwork', profileId, sourceId)
+  ),
   onTriggerProfileEngineStatus: (listener: (status: EngineStatus) => void): (() => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, status: EngineStatus) => listener(status);
     ipcRenderer.on('bridge:triggerProfileEngineStatus', wrapped);
     return () => ipcRenderer.removeListener('bridge:triggerProfileEngineStatus', wrapped);
-  }
+  },
+  getGameSettingsStatus: (): Promise<GameSettingsStatus> => ipcRenderer.invoke('bridge:getGameSettingsStatus'),
+  enterGameSettingsScope: (id: string): Promise<GameSettingsStatus> => (
+    ipcRenderer.invoke('bridge:enterGameSettingsScope', id)
+  ),
+  exitGameSettingsScope: (): Promise<GameSettingsStatus> => ipcRenderer.invoke('bridge:exitGameSettingsScope'),
+  onGameSettingsStatus: (listener: (status: GameSettingsStatus) => void): (() => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, status: GameSettingsStatus) => listener(status);
+    ipcRenderer.on('bridge:gameSettingsStatus', wrapped);
+    return () => ipcRenderer.removeListener('bridge:gameSettingsStatus', wrapped);
+  },
+  setSteamGridDbApiKey: (apiKey: string): Promise<BridgeSnapshot> => (
+    ipcRenderer.invoke('bridge:setSteamGridDbApiKey', apiKey)
+  ),
+  getGameArtwork: (): Promise<Record<string, string>> => ipcRenderer.invoke('bridge:getGameArtwork'),
+  searchGameArtwork: (term: string): Promise<
+    { ok: true; results: GameArtworkSearchResult[] } | { ok: false; error: string }
+  > => ipcRenderer.invoke('bridge:searchGameArtwork', term),
+  applyGameArtwork: (id: string, game: { id: number; name: string } | null): Promise<
+    { ok: true; entry: GameArtworkEntry } | { ok: false; error: string }
+  > => ipcRenderer.invoke('bridge:applyGameArtwork', id, game),
+  removeGameArtwork: (id: string): Promise<Record<string, string>> => (
+    ipcRenderer.invoke('bridge:removeGameArtwork', id)
+  )
 };
 
 contextBridge.exposeInMainWorld('bridge', api);
@@ -318,6 +361,12 @@ const updateApi = {
 };
 contextBridge.exposeInMainWorld('update', updateApi);
 
+const appInfoApi = {
+  version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+};
+contextBridge.exposeInMainWorld('appInfo', appInfoApi);
+
 export type BridgeApi = typeof api;
 export type SetupApi = typeof setupApi;
 export type UpdateApi = typeof updateApi;
+export type AppInfoApi = typeof appInfoApi;

@@ -21,12 +21,14 @@ const DEFAULT_PRESSES_PER_SECOND = 3;
 type TriggerName = 'l2' | 'r2';
 
 class TriggerTimingState {
-  heldSinceMs: number | null = null;
+  // One hold timer per modifier (keyed by its slot index): hold modifiers can
+  // use different press thresholds, so they cannot share a single timer.
+  heldSinceMsByModifier = new Map<number, number>();
   lastValue = 0;
   pressTimestampsMs: number[] = [];
 
   reset(): void {
-    this.heldSinceMs = null;
+    this.heldSinceMsByModifier.clear();
     this.lastValue = 0;
     this.pressTimestampsMs = [];
   }
@@ -68,21 +70,35 @@ export class ModifierEvaluator {
     timing.lastValue = value;
   }
 
+  // Every modifier is evaluated on every update (so hold timers keep running
+  // even while another modifier is active), then the most specific match wins:
+  // the longest satisfied hold duration first, list order breaking ties. This
+  // is what lets several trigger-held-over modifiers escalate — 200ms feel,
+  // then a different feel at 300ms — instead of the first match shadowing the
+  // rest forever.
   private resolveSlot(
     trigger: TriggerName,
     slot: TriggerSlotConfig,
     state: ControllerInputState
   ): TriggerEffectSpec | null {
-    for (const modifier of slot.modifiers) {
-      if (this.conditionHolds(trigger, modifier.when, state)) {
-        return modifier.effect;
+    let winner: TriggerEffectSpec | null = null;
+    let winnerHoldMs = -1;
+    slot.modifiers.forEach((modifier, index) => {
+      if (!this.conditionHolds(trigger, index, modifier.when, state)) {
+        return;
       }
-    }
-    return slot.base;
+      const holdMs = modifier.when.condition === 'trigger-held-over' ? modifier.when.ms ?? 0 : 0;
+      if (holdMs > winnerHoldMs) {
+        winner = modifier.effect;
+        winnerHoldMs = holdMs;
+      }
+    });
+    return winner ?? slot.base;
   }
 
   private conditionHolds(
     trigger: TriggerName,
+    index: number,
     when: ModifierCondition,
     state: ControllerInputState
   ): boolean {
@@ -96,13 +112,15 @@ export class ModifierEvaluator {
         const threshold = when.threshold ?? DEFAULT_HOLD_THRESHOLD;
         const holdMs = when.ms ?? 0;
         if (value < threshold) {
-          timing.heldSinceMs = null;
+          timing.heldSinceMsByModifier.delete(index);
           return false;
         }
-        if (timing.heldSinceMs === null) {
-          timing.heldSinceMs = state.timestampMs;
+        let heldSinceMs = timing.heldSinceMsByModifier.get(index);
+        if (heldSinceMs === undefined) {
+          heldSinceMs = state.timestampMs;
+          timing.heldSinceMsByModifier.set(index, heldSinceMs);
         }
-        return state.timestampMs - timing.heldSinceMs >= holdMs;
+        return state.timestampMs - heldSinceMs >= holdMs;
       }
       case 'trigger-full-pull':
         return value >= FULL_PULL_THRESHOLD;

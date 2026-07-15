@@ -13,6 +13,7 @@ install -m 0755 "$repo/vds/build-bundle/vdsd" "$repo/vds/build-bundle/vdsctl" "$
 install -m 0644 "$repo/vds/vdsd.service.in" \
   "$repo/vds/99-vds-dualsense-udev.rules" \
   "$repo/vds/99-vds-dualsense-wireplumber.conf" "$out/"
+install -m 0755 "$repo/vds/override-bluetoothd.sh" "$out/"
 
 # ldd audit: libraries outside the universal baseline must be bundled (vds-bin/lib)
 allowed='linux-vdso|ld-linux|libc\.|libm\.|libpthread|libdl|librt|libgcc_s|libstdc\+\+|libasound|libbluetooth|libdbus|libopus|libudev|libsystemd'

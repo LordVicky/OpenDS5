@@ -567,3 +567,91 @@ describe('update settings', () => {
     expect(normalizeSkippedUpdateVersions('1.8.0')).toEqual([]);
   });
 });
+
+describe('game settings profiles', () => {
+  const tempDirs: string[] = [];
+
+  function tempUserDataPath(): string {
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'ds5-game-settings-store-'));
+    tempDirs.push(tempDir);
+    return tempDir;
+  }
+
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      const tempDir = tempDirs.pop();
+      if (tempDir) {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('ensureControllerProfile creates a caller-keyed profile from the live settings without selecting it', () => {
+    const store = new SettingsStore(tempUserDataPath());
+    // A profile-synced setting change moves the selection off Default (to the live-synced
+    // Custom profile); ensure must not move it again.
+    const selectedBefore = store.update({ hapticsGainPercent: 133 }).selectedControllerProfileId;
+
+    const settings = store.ensureControllerProfile('game:cyberpunk', 'Cyberpunk 2077');
+    const profile = settings.controllerProfiles.find((entry) => entry.id === 'game:cyberpunk');
+    expect(profile?.name).toBe('Cyberpunk 2077');
+    expect(profile?.settings.hapticsGainPercent).toBe(133);
+    expect(settings.selectedControllerProfileId).toBe(selectedBefore);
+  });
+
+  it('ensureControllerProfile refreshes the name of an existing profile and keeps its settings', () => {
+    const store = new SettingsStore(tempUserDataPath());
+    store.update({ hapticsGainPercent: 133 });
+    store.ensureControllerProfile('game:cyberpunk', 'Cyberpunk 2077');
+    store.update({ hapticsGainPercent: 50 });
+
+    const settings = store.ensureControllerProfile('game:cyberpunk', 'Cyberpunk 2077 GOTY');
+    const profile = settings.controllerProfiles.find((entry) => entry.id === 'game:cyberpunk');
+    expect(profile?.name).toBe('Cyberpunk 2077 GOTY');
+    expect(profile?.settings.hapticsGainPercent).toBe(133);
+    expect(settings.controllerProfiles.filter((entry) => entry.id === 'game:cyberpunk')).toHaveLength(1);
+  });
+
+  it('removeControllerProfile leaves the selection alone when the removed profile is not selected', () => {
+    const store = new SettingsStore(tempUserDataPath());
+    store.saveControllerProfile('My Profile');
+    const selectedId = store.get().selectedControllerProfileId;
+    store.ensureControllerProfile('game:cyberpunk', 'Cyberpunk 2077');
+
+    const settings = store.removeControllerProfile('game:cyberpunk');
+    expect(settings.controllerProfiles.some((entry) => entry.id === 'game:cyberpunk')).toBe(false);
+    expect(settings.selectedControllerProfileId).toBe(selectedId);
+  });
+
+  it('removeControllerProfile falls back like a delete when the removed profile is selected', () => {
+    const store = new SettingsStore(tempUserDataPath());
+    store.ensureControllerProfile('game:cyberpunk', 'Cyberpunk 2077');
+    store.selectControllerProfile('game:cyberpunk');
+
+    const settings = store.removeControllerProfile('game:cyberpunk');
+    expect(settings.controllerProfiles.some((entry) => entry.id === 'game:cyberpunk')).toBe(false);
+    expect(settings.selectedControllerProfileId).not.toBe('game:cyberpunk');
+  });
+
+  it('ensure/removeButtonRemappingProfile mirror the controller profile behavior', () => {
+    const store = new SettingsStore(tempUserDataPath());
+    const created = store.ensureButtonRemappingProfile('game:cyberpunk', 'Cyberpunk 2077');
+    expect(created.buttonRemappingProfiles.some((entry) => entry.id === 'game:cyberpunk')).toBe(true);
+    expect(created.selectedButtonRemappingProfileId).toBe(DEFAULT_BUTTON_REMAP_PROFILE_ID);
+
+    const removed = store.removeButtonRemappingProfile('game:cyberpunk');
+    expect(removed.buttonRemappingProfiles.some((entry) => entry.id === 'game:cyberpunk')).toBe(false);
+    expect(removed.selectedButtonRemappingProfileId).toBe(DEFAULT_BUTTON_REMAP_PROFILE_ID);
+  });
+
+  it('persists and normalizes the SteamGridDB API key', () => {
+    const userDataPath = tempUserDataPath();
+    const store = new SettingsStore(userDataPath);
+    expect(store.get().steamGridDbApiKey).toBe('');
+
+    store.update({ steamGridDbApiKey: `  abc123${'x'.repeat(200)}  ` });
+    const reloaded = new SettingsStore(userDataPath).get();
+    expect(reloaded.steamGridDbApiKey.startsWith('abc123')).toBe(true);
+    expect(reloaded.steamGridDbApiKey.length).toBe(128);
+  });
+});

@@ -10,6 +10,7 @@ for f in vdsd vdsctl; do : > "$tmp/vds-bin/$f"; done
 printf 'ExecStart=@VDS_SYSTEMD_VDSD@\n' > "$tmp/vds-bin/vdsd.service.in"
 : > "$tmp/vds-bin/99-vds-dualsense-udev.rules"
 : > "$tmp/vds-bin/99-vds-dualsense-wireplumber.conf"
+: > "$tmp/vds-bin/override-bluetoothd.sh"
 
 plan() { # extra env...
   env "$@" OPENDS5_OS_RELEASE="$here/fixtures/fedora/os-release" \
@@ -33,6 +34,8 @@ assert_contains "$out" "groupadd -f vds" "group created"
 assert_contains "$out" "usermod -aG vds '$(id -un)'" "invoking user added to group"
 assert_contains "$out" "wireplumber.conf.d" "wireplumber conf installed"
 assert_contains "$out" "chown" "wireplumber conf owned by user"
+assert_contains "$out" "disable-input --restart" "bluez input plugin override planned"
+assert_contains "$out" "noplugin=input" "override skipped when already applied"
 assert_contains "$out" "systemctl daemon-reload" "daemon reloaded"
 assert_contains "$out" "dkms install" "kernel steps still planned when module not loaded"
 

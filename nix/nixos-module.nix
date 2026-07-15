@@ -24,6 +24,20 @@ in
       example = [ "alice" ];
       description = "Users added to the vds group (access to /dev/vds*).";
     };
+
+    disableBluetoothInputPlugin = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Run bluetoothd with `--noplugin=input`. vds needs raw ownership of the
+        controller's Bluetooth HID channels; with the input plugin active,
+        BlueZ claims the DualSense first and the app never sees it.
+
+        Trade-off (upstream vds limitation): while the plugin is disabled,
+        other Bluetooth input devices (keyboards, mice) will not work. Set to
+        false if you need those and connect the controller over USB instead.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -34,6 +48,15 @@ in
       })
     ];
     boot.kernelModules = [ "vds_hcd" ];
+
+    # Bluetooth is the transport this whole stack exists for.
+    hardware.bluetooth.enable = lib.mkDefault true;
+
+    systemd.services.bluetooth.serviceConfig.ExecStart =
+      lib.mkIf cfg.disableBluetoothInputPlugin (lib.mkForce [
+        ""
+        "${config.hardware.bluetooth.package}/libexec/bluetooth/bluetoothd -f /etc/bluetooth/main.conf --noplugin=input"
+      ]);
 
     users.groups.vds = { };
     users.users = lib.genAttrs cfg.users (_: {
