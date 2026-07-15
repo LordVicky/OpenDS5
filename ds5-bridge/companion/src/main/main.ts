@@ -1115,6 +1115,28 @@ function registerIpc(
     }
     return deleted;
   });
+  // Game Profile deletion with a choice: the game entry, settings and cover
+  // always go; its trigger effects can survive as an ordinary trigger profile.
+  ipcMain.handle('bridge:deleteGameProfile', async (_event, id: string, keepTriggerEffects: boolean) => {
+    const profile = triggerProfileStore.get(id);
+    if (!profile) return false;
+    if (keepTriggerEffects && profile.meta?.game) {
+      const meta = { ...profile.meta };
+      delete meta.game;
+      triggerProfileStore.save({
+        ...profile,
+        meta: Object.keys(meta).length > 0 ? meta : undefined,
+        updatedAtMs: Date.now()
+      });
+    } else {
+      triggerProfileStore.delete(id);
+    }
+    triggerProfileEngine.refreshProfiles();
+    await gameSettingsCoordinator.onProfileDeleted(id);
+    await service.removeGameSettings(id);
+    gameArtworkStore.remove(id);
+    return true;
+  });
   ipcMain.handle('bridge:getGameSettingsStatus', () => gameSettingsCoordinator.getStatus());
   ipcMain.handle('bridge:enterGameSettingsScope', (_event, id: string) => {
     const profile = triggerProfileStore.get(id);

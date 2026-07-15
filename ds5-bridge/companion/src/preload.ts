@@ -280,6 +280,9 @@ const api = {
   listCandidateGameProcesses: (): Promise<GameProcessCandidate[]> => (
     ipcRenderer.invoke('bridge:listCandidateGameProcesses')
   ),
+  deleteGameProfile: (id: string, keepTriggerEffects: boolean): Promise<boolean> => (
+    ipcRenderer.invoke('bridge:deleteGameProfile', id, keepTriggerEffects)
+  ),
   listInstalledGames: (refresh?: boolean): Promise<InstalledGamesList> => (
     ipcRenderer.invoke('bridge:listInstalledGames', refresh)
   ),

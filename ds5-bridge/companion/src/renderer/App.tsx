@@ -5925,16 +5925,16 @@ export function App() {
     }
   }
 
-  async function confirmDeleteGameProfile() {
+  async function confirmDeleteGameProfile(keepTriggerEffects: boolean) {
     if (!gameDeleteConfirm) return;
     const deletedId = gameDeleteConfirm.id;
     if (openGameProfileId === deletedId) {
       setOpenGameProfileId(null);
     }
-    await window.bridge.deleteTriggerProfile(deletedId);
+    await window.bridge.deleteGameProfile(deletedId, keepTriggerEffects);
     setGameDeleteConfirm(null);
     setGameSettingsStatus(await window.bridge.getGameSettingsStatus());
-    await refreshTriggerProfiles(undefined, deletedId);
+    await refreshTriggerProfiles(undefined, keepTriggerEffects ? undefined : deletedId);
     await refreshGameArtwork();
   }
 
@@ -6551,7 +6551,7 @@ export function App() {
                         <button
                           key={profile.id}
                           type="button"
-                          className="game-tile"
+                          className={`game-tile ${live ? 'playing' : ''}`}
                           onClick={() => void openGameProfile(profile.id)}
                         >
                           <span
@@ -10504,7 +10504,7 @@ export function App() {
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              void confirmDeleteGameProfile();
+              void confirmDeleteGameProfile(false);
             }}
           >
             <div className="settings-menu-heading bridge-settings-modal-heading">
@@ -10521,18 +10521,44 @@ export function App() {
                 <X size={16} />
               </button>
             </div>
-            <p className="remap-profile-dialog-copy">
-              Delete {gameDeleteConfirm.name}? Its trigger profile, game settings and cover art are removed.
-              Your global settings are not affected.
-            </p>
-            <div className="remap-profile-dialog-actions">
-              <button type="button" className="secondary-action" onClick={() => setGameDeleteConfirm(null)}>
-                Cancel
-              </button>
-              <button type="submit" className="primary-action danger">
-                Delete
-              </button>
-            </div>
+            {(() => {
+              const target = triggerProfiles.find((profile) => profile.id === gameDeleteConfirm.id);
+              const hasEffects = target ? triggerProfileHasEffects(target) : false;
+              return (
+                <>
+                  <p className="remap-profile-dialog-copy">
+                    Delete {gameDeleteConfirm.name}? Its game settings and cover art are removed.
+                    Your global settings are not affected.
+                  </p>
+                  {hasEffects && (
+                    <div className="game-delete-triggers-warning" role="alert">
+                      <strong>This game has custom trigger effects.</strong>
+                      <span>
+                        Delete them too, or keep them as a trigger profile in the Trigger
+                        Profiles tab (it still applies when the game runs).
+                      </span>
+                    </div>
+                  )}
+                  <div className="remap-profile-dialog-actions">
+                    <button type="button" className="secondary-action" onClick={() => setGameDeleteConfirm(null)}>
+                      Cancel
+                    </button>
+                    {hasEffects && (
+                      <button
+                        type="button"
+                        className="secondary-action"
+                        onClick={() => void confirmDeleteGameProfile(true)}
+                      >
+                        Keep Trigger Profile
+                      </button>
+                    )}
+                    <button type="submit" className="primary-action danger">
+                      {hasEffects ? 'Delete Everything' : 'Delete'}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </form>
         </div>
       )}

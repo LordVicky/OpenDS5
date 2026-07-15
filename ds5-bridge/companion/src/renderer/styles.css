@@ -8784,7 +8784,38 @@ button.trigger-lab-chip {
   text-align: left;
   cursor: pointer;
   overflow: hidden;
-  transition: border-color 120ms ease, background 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 160ms ease;
+}
+
+/* The running game breathes: accent border with a soft layered glow. */
+.game-tile.playing {
+  border-color: var(--accent-border);
+  box-shadow:
+    0 0 0 1px var(--accent-border),
+    0 0 14px rgba(40, 124, 255, 0.35),
+    0 0 34px rgba(40, 124, 255, 0.16);
+  animation: game-tile-glow 2.6s ease-in-out infinite;
+}
+
+@keyframes game-tile-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px var(--accent-border),
+      0 0 14px rgba(40, 124, 255, 0.35),
+      0 0 34px rgba(40, 124, 255, 0.16);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px var(--accent-border),
+      0 0 20px rgba(40, 124, 255, 0.48),
+      0 0 44px rgba(40, 124, 255, 0.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-tile.playing {
+    animation: none;
+  }
 }
 
 .game-tile:hover {
@@ -9264,6 +9295,23 @@ button.trigger-lab-chip {
 .game-create-modal,
 .game-artwork-modal {
   width: min(440px, calc(100vw - 48px));
+}
+
+.game-delete-triggers-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid rgba(217, 169, 65, 0.45);
+  border-radius: var(--card-radius);
+  background: rgba(217, 169, 65, 0.1);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.game-delete-triggers-warning strong {
+  color: var(--text-strong);
+  font-size: 12.5px;
 }
 
 /* Installed-games picker inside Add Game */
