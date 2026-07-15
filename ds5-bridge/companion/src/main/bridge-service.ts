@@ -33,9 +33,9 @@ import {
   hostPersonaModeValue,
   normalizeChordControllerSettingStepPercent,
   normalizeBridgePresetId,
-  pollingRateModeValue,
-  gameSettingsProfileId
+  pollingRateModeValue
 } from '../shared/protocol';
+import { gameSettingsProfileId } from '../shared/game-settings';
 import type {
   AdaptiveTriggerEffectV2Targeted,
   AdaptiveTriggerPreviewEffect,

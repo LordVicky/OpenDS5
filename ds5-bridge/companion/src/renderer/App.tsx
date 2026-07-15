@@ -107,11 +107,10 @@ import {
   MAX_KEYBOARD_FUNCTION_KEYS,
   REMAP_BUTTON_IDS,
   ackResultName,
-  gameSettingsProfileId,
-  isGameSettingsProfileId,
   normalizeChordControllerSettingStepPercent,
   isChordBindingAllowed
 } from '../shared/protocol';
+import { gameSettingsProfileId, isGameSettingsProfileId } from '../shared/game-settings';
 import type {
   AudioReactiveHapticsBassFocus,
   AudioReactiveHapticsConfig,

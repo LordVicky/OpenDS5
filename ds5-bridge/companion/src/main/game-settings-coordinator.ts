@@ -3,10 +3,9 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   DEFAULT_BUTTON_REMAP_PROFILE_ID,
-  DEFAULT_CONTROLLER_PROFILE_ID,
-  gameSettingsProfileId,
-  isGameSettingsProfileId
+  DEFAULT_CONTROLLER_PROFILE_ID
 } from '../shared/protocol';
+import { gameSettingsProfileId, isGameSettingsProfileId } from '../shared/game-settings';
 import { DEFAULT_PROFILE_ID, type EngineStatus } from '../shared/trigger-profiles';
 
 /**
