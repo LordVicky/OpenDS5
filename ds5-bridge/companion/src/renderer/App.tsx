@@ -6322,11 +6322,11 @@ export function App() {
               </button>
             </div>
             <button
-              className="heading-action"
+              className="nav-back"
               type="button"
               onClick={() => selectControlTab('game-profile')}
             >
-              <IconArrowLeft size={18} />
+              <span className="nav-back-disc" aria-hidden="true"><IconArrowLeft size={15} /></span>
               Game Profile
             </button>
           </div>
@@ -6491,11 +6491,11 @@ export function App() {
                     </p>
                   </div>
                   <button
-                    className="heading-action"
+                    className="nav-back"
                     type="button"
                     onClick={() => void closeGameProfile()}
                   >
-                    <IconArrowLeft size={18} />
+                    <span className="nav-back-disc" aria-hidden="true"><IconArrowLeft size={15} /></span>
                     All Games
                   </button>
                 </div>

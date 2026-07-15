@@ -9114,6 +9114,54 @@ button.trigger-lab-chip {
 }
 
 /* Game / Global scope toggle (hub + banner) */
+/* Back navigation: a circled arrow with a bare label, so it reads as a
+   breadcrumb step back rather than one more boxed action button. */
+.nav-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  background: transparent;
+  padding: 4px 6px 4px 4px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.nav-back-disc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-muted);
+  color: var(--accent-strong);
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.nav-back:hover {
+  color: var(--text-strong);
+}
+
+.nav-back:hover .nav-back-disc {
+  background: var(--accent-selected);
+  color: var(--accent-text);
+  transform: translateX(-2px);
+}
+
+.nav-back:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 /* Pill segmented control: deliberately rounder and heavier than the app's
    rectangular controls so the editing scope is impossible to miss. */
 .game-scope-toggle {
