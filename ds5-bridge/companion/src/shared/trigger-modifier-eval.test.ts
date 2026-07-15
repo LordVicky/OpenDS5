@@ -85,6 +85,59 @@ describe('ModifierEvaluator', () => {
     expect(resolved.r2).toEqual(kickEffect);
   });
 
+  it('escalates between hold modifiers as the hold grows (ascending order)', () => {
+    const longHold = { mode: 'weapon' as const, startPercent: 5, wallPercent: 50, forcePercent: 90 };
+    const evaluator = new ModifierEvaluator();
+    evaluator.setProfile(makeProfile([
+      { when: { source: 'input', condition: 'trigger-held-over', threshold: 128, ms: 200 }, effect: kickEffect },
+      { when: { source: 'input', condition: 'trigger-held-over', threshold: 128, ms: 300 }, effect: longHold }
+    ]));
+    expect(evaluator.update(state({ timestampMs: 0, r2: 200 })).r2).toEqual(baseEffect);
+    expect(evaluator.update(state({ timestampMs: 250, r2: 200 })).r2).toEqual(kickEffect);
+    expect(evaluator.update(state({ timestampMs: 350, r2: 200 })).r2).toEqual(longHold);
+    expect(evaluator.update(state({ timestampMs: 400, r2: 0 })).r2).toEqual(baseEffect);
+  });
+
+  it('escalates between hold modifiers regardless of list order (descending order)', () => {
+    const longHold = { mode: 'weapon' as const, startPercent: 5, wallPercent: 50, forcePercent: 90 };
+    const evaluator = new ModifierEvaluator();
+    evaluator.setProfile(makeProfile([
+      { when: { source: 'input', condition: 'trigger-held-over', threshold: 128, ms: 300 }, effect: longHold },
+      { when: { source: 'input', condition: 'trigger-held-over', threshold: 128, ms: 200 }, effect: kickEffect }
+    ]));
+    expect(evaluator.update(state({ timestampMs: 0, r2: 200 })).r2).toEqual(baseEffect);
+    expect(evaluator.update(state({ timestampMs: 250, r2: 200 })).r2).toEqual(kickEffect);
+    expect(evaluator.update(state({ timestampMs: 350, r2: 200 })).r2).toEqual(longHold);
+  });
+
+  it('hold modifiers with different press thresholds keep independent timers', () => {
+    const other = { mode: 'weapon' as const, startPercent: 5, wallPercent: 50, forcePercent: 50 };
+    const evaluator = new ModifierEvaluator();
+    evaluator.setProfile(makeProfile([
+      { when: { source: 'input', condition: 'trigger-held-over', threshold: 128, ms: 200 }, effect: kickEffect },
+      { when: { source: 'input', condition: 'trigger-held-over', threshold: 200, ms: 200 }, effect: other }
+    ]));
+    // r2=150 satisfies only the first threshold; the second modifier's failing
+    // check must not reset the first one's timer.
+    expect(evaluator.update(state({ timestampMs: 0, r2: 150 })).r2).toEqual(baseEffect);
+    expect(evaluator.update(state({ timestampMs: 250, r2: 150 })).r2).toEqual(kickEffect);
+    // Pulling deeper starts the second timer; after its hold elapses it wins
+    // as the deeper (equal-length) hold started later but ranks by list order.
+    expect(evaluator.update(state({ timestampMs: 300, r2: 220 })).r2).toEqual(kickEffect);
+    expect(evaluator.update(state({ timestampMs: 550, r2: 220 })).r2).toEqual(kickEffect);
+  });
+
+  it('a satisfied hold modifier outranks an earlier non-hold match', () => {
+    const holdEffect = { mode: 'weapon' as const, startPercent: 5, wallPercent: 50, forcePercent: 90 };
+    const evaluator = new ModifierEvaluator();
+    evaluator.setProfile(makeProfile([
+      { when: { source: 'input', condition: 'trigger-full-pull' }, effect: kickEffect },
+      { when: { source: 'input', condition: 'trigger-held-over', threshold: 128, ms: 200 }, effect: holdEffect }
+    ]));
+    expect(evaluator.update(state({ timestampMs: 0, r2: 255 })).r2).toEqual(kickEffect);
+    expect(evaluator.update(state({ timestampMs: 250, r2: 255 })).r2).toEqual(holdEffect);
+  });
+
   it('never matches audio-source modifiers in M1', () => {
     const evaluator = new ModifierEvaluator();
     evaluator.setProfile(makeProfile([
