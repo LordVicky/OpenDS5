@@ -122,6 +122,28 @@ export class GameArtworkStore {
     return this.downloadAndStore(triggerProfileId, url, 0, query);
   }
 
+  /** Stores a cover downloaded from a known URL (e.g. Heroic's art_cover). */
+  async applyFromUrl(triggerProfileId: string, url: string, gameName: string): Promise<GameArtworkEntry> {
+    return this.downloadAndStore(triggerProfileId, url, 0, gameName);
+  }
+
+  /** Stores a cover from a local file (e.g. Steam's librarycache jpg). */
+  applyFromFile(triggerProfileId: string, filePath: string, gameName: string): GameArtworkEntry {
+    const bytes = readFileSync(filePath);
+    if (bytes.byteLength > MAX_IMAGE_BYTES) {
+      throw new Error(`Artwork exceeds ${MAX_IMAGE_BYTES} bytes`);
+    }
+    this.remove(triggerProfileId);
+    const extension = path.extname(filePath).toLowerCase();
+    const fileName = `${safeFileBase(triggerProfileId)}${EXTENSION_MIME[extension] ? extension : '.jpg'}`;
+    writeFileSync(path.join(this.directory, fileName), bytes);
+    const entry: GameArtworkEntry = { fileName, gameId: 0, gameName };
+    const index = this.readIndex();
+    index[triggerProfileId] = entry;
+    this.writeIndex(index);
+    return entry;
+  }
+
   private async downloadAndStore(
     triggerProfileId: string,
     url: string,

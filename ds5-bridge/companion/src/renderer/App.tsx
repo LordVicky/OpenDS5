@@ -158,6 +158,7 @@ import type {
 } from '../shared/trigger-profiles';
 import type { GameProcessCandidate } from '../main/game-watcher';
 import type { GameSettingsStatus } from '../main/game-settings-coordinator';
+import type { InstalledGamesList } from '../preload';
 import type { GameArtworkSearchResult } from '../main/game-artwork';
 import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
 import { profileVariantLabel } from './library-entry';
@@ -2715,6 +2716,10 @@ export function App() {
   const [gameCreateBusy, setGameCreateBusy] = useState(false);
   const [gameCreateCandidates, setGameCreateCandidates] = useState<GameProcessCandidate[] | null>(null);
   const [gameCreateDetectLoading, setGameCreateDetectLoading] = useState(false);
+  const [installedGames, setInstalledGames] = useState<InstalledGamesList | null>(null);
+  const [installedGamesLoading, setInstalledGamesLoading] = useState(false);
+  const [selectedInstalledGame, setSelectedInstalledGame] = useState<InstalledGamesList['games'][number] | null>(null);
+  const [installedCandidateTicks, setInstalledCandidateTicks] = useState<Record<string, boolean>>({});
   const [gameArtworkDialogFor, setGameArtworkDialogFor] = useState<string | null>(null);
   const [gameArtworkQuery, setGameArtworkQuery] = useState('');
   const [gameArtworkResults, setGameArtworkResults] = useState<GameArtworkSearchResult[] | null>(null);
@@ -5792,7 +5797,39 @@ export function App() {
     setGameCreateName('');
     setGameCreateProcessesInput('');
     setGameCreateCandidates(null);
+    setSelectedInstalledGame(null);
+    setInstalledCandidateTicks({});
     setGameCreateOpen(true);
+    void loadInstalledGames(false);
+  }
+
+  async function loadInstalledGames(refresh: boolean) {
+    if (installedGames !== null && !refresh) return;
+    setInstalledGamesLoading(true);
+    try {
+      setInstalledGames(await window.bridge.listInstalledGames(refresh));
+    } catch {
+      setInstalledGames({ games: [], errors: ['Scan failed'] });
+    } finally {
+      setInstalledGamesLoading(false);
+    }
+  }
+
+  function pickInstalledGame(game: InstalledGamesList['games'][number]) {
+    if (selectedInstalledGame?.sourceId === game.sourceId) {
+      setSelectedInstalledGame(null);
+      setInstalledCandidateTicks({});
+      setGameCreateName('');
+      return;
+    }
+    setSelectedInstalledGame(game);
+    setGameCreateName(game.name);
+    // Junk-scored candidates start unticked; everything else is presumed right.
+    const ticks: Record<string, boolean> = {};
+    for (const candidate of game.processCandidates) {
+      ticks[candidate] = !game.junkCandidates.includes(candidate);
+    }
+    setInstalledCandidateTicks(ticks);
   }
 
   async function detectGameCreateProcesses() {
@@ -5807,7 +5844,13 @@ export function App() {
   async function submitGameCreate() {
     const name = gameCreateName.trim();
     if (!name || gameCreateBusy) return;
-    const processNames = parseProcessNamesInput(gameCreateProcessesInput);
+    const tickedCandidates = selectedInstalledGame
+      ? selectedInstalledGame.processCandidates.filter((candidate) => installedCandidateTicks[candidate])
+      : [];
+    const processNames = [...new Set([
+      ...tickedCandidates.map((candidate) => candidate.toLowerCase()),
+      ...parseProcessNamesInput(gameCreateProcessesInput)
+    ])];
     setGameCreateBusy(true);
     try {
       // The OpenDS5-Profiles catalog decides what the new game gets: a published
@@ -5847,12 +5890,23 @@ export function App() {
       }
       await refreshTriggerProfiles(saved.id);
       setGameCreateOpen(false);
-      // Cover art is decoration: fetch in the background (keyless, Heroic-style)
-      // and never block creation on it.
+      // Cover art is decoration: fetch in the background and never block creation
+      // on it. A launcher's own artwork (Steam cache, Heroic art_cover) wins over
+      // the keyless proxy lookup.
       const savedId = saved.id;
-      void window.bridge.applyGameArtwork(savedId, null).then(async (result) => {
-        if (result.ok) await refreshGameArtwork();
+      const launcherArtwork = selectedInstalledGame?.artwork
+        ? window.bridge.applyInstalledGameArtwork(savedId, selectedInstalledGame.sourceId)
+        : Promise.resolve({ ok: false as const, error: 'no launcher artwork' });
+      void launcherArtwork.then(async (applied) => {
+        if (!applied.ok) {
+          const fallback = await window.bridge.applyGameArtwork(savedId, null);
+          if (!fallback.ok) return;
+        }
+        await refreshGameArtwork();
       });
+      // The scanned list is filtered against existing profiles main-side; drop the
+      // renderer cache so the next dialog open re-filters (the scan itself stays cached).
+      setInstalledGames(null);
       await openGameProfile(savedId);
     } finally {
       setGameCreateBusy(false);
@@ -10185,6 +10239,55 @@ export function App() {
                 <X size={16} />
               </button>
             </div>
+            <div className="game-create-library">
+              <div className="game-create-library-head">
+                <span>From your libraries</span>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  disabled={installedGamesLoading}
+                  onClick={() => void loadInstalledGames(true)}
+                >
+                  {installedGamesLoading ? 'Scanning…' : 'Rescan'}
+                </button>
+              </div>
+              {installedGamesLoading && installedGames === null ? (
+                <p className="game-create-library-empty">Looking for Steam and Heroic games…</p>
+              ) : installedGames === null || installedGames.games.length === 0 ? (
+                <p className="game-create-library-empty">
+                  No new Steam or Heroic games found — every installed game may already
+                  have a profile, or the launchers aren't installed.
+                </p>
+              ) : (
+                <div className="game-create-library-grid" role="listbox" aria-label="Installed games">
+                  {installedGames.games.map((game) => (
+                    <button
+                      key={`${game.source}:${game.sourceId}`}
+                      type="button"
+                      role="option"
+                      aria-selected={selectedInstalledGame?.sourceId === game.sourceId}
+                      className={`game-create-library-tile ${selectedInstalledGame?.sourceId === game.sourceId ? 'selected' : ''}`}
+                      onClick={() => pickInstalledGame(game)}
+                    >
+                      <span
+                        className={`game-create-library-art ${game.cover ? 'has-image' : gameTileArtClass(game.sourceId)}`}
+                        style={game.cover ? { backgroundImage: `url("${game.cover}")` } : undefined}
+                        aria-hidden="true"
+                      >
+                        {!game.cover && <span className="game-tile-monogram">{gameTileMonogram(game.name)}</span>}
+                      </span>
+                      <span className="game-create-library-name">{game.name}</span>
+                      <span className={`game-create-library-badge ${game.source}`}>
+                        {game.source === 'steam' ? 'Steam' : 'Heroic'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {installedGames !== null && installedGames.errors.length > 0 && (
+                <p className="game-create-library-errors">{installedGames.errors.join(' · ')}</p>
+              )}
+            </div>
             <label className="remap-profile-name-field">
               <span>Game Name</span>
               <input
@@ -10195,8 +10298,28 @@ export function App() {
                 onChange={(event) => setGameCreateName(event.target.value)}
               />
             </label>
+            {selectedInstalledGame !== null && selectedInstalledGame.processCandidates.length > 0 && (
+              <div className="game-create-candidate-ticks" role="group" aria-label="Detected executables">
+                <span className="game-create-candidate-ticks-label">
+                  Found in {selectedInstalledGame.name}'s folder — untick anything that isn't the game:
+                </span>
+                {selectedInstalledGame.processCandidates.map((candidate) => (
+                  <label key={candidate} className="game-create-candidate-tick">
+                    <input
+                      type="checkbox"
+                      checked={installedCandidateTicks[candidate] ?? false}
+                      onChange={(event) => setInstalledCandidateTicks((ticks) => ({
+                        ...ticks,
+                        [candidate]: event.target.checked
+                      }))}
+                    />
+                    <span>{candidate}</span>
+                  </label>
+                ))}
+              </div>
+            )}
             <label className="remap-profile-name-field">
-              <span>Process Names</span>
+              <span>{selectedInstalledGame ? 'Extra Process Names (optional)' : 'Process Names'}</span>
               <input
                 value={gameCreateProcessesInput}
                 placeholder="cyberpunk2077.exe"

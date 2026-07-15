@@ -24,6 +24,12 @@ import type {
 import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/trigger-profiles';
 import type { GameSettingsStatus } from './main/game-settings-coordinator';
 import type { GameArtworkEntry, GameArtworkSearchResult } from './main/game-artwork';
+import type { InstalledGame } from './main/installed-games';
+
+export interface InstalledGamesList {
+  games: Array<InstalledGame & { cover: string | null; junkCandidates: string[] }>;
+  errors: string[];
+}
 import type { LibraryCatalog, LibraryEntry } from './main/profile-library';
 import type { ImportResult } from './main/trigger-profile-store';
 import type { GameProcessCandidate } from './main/game-watcher';
@@ -273,6 +279,15 @@ const api = {
   ),
   listCandidateGameProcesses: (): Promise<GameProcessCandidate[]> => (
     ipcRenderer.invoke('bridge:listCandidateGameProcesses')
+  ),
+  listInstalledGames: (refresh?: boolean): Promise<InstalledGamesList> => (
+    ipcRenderer.invoke('bridge:listInstalledGames', refresh)
+  ),
+  applyInstalledGameArtwork: (
+    profileId: string,
+    sourceId: string
+  ): Promise<{ ok: true; entry: GameArtworkEntry } | { ok: false; error: string }> => (
+    ipcRenderer.invoke('bridge:applyInstalledGameArtwork', profileId, sourceId)
   ),
   onTriggerProfileEngineStatus: (listener: (status: EngineStatus) => void): (() => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, status: EngineStatus) => listener(status);

@@ -27,6 +27,12 @@ import { EvdevInputReader } from './evdev-input-reader';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
 import { GameSettingsCoordinator, type GameSettingsStatus } from './game-settings-coordinator';
 import { GameArtworkStore } from './game-artwork';
+import {
+  InstalledGamesScanner,
+  defaultScannerRoots,
+  isLikelyJunkCandidate,
+  type InstalledGame
+} from './installed-games';
 import type {
   AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
@@ -1067,6 +1073,19 @@ async function runPicoFirmwareIpcAction(
   }
 }
 
+// Inline thumbnail for the Add Game dialog; oversized or unreadable files just
+// mean the tile falls back to its monogram.
+function fileToDataUrl(filePath: string): string | null {
+  try {
+    const bytes = fs.readFileSync(filePath);
+    if (bytes.byteLength > 4 * 1024 * 1024) return null;
+    const mime = filePath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    return `data:${mime};base64,${bytes.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
 function registerIpc(
   service: BridgeService,
   triggerProfileStore: TriggerProfileStore,
@@ -1107,6 +1126,47 @@ function registerIpc(
     service.setSteamGridDbApiKey(typeof apiKey === 'string' ? apiKey : '')
   ));
   ipcMain.handle('bridge:getGameArtwork', () => gameArtworkStore.dataUrls());
+
+  // Installed-games import (Steam + Heroic). Scanned once per session; the cache
+  // also backs applyInstalledGameArtwork so the renderer can never name arbitrary
+  // files — only artwork the scanner itself reported.
+  let installedGamesCache: InstalledGame[] | null = null;
+  ipcMain.handle('bridge:listInstalledGames', (_event, refresh?: boolean) => {
+    let errors: string[] = [];
+    if (installedGamesCache === null || refresh === true) {
+      const scanned = new InstalledGamesScanner(defaultScannerRoots(app.getPath('home'))).scan();
+      installedGamesCache = scanned.games;
+      errors = scanned.errors;
+    }
+    const normalize = (value: string) => value.trim().toLowerCase();
+    const existing = new Set(
+      triggerProfileStore.list().map((profile) => normalize(profile.meta?.game ?? profile.name))
+    );
+    const games = installedGamesCache
+      .filter((game) => !existing.has(normalize(game.name)))
+      .map((game) => ({
+        ...game,
+        // Steam covers are local files the renderer cannot read; inline them.
+        cover: game.artwork?.kind === 'file' ? fileToDataUrl(game.artwork.path) : game.artwork?.url ?? null,
+        // The renderer cannot import the scanner (node:fs), so junk flags for the
+        // default candidate ticks are computed here.
+        junkCandidates: game.processCandidates.filter((name) => isLikelyJunkCandidate(name))
+      }));
+    return { games, errors };
+  });
+  ipcMain.handle('bridge:applyInstalledGameArtwork', async (_event, profileId: string, sourceId: string) => {
+    try {
+      const game = installedGamesCache?.find((entry) => entry.sourceId === sourceId);
+      const profile = triggerProfileStore.get(profileId);
+      if (!game?.artwork || !profile) return { ok: false, error: 'No artwork for this game' };
+      const entry = game.artwork.kind === 'file'
+        ? gameArtworkStore.applyFromFile(profileId, game.artwork.path, game.name)
+        : await gameArtworkStore.applyFromUrl(profileId, game.artwork.url, game.name);
+      return { ok: true, entry };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
   ipcMain.handle('bridge:searchGameArtwork', async (_event, term: string) => {
     try {
       const results = await gameArtworkStore.search(service.getSnapshot().settings.steamGridDbApiKey, term);

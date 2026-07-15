@@ -96,7 +96,7 @@ diagnostic line in the dialog, mirroring the profile library's `error` field).
 
 ### Process-candidate ranking
 
-The install dir is scanned at most 2 levels deep for executables (`.exe` plus ELF
+The install dir is scanned at most 4 levels deep (Unreal ships binaries at Game/Project/Binaries/Win64/) for executables (`.exe` plus ELF
 files with the exec bit). Candidates are ranked by score; all are returned in rank
 order:
 
@@ -178,5 +178,5 @@ matching is a separate problem and out of scope.
   degrades to "that store's games don't appear", surfaced in the dialog's
   diagnostic line.
 - **Very large libraries**: hundreds of manifests are trivial (text files), but the
-  executable scan walks install dirs — capped at depth 2 and skipped when a Heroic
+  executable scan walks install dirs — capped at depth 4 and skipped when a Heroic
   entry names its executable. Scan runs off the IPC call, not at startup.

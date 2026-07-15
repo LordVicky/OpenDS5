@@ -9266,6 +9266,136 @@ button.trigger-lab-chip {
   width: min(440px, calc(100vw - 48px));
 }
 
+/* Installed-games picker inside Add Game */
+.game-create-library {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.game-create-library-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.game-create-library-empty,
+.game-create-library-errors {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.game-create-library-errors {
+  color: var(--warn-text, #d9a941);
+}
+
+.game-create-library-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 88px;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.game-create-library-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-secondary);
+  font: inherit;
+}
+
+.game-create-library-tile.selected {
+  border-color: var(--accent-border);
+  background: var(--accent-muted);
+  color: var(--text-strong);
+}
+
+.game-create-library-art {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 112px;
+  border-radius: 5px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+}
+
+.game-create-library-art .game-tile-monogram {
+  font-size: 22px;
+}
+
+.game-create-library-name {
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.game-create-library-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 1.5px 6px;
+  border-radius: var(--control-radius);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: rgba(10, 22, 36, 0.85);
+}
+
+.game-create-library-badge.heroic {
+  background: rgba(84, 46, 145, 0.9);
+}
+
+.game-create-candidate-ticks {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.game-create-candidate-ticks-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.game-create-candidate-tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.game-create-candidate-tick input {
+  accent-color: var(--accent-strong);
+}
+
 .game-create-detect {
   display: flex;
   flex-direction: column;
