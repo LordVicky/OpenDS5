@@ -2756,6 +2756,12 @@ export function App() {
   const [gameDetectCandidates, setGameDetectCandidates] = useState<GameProcessCandidate[]>([]);
   const [gameDetectLoading, setGameDetectLoading] = useState(false);
   const gameDetectPopoverRef = useRef<HTMLDivElement>(null);
+  // Manual process-match editor for a game profile, opened from the game detail view.
+  const [gameProcessEditor, setGameProcessEditor] = useState<{ id: string; name: string } | null>(null);
+  const [gameProcessEditorInput, setGameProcessEditorInput] = useState('');
+  const [gameProcessEditorSaving, setGameProcessEditorSaving] = useState(false);
+  const [gameProcessDetectOpen, setGameProcessDetectOpen] = useState(false);
+  const gameProcessDetectRef = useRef<HTMLDivElement>(null);
   const triggerProfilePreviewArmedRef = useRef(false);
   const [remapDraft, setRemapDraft] = useState<Record<RemapButtonId, RemapButtonId>>(DEFAULT_REMAP_DRAFT);
   const [remapProfileDialogMode, setRemapProfileDialogMode] = useState<RemapProfileDialogMode | null>(null);
@@ -3633,6 +3639,30 @@ export function App() {
     };
   }, [gameDetectPopoverOpen]);
 
+  useEffect(() => {
+    if (!gameProcessDetectOpen) {
+      return;
+    }
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!gameProcessDetectRef.current?.contains(event.target as Node)) {
+        setGameProcessDetectOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setGameProcessDetectOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [gameProcessDetectOpen]);
+
   async function detectRunningGame(): Promise<void> {
     setGameDetectLoading(true);
     try {
@@ -3646,6 +3676,52 @@ export function App() {
 
   function pickDetectedGameProcess(candidateName: string): void {
     setTriggerProfileProcessNamesInput((current) => mergeDetectedProcessName(current, candidateName));
+  }
+
+  function openGameProcessEditor(profile: TriggerProfile): void {
+    setGameProcessEditor({ id: profile.id, name: gameProfileTitle(profile) });
+    setGameProcessEditorInput(profile.match.processNames.join(', '));
+    setGameProcessDetectOpen(false);
+  }
+
+  // Same "Detect running game" flow as the trigger editor, but targets the game process editor.
+  async function detectRunningGameForEditor(): Promise<void> {
+    setGameDetectLoading(true);
+    try {
+      const candidates = await window.bridge.listCandidateGameProcesses();
+      setGameDetectCandidates(candidates);
+      setGameProcessDetectOpen(true);
+    } finally {
+      setGameDetectLoading(false);
+    }
+  }
+
+  function pickDetectedGameProcessForEditor(candidateName: string): void {
+    setGameProcessEditorInput((current) => mergeDetectedProcessName(current, candidateName));
+    setGameProcessDetectOpen(false);
+  }
+
+  async function saveGameProcessNames(): Promise<void> {
+    if (!gameProcessEditor) return;
+    const target = triggerProfiles.find((profile) => profile.id === gameProcessEditor.id);
+    if (!target) {
+      setGameProcessEditor(null);
+      return;
+    }
+    const processNames = parseProcessNamesInput(gameProcessEditorInput);
+    setGameProcessEditorSaving(true);
+    try {
+      const profile: TriggerProfile = {
+        ...target,
+        match: { ...target.match, processNames },
+        updatedAtMs: Date.now()
+      };
+      const saved = await window.bridge.saveTriggerProfile(profile);
+      await refreshTriggerProfiles(saved.id);
+      setGameProcessEditor(null);
+    } finally {
+      setGameProcessEditorSaving(false);
+    }
   }
 
   const batteryPercent = Math.max(0, Math.min(100, snapshot?.status?.batteryPercent ?? 0));
@@ -6710,6 +6786,14 @@ export function App() {
                       >
                         <Trash2 size={14} />
                         Delete
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-action"
+                        onClick={() => openGameProcessEditor(openGameProfileEntry)}
+                      >
+                        <IconTargetArrow size={14} />
+                        Game Path
                       </button>
                     </div>
                   </section>
@@ -10484,6 +10568,99 @@ export function App() {
               )}
               <button type="button" className="secondary-action" onClick={() => setGameArtworkDialogFor(null)}>
                 Close
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {gameProcessEditor && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setGameProcessEditor(null)}
+        >
+          <form
+            className="settings-menu bridge-settings-modal remap-profile-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Set game process names"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveGameProcessNames();
+            }}
+          >
+            <div className="settings-menu-heading bridge-settings-modal-heading">
+              <div className="modal-heading-copy">
+                <IconTargetArrow size={16} />
+                <span>Game Path</span>
+              </div>
+              <button
+                className="modal-close-button"
+                type="button"
+                aria-label="Close process names dialog"
+                onClick={() => setGameProcessEditor(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="remap-profile-dialog-copy">
+              Set which running executables activate {gameProcessEditor.name}.
+            </p>
+            <label className="trigger-profiles-process-field">
+              <span>Process Names (comma-separated)</span>
+              <input
+                value={gameProcessEditorInput}
+                placeholder="game.exe, other.exe"
+                autoFocus
+                onChange={(event) => setGameProcessEditorInput(event.target.value)}
+              />
+            </label>
+            <div className="game-detect-anchor" ref={gameProcessDetectRef}>
+              <button
+                type="button"
+                className="secondary-action game-detect-button"
+                disabled={gameDetectLoading}
+                onClick={() => void detectRunningGameForEditor()}
+              >
+                <SearchIcon size={14} />
+                Detect running game
+              </button>
+
+              {gameProcessDetectOpen && (
+                <div className="game-detect-popover" role="dialog" aria-label="Detected running games">
+                  {gameDetectCandidates.length === 0 ? (
+                    <p className="game-detect-empty">No game detected — is it running?</p>
+                  ) : (
+                    <ul className="game-detect-list">
+                      {gameDetectCandidates.map((candidate) => (
+                        <li key={candidate.name}>
+                          <button
+                            type="button"
+                            className="game-detect-candidate"
+                            onClick={() => pickDetectedGameProcessForEditor(candidate.name)}
+                          >
+                            <span className="game-detect-candidate-name">{candidate.name}</span>
+                            {candidate.kind !== 'other' && (
+                              <span className="game-detect-candidate-kind">
+                                {candidate.kind === 'proton' ? 'Proton' : 'game path'}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="remap-profile-dialog-actions">
+              <button type="button" className="secondary-action" onClick={() => setGameProcessEditor(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="primary-action" disabled={gameProcessEditorSaving}>
+                {gameProcessEditorSaving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </form>
