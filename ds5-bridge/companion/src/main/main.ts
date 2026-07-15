@@ -1138,7 +1138,9 @@ function registerIpc(
       installedGamesCache = scanned.games;
       errors = scanned.errors;
     }
-    const normalize = (value: string) => value.trim().toLowerCase();
+    // Punctuation-insensitive, mirroring the renderer's normalizeGameName, so a
+    // profile named "Director's Cut" hides the scanned "DIRECTORS CUT" entry.
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
     const existing = new Set(
       triggerProfileStore.list().map((profile) => normalize(profile.meta?.game ?? profile.name))
     );

@@ -14,8 +14,11 @@ export type GameLibraryMatch =
   | { kind: 'profile'; entry: LibraryEntry }
   | { kind: 'none' };
 
+// Punctuation- and spacing-insensitive: "Director's Cut", "DIRECTORS CUT" and
+// "Directors-Cut" are the same game, and store names disagree with the catalog
+// exactly this way. Everything non-alphanumeric is squashed out.
 export function normalizeGameName(value: string): string {
-  return value.trim().toLowerCase();
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
 export function matchGameInLibrary(catalog: LibraryCatalog | null, name: string): GameLibraryMatch {

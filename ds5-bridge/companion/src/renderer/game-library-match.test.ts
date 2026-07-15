@@ -30,10 +30,12 @@ describe('matchGameInLibrary', () => {
     expect(matchGameInLibrary(catalog({}), '   ')).toEqual({ kind: 'none' });
   });
 
-  it('flags native games case-insensitively', () => {
-    const cat = catalog({ nativeGames: [{ game: 'Ghost of Tsushima' }] });
-    expect(matchGameInLibrary(cat, 'ghost of tsushima')).toEqual({ kind: 'native' });
-    expect(matchGameInLibrary(cat, ' GHOST OF TSUSHIMA ')).toEqual({ kind: 'native' });
+  it('flags native games case- and punctuation-insensitively', () => {
+    const cat = catalog({ nativeGames: [{ game: "Ghost of Tsushima Director's Cut" }] });
+    expect(matchGameInLibrary(cat, "ghost of tsushima director's cut")).toEqual({ kind: 'native' });
+    expect(matchGameInLibrary(cat, ' GHOST OF TSUSHIMA DIRECTORS CUT ')).toEqual({ kind: 'native' });
+    expect(matchGameInLibrary(cat, 'Ghost of Tsushima: Directors Cut')).toEqual({ kind: 'native' });
+    expect(matchGameInLibrary(cat, 'Ghost of Tsushima')).toEqual({ kind: 'none' });
   });
 
   it('native listing wins over a published profile for the same game', () => {
