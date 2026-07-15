@@ -14,7 +14,13 @@ import {
   filterTriggerProfiles,
   filterSelectOptionsByLabel,
   pickTriggerStripChips,
-  triggerStripMaxChips
+  triggerStripMaxChips,
+  GAME_TILE_ART_CLASS_COUNT,
+  gameProfileTitle,
+  gameTileArtClass,
+  gameTileMonogram,
+  triggerProfileHasEffects,
+  visibleProfileOptions
 } from './App';
 import type { TriggerProfile } from '../shared/trigger-profiles';
 
@@ -719,5 +725,91 @@ describe('shared trigger effect editor', () => {
     const cleanupStart = appSource.indexOf("window.removeEventListener('mouseup', finishWindowDrag)");
     const cleanupRegion = appSource.slice(cleanupStart - 2000, cleanupStart);
     expect(cleanupRegion).toContain('triggerProfileTransferStatusTimeout.current');
+  });
+});
+
+describe('game profile tab helpers', () => {
+  const emptySlots = { l2: { base: null, modifiers: [] }, r2: { base: null, modifiers: [] } };
+
+  function profile(overrides: Partial<TriggerProfile>): TriggerProfile {
+    return {
+      version: 1,
+      id: 'game',
+      name: 'Game',
+      match: { processNames: [], windowTitles: [] },
+      triggers: emptySlots,
+      updatedAtMs: 0,
+      ...overrides
+    };
+  }
+
+  it('builds tile monograms from the first letters of the first two words', () => {
+    expect(gameTileMonogram('Cyberpunk 2077')).toBe('C2');
+    expect(gameTileMonogram('Elden Ring')).toBe('ER');
+    expect(gameTileMonogram('  ghost   of tsushima ')).toBe('GO');
+    expect(gameTileMonogram('***')).toBe('?');
+  });
+
+  it('assigns tiles a deterministic generated-art class', () => {
+    expect(gameTileArtClass('cyberpunk-2077')).toBe(gameTileArtClass('cyberpunk-2077'));
+    const match = /^game-tile-art-(\d)$/.exec(gameTileArtClass('elden-ring'));
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBeLessThan(GAME_TILE_ART_CLASS_COUNT);
+  });
+
+  it('titles a tile with meta.game and falls back to the profile name', () => {
+    expect(gameProfileTitle({ name: 'cp2077-heavy', meta: { game: 'Cyberpunk 2077' } })).toBe('Cyberpunk 2077');
+    expect(gameProfileTitle({ name: 'cp2077-heavy', meta: { game: '  ' } })).toBe('cp2077-heavy');
+    expect(gameProfileTitle({ name: 'cp2077-heavy' })).toBe('cp2077-heavy');
+  });
+
+  it('detects whether a profile carries any trigger effects', () => {
+    expect(triggerProfileHasEffects(profile({}))).toBe(false);
+    expect(triggerProfileHasEffects(profile({
+      triggers: { ...emptySlots, r2: { base: { mode: 'off' }, modifiers: [] } }
+    }))).toBe(true);
+    expect(triggerProfileHasEffects(profile({
+      triggers: {
+        ...emptySlots,
+        l2: {
+          base: null,
+          modifiers: [{
+            when: { source: 'input', condition: 'trigger-full-pull' },
+            effect: { mode: 'off' }
+          }]
+        }
+      }
+    }))).toBe(true);
+  });
+
+  it('hides game-owned profiles from dropdowns except the selected one, which is labelled', () => {
+    const profiles = [
+      { id: 'default', name: 'Default' },
+      { id: 'custom', name: 'Custom' },
+      { id: 'game:cyberpunk-2077', name: 'Cyberpunk 2077' },
+      { id: 'game:elden-ring', name: 'Elden Ring' }
+    ];
+    expect(visibleProfileOptions(profiles, 'custom')).toEqual([
+      ['Default', 'default'],
+      ['Custom', 'custom']
+    ]);
+    expect(visibleProfileOptions(profiles, 'game:cyberpunk-2077')).toEqual([
+      ['Default', 'default'],
+      ['Custom', 'custom'],
+      ['Cyberpunk 2077 — Game', 'game:cyberpunk-2077']
+    ]);
+  });
+
+  it('keeps the Game Profile tab as the first sidebar entry and the default page', () => {
+    expect(appSource).toContain("{ id: 'game-profile', label: 'Game Profile', Icon: IconLayoutGrid },");
+    expect(appSource.indexOf("id: 'game-profile'")).toBeLessThan(appSource.indexOf("id: 'overview'"));
+    expect(appSource).toContain("useState<ControlTab>('game-profile')");
+  });
+
+  it('scopes the settings tabs through the game settings coordinator, not per-page forks', () => {
+    expect(appSource).toContain('enterGameSettingsScope');
+    expect(appSource).toContain('exitGameSettingsScope');
+    expect(appSource).toContain('game-scope-banner');
+    expect(stylesSource).toContain('.control-panel.game-scope-active .control-pages');
   });
 });

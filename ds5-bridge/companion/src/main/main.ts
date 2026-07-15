@@ -25,6 +25,8 @@ import { ProfileLibrary, type LibraryEntry } from './profile-library';
 import { GameWatcher, listCandidateGameProcesses } from './game-watcher';
 import { EvdevInputReader } from './evdev-input-reader';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
+import { GameSettingsCoordinator, type GameSettingsStatus } from './game-settings-coordinator';
+import { GameArtworkStore } from './game-artwork';
 import type {
   AdaptiveTriggerPreviewEffect,
   AudioReactiveHapticsConfig,
@@ -40,7 +42,7 @@ import type {
   TriggerTestTarget
 } from '../shared/protocol';
 import type { BridgeToast } from './bridge-service';
-import type { TriggerProfile } from '../shared/trigger-profiles';
+import { DEFAULT_PROFILE_ID, type TriggerProfile } from '../shared/trigger-profiles';
 import type {
   AudioHapticsSession,
   BridgeSnapshot,
@@ -1069,18 +1071,67 @@ function registerIpc(
   service: BridgeService,
   triggerProfileStore: TriggerProfileStore,
   triggerProfileEngine: TriggerProfileEngine,
-  profileLibrary: ProfileLibrary
+  profileLibrary: ProfileLibrary,
+  gameSettingsCoordinator: GameSettingsCoordinator,
+  gameArtworkStore: GameArtworkStore
 ): void {
   ipcMain.handle('bridge:listTriggerProfiles', () => triggerProfileStore.list());
   ipcMain.handle('bridge:saveTriggerProfile', (_event, profile: TriggerProfile) => {
     const saved = triggerProfileStore.save(profile);
     triggerProfileEngine.refreshProfiles();
+    // Keep the game settings profile pair's display name in step with the game.
+    if (service.hasGameSettings(saved.id)) {
+      void service.ensureGameSettings(saved.id, saved.name);
+    }
     return saved;
   });
-  ipcMain.handle('bridge:deleteTriggerProfile', (_event, id: string) => {
+  ipcMain.handle('bridge:deleteTriggerProfile', async (_event, id: string) => {
     const deleted = triggerProfileStore.delete(id);
     triggerProfileEngine.refreshProfiles();
+    if (deleted) {
+      // A deleted game takes its game settings and cover art with it.
+      await gameSettingsCoordinator.onProfileDeleted(id);
+      await service.removeGameSettings(id);
+      gameArtworkStore.remove(id);
+    }
     return deleted;
+  });
+  ipcMain.handle('bridge:getGameSettingsStatus', () => gameSettingsCoordinator.getStatus());
+  ipcMain.handle('bridge:enterGameSettingsScope', (_event, id: string) => {
+    const profile = triggerProfileStore.get(id);
+    if (!profile || profile.id === DEFAULT_PROFILE_ID) return gameSettingsCoordinator.getStatus();
+    return gameSettingsCoordinator.enterEditScope(profile.id, profile.name);
+  });
+  ipcMain.handle('bridge:exitGameSettingsScope', () => gameSettingsCoordinator.exitEditScope());
+  ipcMain.handle('bridge:setSteamGridDbApiKey', (_event, apiKey: string) => (
+    service.setSteamGridDbApiKey(typeof apiKey === 'string' ? apiKey : '')
+  ));
+  ipcMain.handle('bridge:getGameArtwork', () => gameArtworkStore.dataUrls());
+  ipcMain.handle('bridge:searchGameArtwork', async (_event, term: string) => {
+    try {
+      const results = await gameArtworkStore.search(service.getSnapshot().settings.steamGridDbApiKey, term);
+      return { ok: true, results };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle('bridge:applyGameArtwork', async (_event, id: string, game: { id: number; name: string } | null) => {
+    try {
+      const profile = triggerProfileStore.get(id);
+      if (!profile) return { ok: false, error: 'Unknown game profile' };
+      const apiKey = service.getSnapshot().settings.steamGridDbApiKey;
+      const entry = game
+        ? await gameArtworkStore.apply(apiKey, profile.id, { id: game.id, name: game.name })
+        : await gameArtworkStore.autoFetch(apiKey, profile.id, profile.meta?.game ?? profile.name);
+      if (!entry) return { ok: false, error: `No SteamGridDB match for ${profile.name}` };
+      return { ok: true, entry };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle('bridge:removeGameArtwork', (_event, id: string) => {
+    gameArtworkStore.remove(id);
+    return gameArtworkStore.dataUrls();
   });
   ipcMain.handle('bridge:setTriggerProfilesEnabled', async (_event, enabled: boolean) => {
     await triggerProfileEngine.setEnabled(enabled);
@@ -1528,6 +1579,20 @@ app.whenReady().then(async () => {
     reader: new EvdevInputReader()
   });
   triggerProfileEngine.refreshProfiles();
+  // Game Profile: rides the trigger engine's detection to swap the whole settings set
+  // (controller profile + button remapping) per game. Recovery and subscription happen
+  // before the engine is enabled so a crash's leftover restore point is honored first.
+  const gameSettingsCoordinator = new GameSettingsCoordinator(bridgeService, app.getPath('userData'));
+  void gameSettingsCoordinator.recover();
+  triggerProfileEngine.on('status', (status: EngineStatus) => {
+    gameSettingsCoordinator.onEngineStatus(status);
+  });
+  gameSettingsCoordinator.on('status', (status: GameSettingsStatus) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send('bridge:gameSettingsStatus', status);
+    }
+  });
+  const gameArtworkStore = new GameArtworkStore(path.join(app.getPath('userData'), 'game-artwork'));
   // Restore the engine's persisted enabled/pin state; before this, every
   // launch silently started with the game watcher off while the UI still
   // looked like auto mode.
@@ -1543,7 +1608,14 @@ app.whenReady().then(async () => {
       window.webContents.send('bridge:triggerProfileEngineStatus', status);
     }
   });
-  registerIpc(bridgeService, triggerProfileStore, triggerProfileEngine, profileLibrary);
+  registerIpc(
+    bridgeService,
+    triggerProfileStore,
+    triggerProfileEngine,
+    profileLibrary,
+    gameSettingsCoordinator,
+    gameArtworkStore
+  );
 
   // One installer service for both the first-launch wizard and the post-update
   // driver rebuild: it is inert until install() runs.
