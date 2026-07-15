@@ -6,6 +6,7 @@
   <a href="https://github.com/LordVicky/OpenDS5/actions/workflows/release.yml"><img src="https://github.com/LordVicky/OpenDS5/actions/workflows/release.yml/badge.svg" alt="release build"></a>
   <a href="ds5-bridge/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="license: AGPL-3.0-only"></a>
   <a href="https://github.com/LordVicky/OpenDS5/releases"><img src="https://img.shields.io/github/v/release/LordVicky/OpenDS5" alt="latest release"></a>
+  <a href="https://discord.gg/hg5AF3zM5D"><img src="https://img.shields.io/badge/Discord-join%20server-5865F2?logo=discord&logoColor=white" alt="Discord server"></a>
 </p>
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Linux%20AppImage-blue" alt="platform: Linux AppImage">
