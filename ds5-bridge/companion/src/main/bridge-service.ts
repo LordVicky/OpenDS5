@@ -33,7 +33,8 @@ import {
   hostPersonaModeValue,
   normalizeChordControllerSettingStepPercent,
   normalizeBridgePresetId,
-  pollingRateModeValue
+  pollingRateModeValue,
+  gameSettingsProfileId
 } from '../shared/protocol';
 import type {
   AdaptiveTriggerEffectV2Targeted,
@@ -3144,6 +3145,51 @@ export class BridgeService extends EventEmitter {
     if (this.snapshot.state === 'connected') {
       await this.applyCurrentSettings(this.snapshot.settings, false);
     }
+    this.emitSnapshot();
+    return this.getSnapshot();
+  }
+
+  /**
+   * Game settings support: a game's settings are a controller profile and a button-remap
+   * profile that share the id `game:<triggerProfileId>`. These helpers manage that pair;
+   * the GameSettingsCoordinator decides when they get selected.
+   */
+  hasGameSettings(triggerProfileId: string): boolean {
+    const id = gameSettingsProfileId(triggerProfileId);
+    return this.snapshot.settings.controllerProfiles.some((profile) => profile.id === id);
+  }
+
+  getSelections(): { controllerProfileId: string; buttonRemappingProfileId: string } {
+    return {
+      controllerProfileId: this.snapshot.settings.selectedControllerProfileId,
+      buttonRemappingProfileId: this.snapshot.settings.selectedButtonRemappingProfileId
+    };
+  }
+
+  async ensureGameSettings(triggerProfileId: string, name: string): Promise<BridgeSnapshot> {
+    const id = gameSettingsProfileId(triggerProfileId);
+    this.settingsStore.ensureControllerProfile(id, name);
+    this.snapshot.settings = this.settingsStore.ensureButtonRemappingProfile(id, name);
+    this.emitSnapshot();
+    return this.getSnapshot();
+  }
+
+  async removeGameSettings(triggerProfileId: string): Promise<BridgeSnapshot> {
+    const id = gameSettingsProfileId(triggerProfileId);
+    this.settingsStore.removeControllerProfile(id);
+    this.snapshot.settings = this.settingsStore.removeButtonRemappingProfile(id);
+    if (this.snapshot.state === 'connected') {
+      // If the removed pair was selected, the store fell back to other profiles; push
+      // whatever is now current so the controller matches the settings again.
+      await this.applyCurrentSettings(this.snapshot.settings, false);
+      await this.applyButtonRemapping(this.snapshot.settings, true);
+    }
+    this.emitSnapshot();
+    return this.getSnapshot();
+  }
+
+  setSteamGridDbApiKey(apiKey: string): BridgeSnapshot {
+    this.snapshot.settings = this.settingsStore.update({ steamGridDbApiKey: apiKey });
     this.emitSnapshot();
     return this.getSnapshot();
   }

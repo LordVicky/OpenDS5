@@ -142,6 +142,7 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
   uiThemePreset: 'dark',
   launchAtStartupEnabled: false,
   setupSkipped: false,
+  steamGridDbApiKey: '',
   showBatteryPercentTrayIcon: false,
   lastUpdateCheckAt: 0,
   skippedUpdateVersions: [],
@@ -873,6 +874,9 @@ function normalizeSettings(value: Partial<CompanionSettings> | null | undefined)
     setupSkipped: typeof value?.setupSkipped === 'boolean'
       ? value.setupSkipped
       : DEFAULT_SETTINGS.setupSkipped,
+    steamGridDbApiKey: typeof value?.steamGridDbApiKey === 'string'
+      ? value.steamGridDbApiKey.trim().slice(0, 128)
+      : DEFAULT_SETTINGS.steamGridDbApiKey,
     showBatteryPercentTrayIcon: typeof value?.showBatteryPercentTrayIcon === 'boolean'
       ? value.showBatteryPercentTrayIcon
       : DEFAULT_SETTINGS.showBatteryPercentTrayIcon,
@@ -1118,6 +1122,52 @@ export class SettingsStore {
     });
   }
 
+  /**
+   * Creates a controller profile with a caller-chosen id if it does not exist yet, seeded
+   * from the current live settings. An existing profile only has its display name refreshed.
+   * Used for game settings profiles, whose ids are derived from trigger profile ids rather
+   * than generated timestamps. Never changes the selection.
+   */
+  ensureControllerProfile(profileId: string, name: string): CompanionSettings {
+    const trimmedName = name.trim().slice(0, 48) || 'Custom Profile';
+    if (profileId === DEFAULT_CONTROLLER_PROFILE_ID) {
+      return this.get();
+    }
+    const existing = this.settings.controllerProfiles.find((profile) => profile.id === profileId);
+    if (existing) {
+      return existing.name === trimmedName ? this.get() : this.renameControllerProfile(profileId, trimmedName);
+    }
+    const profile: ControllerProfile = {
+      id: profileId.trim().slice(0, 64),
+      name: trimmedName,
+      settings: controllerProfileSettingsFrom(this.settings)
+    };
+    return this.update({
+      controllerProfiles: [...this.settings.controllerProfiles, profile]
+    });
+  }
+
+  /**
+   * Removes a controller profile without disturbing the selection unless the removed
+   * profile was the selected one (then the existing delete fallback applies). The plain
+   * deleteControllerProfile always rewrites the selection, which is wrong for background
+   * cleanup of game settings profiles.
+   */
+  removeControllerProfile(profileId: string): CompanionSettings {
+    if (profileId === DEFAULT_CONTROLLER_PROFILE_ID) {
+      return this.get();
+    }
+    if (!this.settings.controllerProfiles.some((profile) => profile.id === profileId)) {
+      return this.get();
+    }
+    if (this.settings.selectedControllerProfileId === profileId) {
+      return this.deleteControllerProfile(profileId);
+    }
+    return this.update({
+      controllerProfiles: this.settings.controllerProfiles.filter((profile) => profile.id !== profileId)
+    });
+  }
+
   renameControllerProfile(profileId: string, name: string): CompanionSettings {
     const nextName = name.trim().slice(0, 48);
     if (profileId === DEFAULT_CONTROLLER_PROFILE_ID || nextName.length === 0) {
@@ -1205,6 +1255,51 @@ export class SettingsStore {
         profile.id === profileId ? { ...profile, mappings } : profile
       )),
       buttonRemappingDraft: mappings
+    });
+  }
+
+  /**
+   * Button-remap counterpart of ensureControllerProfile: creates the profile with a
+   * caller-chosen id from the current mapping draft, or refreshes an existing one's
+   * display name. Never changes the selection.
+   */
+  ensureButtonRemappingProfile(profileId: string, name: string): CompanionSettings {
+    const trimmedName = name.trim().slice(0, 48) || 'Custom Profile';
+    if (profileId === DEFAULT_BUTTON_REMAP_PROFILE_ID) {
+      return this.get();
+    }
+    const existing = this.settings.buttonRemappingProfiles.find((profile) => profile.id === profileId);
+    if (existing) {
+      return existing.name === trimmedName
+        ? this.get()
+        : this.renameButtonRemappingProfile(profileId, trimmedName);
+    }
+    const profile: ButtonRemapProfile = {
+      id: profileId.trim().slice(0, 64),
+      name: trimmedName,
+      mappings: cloneRemapMap(this.settings.buttonRemappingDraft)
+    };
+    return this.update({
+      buttonRemappingProfiles: [...this.settings.buttonRemappingProfiles, profile]
+    });
+  }
+
+  /**
+   * Button-remap counterpart of removeControllerProfile: background cleanup that leaves
+   * the selection alone unless the removed profile was selected.
+   */
+  removeButtonRemappingProfile(profileId: string): CompanionSettings {
+    if (profileId === DEFAULT_BUTTON_REMAP_PROFILE_ID) {
+      return this.get();
+    }
+    if (!this.settings.buttonRemappingProfiles.some((profile) => profile.id === profileId)) {
+      return this.get();
+    }
+    if (this.settings.selectedButtonRemappingProfileId === profileId) {
+      return this.deleteButtonRemappingProfile(profileId);
+    }
+    return this.update({
+      buttonRemappingProfiles: this.settings.buttonRemappingProfiles.filter((profile) => profile.id !== profileId)
     });
   }
 

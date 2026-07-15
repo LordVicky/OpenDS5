@@ -4,6 +4,7 @@ import {
   type TablerIcon,
   IconAdjustmentsSpark,
   IconActivity as Activity,
+  IconArrowLeft,
   IconAdjustmentsHorizontal as Settings2,
   IconAdjustmentsHorizontal as SlidersHorizontal,
   IconAlertHexagon,
@@ -33,6 +34,7 @@ import {
   IconHeadphones as Headphones,
   IconKeyboard as Keyboard,
   IconLayoutDashboard,
+  IconLayoutGrid,
   IconLink as LinkIcon,
   IconLinkOff as LinkOffIcon,
   IconMicrophone as Mic,
@@ -41,6 +43,7 @@ import {
   IconMoon as Moon,
   IconPalette as Palette,
   IconPencil as Pencil,
+  IconPhoto,
   IconPlayerPlay as Play,
   IconPlus as Plus,
   IconQuestionMark,
@@ -104,6 +107,8 @@ import {
   MAX_KEYBOARD_FUNCTION_KEYS,
   REMAP_BUTTON_IDS,
   ackResultName,
+  gameSettingsProfileId,
+  isGameSettingsProfileId,
   normalizeChordControllerSettingStepPercent,
   isChordBindingAllowed
 } from '../shared/protocol';
@@ -137,6 +142,7 @@ import type { UpdateState } from '../main/update-service';
 import { UpdateToast } from './UpdateToast';
 import {
   createDefaultProfile,
+  DEFAULT_PROFILE_ID,
   defaultEffectForMode,
   slugifyTriggerProfileName,
   uniqueTriggerProfileId
@@ -151,12 +157,14 @@ import type {
   TriggerProfile
 } from '../shared/trigger-profiles';
 import type { GameProcessCandidate } from '../main/game-watcher';
+import type { GameSettingsStatus } from '../main/game-settings-coordinator';
+import type { GameArtworkSearchResult } from '../main/game-artwork';
 import type { LibraryCatalog, LibraryEntry } from '../main/profile-library';
 import { profileVariantLabel } from './library-entry';
 import { filterLibrary } from './library-search';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
 
-type ControlTab = 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
+type ControlTab = 'game-profile' | 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
 type StartupTutorialStep = 'feature-toggle' | 'done';
 type ControllerType = BridgeStatusPayload['controllerType'];
 type KnownControllerType = Exclude<ControllerType, 'unknown'>;
@@ -689,6 +697,7 @@ const REMAP_EDGE_LINE_POINTS: Record<DualSenseEdgeRemapButtonId, [[number, numbe
   rfn: [[370.46, 368.88], [370.64, 296.98]]
 };
 const CONTROL_TABS: Array<{ id: ControlTab; label: string; Icon: TablerIcon }> = [
+  { id: 'game-profile', label: 'Game Profile', Icon: IconLayoutGrid },
   { id: 'overview', label: 'Overview', Icon: IconLayoutDashboard },
   { id: 'audio', label: 'Audio', Icon: IconVolume },
   { id: 'haptics', label: 'Haptics', Icon: Sparkles },
@@ -902,6 +911,62 @@ export function formatEngineStatusLine(status: EngineStatus, activeProfileName: 
   if (status.matchedBy === 'pin') return `Active: ${activeProfileName} (pinned)`;
   if (status.matchedBy === 'process') return `Active: ${activeProfileName} (matched: ${status.matchedName})`;
   return `Active: ${activeProfileName} (default)`;
+}
+
+/**
+ * Game Profile tiles without cover art get a generated look: a deterministic gradient
+ * class picked from the profile id plus a monogram built from the game title.
+ */
+export const GAME_TILE_ART_CLASS_COUNT = 6;
+
+export function gameTileArtClass(id: string): string {
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) {
+    hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+  }
+  return `game-tile-art-${hash % GAME_TILE_ART_CLASS_COUNT}`;
+}
+
+export function gameTileMonogram(name: string): string {
+  const words = name
+    .split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}\p{N}]/gu, ''))
+    .filter((word) => word.length > 0);
+  const letters = words.slice(0, 2).map((word) => word[0].toUpperCase()).join('');
+  return letters || '?';
+}
+
+/** The display title of a game tile: the profile's game metadata, else its name. */
+export function gameProfileTitle(profile: Pick<TriggerProfile, 'name' | 'meta'>): string {
+  return profile.meta?.game?.trim() || profile.name;
+}
+
+export function triggerProfileHasEffects(profile: TriggerProfile): boolean {
+  return (['l2', 'r2'] as const).some((slot) => (
+    profile.triggers[slot].base !== null || profile.triggers[slot].modifiers.length > 0
+  ));
+}
+
+/**
+ * Profile dropdown options with game-owned entries hidden: game settings profiles are
+ * managed from the Game Profile tab, not the generic pickers. The one exception is the
+ * currently selected profile — hiding it would leave the select displaying nothing while
+ * a game's settings are active — which stays visible with a "— Game" suffix.
+ */
+export function visibleProfileOptions(
+  profiles: ReadonlyArray<{ id: string; name: string }>,
+  selectedId: string
+): Array<[string, string]> {
+  const options: Array<[string, string]> = [];
+  for (const profile of profiles) {
+    if (isGameSettingsProfileId(profile.id)) {
+      if (profile.id !== selectedId) continue;
+      options.push([`${profile.name} — Game`, profile.id]);
+    } else {
+      options.push([profile.name, profile.id]);
+    }
+  }
+  return options;
 }
 
 function defaultTriggerEffectSpec(): TriggerEffectSpec {
@@ -2616,7 +2681,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<BridgeSnapshot | null>(null);
   const [startupVisible, setStartupVisible] = useState(true);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [activeControlTab, setActiveControlTab] = useState<ControlTab>('overview');
+  const [activeControlTab, setActiveControlTab] = useState<ControlTab>('game-profile');
   const [hapticsValue, setHapticsValue] = useState(100);
   const [classicRumbleValue, setClassicRumbleValue] = useState(100);
   const [speakerVolumeValue, setSpeakerVolumeValue] = useState(100);
@@ -2640,6 +2705,22 @@ export function App() {
   const [triggerProfiles, setTriggerProfiles] = useState<TriggerProfile[]>([]);
   const [triggerProfilesEnabled, setTriggerProfilesEnabled] = useState(false);
   const [triggerProfileEngineStatus, setTriggerProfileEngineStatus] = useState<EngineStatus | null>(null);
+  const [gameSettingsStatus, setGameSettingsStatus] = useState<GameSettingsStatus | null>(null);
+  const [gameArtwork, setGameArtwork] = useState<Record<string, string>>({});
+  const [openGameProfileId, setOpenGameProfileId] = useState<string | null>(null);
+  const [gameCreateOpen, setGameCreateOpen] = useState(false);
+  const [gameCreateName, setGameCreateName] = useState('');
+  const [gameCreateProcessesInput, setGameCreateProcessesInput] = useState('');
+  const [gameCreateBusy, setGameCreateBusy] = useState(false);
+  const [gameCreateCandidates, setGameCreateCandidates] = useState<GameProcessCandidate[] | null>(null);
+  const [gameCreateDetectLoading, setGameCreateDetectLoading] = useState(false);
+  const [gameArtworkDialogFor, setGameArtworkDialogFor] = useState<string | null>(null);
+  const [gameArtworkQuery, setGameArtworkQuery] = useState('');
+  const [gameArtworkResults, setGameArtworkResults] = useState<GameArtworkSearchResult[] | null>(null);
+  const [gameArtworkBusy, setGameArtworkBusy] = useState(false);
+  const [gameArtworkError, setGameArtworkError] = useState<string | null>(null);
+  const [steamGridDbKeyDraft, setSteamGridDbKeyDraft] = useState<string | null>(null);
+  const [gameDeleteConfirm, setGameDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [selectedTriggerProfileId, setSelectedTriggerProfileId] = useState<string | null>(null);
   const [triggerProfileDraft, setTriggerProfileDraft] = useState<TriggerProfile | null>(null);
   const [triggerProfileProcessNamesInput, setTriggerProfileProcessNamesInput] = useState('');
@@ -2735,6 +2816,9 @@ export function App() {
     || controllerProfileDialogMode !== null
     || triggerProfileLibraryOpen
     || showBridgeSettings
+    || gameCreateOpen
+    || gameArtworkDialogFor !== null
+    || gameDeleteConfirm !== null
   );
 
   useEffect(() => window.update.onState(setUpdateState), []);
@@ -2832,18 +2916,46 @@ export function App() {
   ));
   const selectedControllerProfileId = selectedControllerProfile?.id ?? DEFAULT_CONTROLLER_PROFILE_ID;
   const controllerProfileOptions = useMemo<Array<[string, string]>>(() => (
-    snapshot?.settings.controllerProfiles.map((profile) => [profile.name, profile.id]) ?? [['Default', DEFAULT_CONTROLLER_PROFILE_ID]]
-  ), [snapshot?.settings.controllerProfiles]);
+    snapshot
+      ? visibleProfileOptions(snapshot.settings.controllerProfiles, snapshot.settings.selectedControllerProfileId)
+      : [['Default', DEFAULT_CONTROLLER_PROFILE_ID]]
+  ), [snapshot?.settings.controllerProfiles, snapshot?.settings.selectedControllerProfileId]);
   const selectedControllerProfileIsDefault = selectedControllerProfileId === DEFAULT_CONTROLLER_PROFILE_ID;
-  const canDeleteControllerProfile = !selectedControllerProfileIsDefault;
+  const selectedControllerProfileIsGameOwned = isGameSettingsProfileId(selectedControllerProfileId);
+  const canDeleteControllerProfile = !selectedControllerProfileIsDefault && !selectedControllerProfileIsGameOwned;
   const selectedRemapProfile = snapshot?.settings.buttonRemappingProfiles.find((profile) => (
     profile.id === snapshot.settings.selectedButtonRemappingProfileId
   ));
   const selectedRemapProfileId = selectedRemapProfile?.id ?? DEFAULT_BUTTON_REMAP_PROFILE_ID;
   const remapProfileOptions = useMemo<Array<[string, string]>>(() => (
-    snapshot?.settings.buttonRemappingProfiles.map((profile) => [profile.name, profile.id]) ?? [['Default', DEFAULT_BUTTON_REMAP_PROFILE_ID]]
-  ), [snapshot?.settings.buttonRemappingProfiles]);
+    snapshot
+      ? visibleProfileOptions(snapshot.settings.buttonRemappingProfiles, snapshot.settings.selectedButtonRemappingProfileId)
+      : [['Default', DEFAULT_BUTTON_REMAP_PROFILE_ID]]
+  ), [snapshot?.settings.buttonRemappingProfiles, snapshot?.settings.selectedButtonRemappingProfileId]);
   const selectedRemapProfileIsDefault = selectedRemapProfileId === DEFAULT_BUTTON_REMAP_PROFILE_ID;
+  const selectedRemapProfileIsGameOwned = isGameSettingsProfileId(selectedRemapProfileId);
+  // Game Profile tiles are the saved trigger profiles: the Default fallback and unsaved
+  // editor drafts are not games.
+  const gameProfiles = useMemo(() => (
+    triggerProfiles.filter((profile) => (
+      profile.id !== DEFAULT_PROFILE_ID && !isProvisionalTriggerProfileId(profile.id)
+    ))
+  ), [triggerProfiles]);
+  const openGameProfileEntry = openGameProfileId
+    ? gameProfiles.find((profile) => profile.id === openGameProfileId) ?? null
+    : null;
+  const activeGameProfile = triggerProfileEngineStatus
+    && triggerProfileEngineStatus.enabled
+    && triggerProfileEngineStatus.activeProfileId !== DEFAULT_PROFILE_ID
+    ? gameProfiles.find((profile) => profile.id === triggerProfileEngineStatus.activeProfileId) ?? null
+    : null;
+  const gameSettingsScope: 'game' | 'global' = openGameProfileId !== null
+    && gameSettingsStatus?.editingProfileId === openGameProfileId
+    ? 'game'
+    : 'global';
+  const gameHasSettings = (profileId: string): boolean => (
+    snapshot?.settings.controllerProfiles.some((profile) => profile.id === gameSettingsProfileId(profileId)) ?? false
+  );
   const remappingLayoutAsset = showDualSenseEdgeRemapButtons ? REMAP_EDGE_LAYOUT_ASSET : REMAP_STANDARD_LAYOUT_ASSET;
   const chordFunctions = snapshot?.settings.chordFunctions ?? [];
   const chordAssignments = snapshot?.settings.chordAssignments ?? [];
@@ -3129,6 +3241,21 @@ export function App() {
       setTriggerProfilesEnabled(status.enabled);
       setTriggerProfileEngineStatus(status);
     });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.bridge.getGameSettingsStatus().then((status) => {
+      if (!cancelled) setGameSettingsStatus(status);
+    });
+    window.bridge.getGameArtwork().then((urls) => {
+      if (!cancelled) setGameArtwork(urls);
+    });
+    const unsubscribe = window.bridge.onGameSettingsStatus(setGameSettingsStatus);
     return () => {
       cancelled = true;
       unsubscribe();
@@ -4510,7 +4637,8 @@ export function App() {
   }
 
   function renameControllerProfile() {
-    if (!selectedControllerProfile || selectedControllerProfileIsDefault) {
+    // Game-owned profiles take their name from the game; rename the game instead.
+    if (!selectedControllerProfile || selectedControllerProfileIsDefault || selectedControllerProfileIsGameOwned) {
       return;
     }
     setControllerProfileNameDraft(selectedControllerProfile.name);
@@ -4581,7 +4709,7 @@ export function App() {
   }
 
   function renameButtonRemappingProfile() {
-    if (!selectedRemapProfile || selectedRemapProfileIsDefault) {
+    if (!selectedRemapProfile || selectedRemapProfileIsDefault || selectedRemapProfileIsGameOwned) {
       return;
     }
     setRemapProfileNameDraft(selectedRemapProfile.name);
@@ -4594,7 +4722,8 @@ export function App() {
   }
 
   function deleteButtonRemappingProfile() {
-    if (!selectedRemapProfile || selectedRemapProfileIsDefault) {
+    // Game-owned mappings are deleted with their game profile, not from here.
+    if (!selectedRemapProfile || selectedRemapProfileIsDefault || selectedRemapProfileIsGameOwned) {
       return;
     }
     setRemapProfileDialogMode('delete');
@@ -5555,6 +5684,156 @@ export function App() {
     setTriggerProfileEngineStatus(status);
   }
 
+  async function refreshGameArtwork() {
+    setGameArtwork(await window.bridge.getGameArtwork());
+  }
+
+  // Opening a game lands on its hub and switches into "Game settings" scope, so every
+  // tab edits the game's snapshot until the scope is flipped back or the hub is closed.
+  async function openGameProfile(id: string) {
+    setOpenGameProfileId(id);
+    const status = await window.bridge.enterGameSettingsScope(id);
+    setGameSettingsStatus(status);
+  }
+
+  async function setGameSettingsScope(scope: 'game' | 'global') {
+    if (!openGameProfileId) return;
+    const status = scope === 'game'
+      ? await window.bridge.enterGameSettingsScope(openGameProfileId)
+      : await window.bridge.exitGameSettingsScope();
+    setGameSettingsStatus(status);
+  }
+
+  async function closeGameProfile() {
+    const status = await window.bridge.exitGameSettingsScope();
+    setGameSettingsStatus(status);
+    setOpenGameProfileId(null);
+    selectControlTab('game-profile');
+  }
+
+  function openGameCreateDialog() {
+    setGameCreateName('');
+    setGameCreateProcessesInput('');
+    setGameCreateCandidates(null);
+    setGameCreateOpen(true);
+  }
+
+  async function detectGameCreateProcesses() {
+    setGameCreateDetectLoading(true);
+    try {
+      setGameCreateCandidates(await window.bridge.listCandidateGameProcesses());
+    } finally {
+      setGameCreateDetectLoading(false);
+    }
+  }
+
+  async function submitGameCreate() {
+    const name = gameCreateName.trim();
+    if (!name || gameCreateBusy) return;
+    const processNames = parseProcessNamesInput(gameCreateProcessesInput);
+    const id = uniqueTriggerProfileId(name, triggerProfiles.map((profile) => profile.id));
+    const base = createDefaultProfile();
+    const profile: TriggerProfile = {
+      ...base,
+      id,
+      name,
+      match: { processNames, windowTitles: [] },
+      meta: { game: name },
+      updatedAtMs: Date.now()
+    };
+    setGameCreateBusy(true);
+    try {
+      const saved = await window.bridge.saveTriggerProfile(profile);
+      await refreshTriggerProfiles(saved.id);
+      setGameCreateOpen(false);
+      // Cover art is decoration: fetch in the background and never block creation on it.
+      if (snapshot?.settings.steamGridDbApiKey) {
+        void window.bridge.applyGameArtwork(saved.id, null).then(async (result) => {
+          if (result.ok) await refreshGameArtwork();
+        });
+      }
+      await openGameProfile(saved.id);
+    } finally {
+      setGameCreateBusy(false);
+    }
+  }
+
+  async function confirmDeleteGameProfile() {
+    if (!gameDeleteConfirm) return;
+    const deletedId = gameDeleteConfirm.id;
+    if (openGameProfileId === deletedId) {
+      setOpenGameProfileId(null);
+    }
+    await window.bridge.deleteTriggerProfile(deletedId);
+    setGameDeleteConfirm(null);
+    setGameSettingsStatus(await window.bridge.getGameSettingsStatus());
+    await refreshTriggerProfiles(undefined, deletedId);
+    await refreshGameArtwork();
+  }
+
+  function openGameArtworkDialog(profileId: string, initialQuery: string) {
+    setGameArtworkDialogFor(profileId);
+    setGameArtworkQuery(initialQuery);
+    setGameArtworkResults(null);
+    setGameArtworkError(null);
+    setSteamGridDbKeyDraft(null);
+  }
+
+  async function saveSteamGridDbKeyDraft() {
+    if (steamGridDbKeyDraft === null) return;
+    await window.bridge.setSteamGridDbApiKey(steamGridDbKeyDraft);
+    setSteamGridDbKeyDraft(null);
+  }
+
+  async function searchGameArtworkDialog() {
+    if (gameArtworkBusy) return;
+    setGameArtworkBusy(true);
+    setGameArtworkError(null);
+    try {
+      await saveSteamGridDbKeyDraft();
+      const response = await window.bridge.searchGameArtwork(gameArtworkQuery);
+      if (response.ok) {
+        setGameArtworkResults(response.results);
+        if (response.results.length === 0) {
+          setGameArtworkError(`No SteamGridDB results for "${gameArtworkQuery.trim()}"`);
+        }
+      } else {
+        setGameArtworkResults(null);
+        setGameArtworkError(response.error);
+      }
+    } finally {
+      setGameArtworkBusy(false);
+    }
+  }
+
+  async function applyGameArtworkChoice(result: GameArtworkSearchResult) {
+    if (!gameArtworkDialogFor || gameArtworkBusy) return;
+    setGameArtworkBusy(true);
+    setGameArtworkError(null);
+    try {
+      const response = await window.bridge.applyGameArtwork(gameArtworkDialogFor, result);
+      if (!response.ok) {
+        setGameArtworkError(response.error);
+        return;
+      }
+      await refreshGameArtwork();
+      setGameArtworkDialogFor(null);
+    } finally {
+      setGameArtworkBusy(false);
+    }
+  }
+
+  async function removeGameArtworkChoice() {
+    if (!gameArtworkDialogFor) return;
+    setGameArtwork(await window.bridge.removeGameArtwork(gameArtworkDialogFor));
+    setGameArtworkDialogFor(null);
+  }
+
+  function openGameTriggerEditor(profile: TriggerProfile) {
+    loadTriggerProfileDraft(profile);
+    selectControlTab('trigger-profiles');
+  }
+
   async function pinSelectedTriggerProfile(id: string) {
     const status = await window.bridge.pinTriggerProfile(id === '' ? null : id);
     setTriggerProfileEngineStatus(status);
@@ -5934,8 +6213,339 @@ export function App() {
           </div>
         </section>
 
-      <section className="control-panel flat-control-panel">
+      <section className={`control-panel flat-control-panel ${openGameProfileEntry && activeControlTab !== 'game-profile' ? 'game-scope-active' : ''}`}>
+        {openGameProfileEntry && activeControlTab !== 'game-profile' && (
+          <div className="game-scope-banner" role="region" aria-label="Game settings scope">
+            <button
+              type="button"
+              className="game-scope-back"
+              onClick={() => selectControlTab('game-profile')}
+            >
+              <IconArrowLeft size={15} />
+              <span>{gameProfileTitle(openGameProfileEntry)}</span>
+            </button>
+            <span className="game-scope-banner-copy">
+              {gameSettingsScope === 'game'
+                ? `Saving to ${gameProfileTitle(openGameProfileEntry)}'s game settings`
+                : 'Saving to your global settings'}
+            </span>
+            <div className="game-scope-toggle" role="group" aria-label="Settings scope">
+              <button
+                type="button"
+                className={gameSettingsScope === 'game' ? 'active' : ''}
+                aria-pressed={gameSettingsScope === 'game'}
+                onClick={() => void setGameSettingsScope('game')}
+              >
+                Game Settings
+              </button>
+              <button
+                type="button"
+                className={gameSettingsScope === 'global' ? 'active' : ''}
+                aria-pressed={gameSettingsScope === 'global'}
+                onClick={() => void setGameSettingsScope('global')}
+              >
+                Global Settings
+              </button>
+            </div>
+          </div>
+        )}
         <div className="control-pages">
+          <div
+            className={`control-page game-profile-page ${activeControlTab === 'game-profile' ? 'active' : ''}`}
+            role="tabpanel"
+            id="control-panel-game-profile"
+            aria-labelledby="control-tab-game-profile"
+            aria-hidden={activeControlTab !== 'game-profile'}
+          >
+            {openGameProfileEntry === null ? (
+              <>
+                <div className="feature-heading">
+                  <div>
+                    <h2>Game Profile</h2>
+                    <p>Everything about a game — triggers, haptics, audio, lighting and remapping — in one place.</p>
+                  </div>
+                  <div className="trigger-profiles-status-group game-profile-engine-badge">
+                    <span className="overview-status-heading">
+                      <Activity size={14} />
+                      Auto Switching
+                    </span>
+                    <span className="status-badge">
+                      <span className={`dot ${triggerProfilesEnabled ? 'good' : 'warn'}`} />
+                      <strong>{triggerProfilesEnabled ? 'Running' : 'Off'}</strong>
+                    </span>
+                  </div>
+                  <div className="inline-switch">
+                    <span>Auto Switching</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={triggerProfilesEnabled}
+                      aria-label="Enable automatic game profile switching"
+                      className={`switch ${triggerProfilesEnabled ? 'on' : ''}`}
+                      onClick={() => void toggleTriggerProfilesEnabled()}
+                    >
+                      <span />
+                    </button>
+                  </div>
+                </div>
+                <div className="game-profile-content">
+                  {activeGameProfile && (
+                    <section className="game-hero" aria-label="Now playing">
+                      <span
+                        className={`game-hero-art ${gameArtwork[activeGameProfile.id] ? 'has-image' : gameTileArtClass(activeGameProfile.id)}`}
+                        style={gameArtwork[activeGameProfile.id]
+                          ? { backgroundImage: `url("${gameArtwork[activeGameProfile.id]}")` }
+                          : undefined}
+                        aria-hidden="true"
+                      >
+                        {!gameArtwork[activeGameProfile.id] && (
+                          <span className="game-tile-monogram">{gameTileMonogram(gameProfileTitle(activeGameProfile))}</span>
+                        )}
+                      </span>
+                      <div className="game-hero-copy">
+                        <span className="game-hero-kicker">
+                          <span className="dot good" />
+                          Now Playing
+                          {triggerProfileEngineStatus?.matchedName ? ` · ${triggerProfileEngineStatus.matchedName}` : ''}
+                        </span>
+                        <h3>{gameProfileTitle(activeGameProfile)}</h3>
+                        <div className="game-tile-chips">
+                          <span className={`game-tile-chip ${triggerProfileHasEffects(activeGameProfile) ? 'on' : ''}`}>
+                            Triggers
+                          </span>
+                          <span className={`game-tile-chip ${gameSettingsStatus?.appliedProfileId === activeGameProfile.id ? 'on' : ''}`}>
+                            {gameSettingsStatus?.appliedProfileId === activeGameProfile.id ? 'Game Settings' : 'Global Settings'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="game-hero-actions">
+                        <button
+                          type="button"
+                          className="primary-action"
+                          onClick={() => void openGameProfile(activeGameProfile.id)}
+                        >
+                          <Pencil size={14} />
+                          Customize
+                        </button>
+                      </div>
+                    </section>
+                  )}
+                  <div className="game-tile-grid">
+                    {gameProfiles.map((profile) => {
+                      const title = gameProfileTitle(profile);
+                      const art = gameArtwork[profile.id];
+                      const live = Boolean(
+                        triggerProfileEngineStatus?.enabled
+                        && triggerProfileEngineStatus.activeProfileId === profile.id
+                      );
+                      return (
+                        <button
+                          key={profile.id}
+                          type="button"
+                          className="game-tile"
+                          onClick={() => void openGameProfile(profile.id)}
+                        >
+                          <span
+                            className={`game-tile-art ${art ? 'has-image' : gameTileArtClass(profile.id)}`}
+                            style={art ? { backgroundImage: `url("${art}")` } : undefined}
+                            aria-hidden="true"
+                          >
+                            {!art && <span className="game-tile-monogram">{gameTileMonogram(title)}</span>}
+                          </span>
+                          {live && (
+                            <span className="game-tile-live">
+                              <span className="dot" />
+                              Playing
+                            </span>
+                          )}
+                          <span className="game-tile-meta">
+                            <strong>{title}</strong>
+                            <span className="game-tile-chips">
+                              <span className={`game-tile-chip ${triggerProfileHasEffects(profile) ? 'on' : ''}`}>
+                                Triggers
+                              </span>
+                              <span className={`game-tile-chip ${gameHasSettings(profile.id) ? 'on' : ''}`}>
+                                Settings
+                              </span>
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      className="game-tile game-tile-add"
+                      onClick={openGameCreateDialog}
+                    >
+                      <Plus size={22} />
+                      <span>Add Game</span>
+                    </button>
+                  </div>
+                  {gameProfiles.length === 0 && (
+                    <p className="game-profile-empty-hint">
+                      Add a game to give it its own trigger effects, sound, lighting and button mapping —
+                      or install one from the library in the Trigger Profiles tab.
+                    </p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="feature-heading game-detail-heading">
+                  <div>
+                    <h2>{gameProfileTitle(openGameProfileEntry)}</h2>
+                    <p>
+                      {openGameProfileEntry.match.processNames.length > 0
+                        ? `Applies automatically when ${openGameProfileEntry.match.processNames.join(', ')} is running.`
+                        : 'No process match yet — add one in the trigger editor so this game is detected.'}
+                    </p>
+                  </div>
+                  <button
+                    className="heading-action"
+                    type="button"
+                    onClick={() => void closeGameProfile()}
+                  >
+                    <IconArrowLeft size={18} />
+                    All Games
+                  </button>
+                </div>
+                <div className="game-profile-content">
+                  <section className="game-detail-header">
+                    <button
+                      type="button"
+                      className={`game-detail-art ${gameArtwork[openGameProfileEntry.id] ? 'has-image' : gameTileArtClass(openGameProfileEntry.id)}`}
+                      style={gameArtwork[openGameProfileEntry.id]
+                        ? { backgroundImage: `url("${gameArtwork[openGameProfileEntry.id]}")` }
+                        : undefined}
+                      aria-label="Set cover art"
+                      onClick={() => openGameArtworkDialog(openGameProfileEntry.id, gameProfileTitle(openGameProfileEntry))}
+                    >
+                      {!gameArtwork[openGameProfileEntry.id] && (
+                        <span className="game-tile-monogram">{gameTileMonogram(gameProfileTitle(openGameProfileEntry))}</span>
+                      )}
+                      <span className="game-detail-art-overlay">
+                        <IconPhoto size={16} />
+                        Set Cover
+                      </span>
+                    </button>
+                    <div className="game-detail-copy">
+                      <span className="game-detail-status">
+                        {triggerProfileEngineStatus?.enabled && triggerProfileEngineStatus.activeProfileId === openGameProfileEntry.id ? (
+                          <>
+                            <span className="dot good" />
+                            Playing now
+                            {gameSettingsStatus?.appliedProfileId === openGameProfileEntry.id ? ' — game settings active' : ''}
+                          </>
+                        ) : gameHasSettings(openGameProfileEntry.id) ? (
+                          <>
+                            <span className="dot" />
+                            Game settings ready — applied when the game is detected
+                          </>
+                        ) : (
+                          <>
+                            <span className="dot" />
+                            Using your global settings
+                          </>
+                        )}
+                      </span>
+                      <div className="game-scope-toggle" role="group" aria-label="Settings scope">
+                        <button
+                          type="button"
+                          className={gameSettingsScope === 'game' ? 'active' : ''}
+                          aria-pressed={gameSettingsScope === 'game'}
+                          onClick={() => void setGameSettingsScope('game')}
+                        >
+                          Game Settings
+                        </button>
+                        <button
+                          type="button"
+                          className={gameSettingsScope === 'global' ? 'active' : ''}
+                          aria-pressed={gameSettingsScope === 'global'}
+                          onClick={() => void setGameSettingsScope('global')}
+                        >
+                          Global Settings
+                        </button>
+                      </div>
+                      <p className="game-scope-hint">
+                        {gameSettingsScope === 'game'
+                          ? 'Every tab now edits this game’s own settings. Your global settings stay untouched and come back when the game exits.'
+                          : 'Every tab edits your global settings. Switch to Game Settings to tune this game without touching them.'}
+                      </p>
+                    </div>
+                    <div className="game-detail-actions">
+                      <button
+                        type="button"
+                        className="secondary-action"
+                        onClick={() => openGameArtworkDialog(openGameProfileEntry.id, gameProfileTitle(openGameProfileEntry))}
+                      >
+                        <IconPhoto size={14} />
+                        Cover Art
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-action danger"
+                        onClick={() => setGameDeleteConfirm({
+                          id: openGameProfileEntry.id,
+                          name: gameProfileTitle(openGameProfileEntry)
+                        })}
+                      >
+                        <Trash2 size={14} />
+                        Delete
+                      </button>
+                    </div>
+                  </section>
+                  <div className="overview-card-grid game-detail-nav">
+                    <button className="overview-card" type="button" onClick={() => openGameTriggerEditor(openGameProfileEntry)}>
+                      <div className="overview-card-title">
+                        <span className="feature-icon overview-icon"><IconTargetArrow size={19} /></span>
+                        <h3>Adaptive Triggers</h3>
+                      </div>
+                      <p className="game-detail-nav-copy">
+                        {triggerProfileHasEffects(openGameProfileEntry)
+                          ? 'Edit this game’s trigger effects and process match.'
+                          : 'No trigger effects yet — design some for this game.'}
+                      </p>
+                    </button>
+                    <button className="overview-card" type="button" onClick={() => selectControlTab('audio')}>
+                      <div className="overview-card-title">
+                        <span className="feature-icon overview-icon"><IconVolume size={19} /></span>
+                        <h3>Audio</h3>
+                      </div>
+                      <p className="game-detail-nav-copy">Speaker, microphone and controller audio.</p>
+                    </button>
+                    <button className="overview-card" type="button" onClick={() => selectControlTab('haptics')}>
+                      <div className="overview-card-title">
+                        <span className="feature-icon overview-icon"><Sparkles size={19} /></span>
+                        <h3>Haptics</h3>
+                      </div>
+                      <p className="game-detail-nav-copy">HD haptics, rumble and audio-reactive feedback.</p>
+                    </button>
+                    <button className="overview-card" type="button" onClick={() => selectControlTab('triggers')}>
+                      <div className="overview-card-title">
+                        <span className="feature-icon overview-icon"><IconDeviceGamepad2 size={19} /></span>
+                        <h3>Trigger Lab</h3>
+                      </div>
+                      <p className="game-detail-nav-copy">Trigger intensity and live effect testing.</p>
+                    </button>
+                    <button className="overview-card" type="button" onClick={() => selectControlTab('lighting')}>
+                      <div className="overview-card-title">
+                        <span className="feature-icon overview-icon"><IconBulb size={19} /></span>
+                        <h3>Lighting</h3>
+                      </div>
+                      <p className="game-detail-nav-copy">Lightbar color, brightness and player LEDs.</p>
+                    </button>
+                    <button className="overview-card" type="button" onClick={() => selectControlTab('remapping')}>
+                      <div className="overview-card-title">
+                        <span className="feature-icon overview-icon"><IconDeviceGamepad3 size={19} /></span>
+                        <h3>Button Remapping</h3>
+                      </div>
+                      <p className="game-detail-nav-copy">This game’s button layout.</p>
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
           <div
             className={`control-page overview-page ${activeControlTab === 'overview' ? 'active' : ''}`}
             role="tabpanel"
@@ -8209,7 +8819,7 @@ export function App() {
                   <div className="remapping-profile-actions">
                     <button
                       type="button"
-                      disabled={pendingAction !== null || selectedRemapProfileIsDefault}
+                      disabled={pendingAction !== null || selectedRemapProfileIsDefault || selectedRemapProfileIsGameOwned}
                       onClick={renameButtonRemappingProfile}
                     >
                       <Pencil size={15} />
@@ -8225,7 +8835,7 @@ export function App() {
                     </button>
                     <button
                       type="button"
-                      disabled={pendingAction !== null || selectedRemapProfileIsDefault}
+                      disabled={pendingAction !== null || selectedRemapProfileIsDefault || selectedRemapProfileIsGameOwned}
                       onClick={deleteButtonRemappingProfile}
                     >
                       <Trash2 size={15} />
@@ -9127,7 +9737,7 @@ export function App() {
                   <div className="remapping-profile-actions">
                     <button
                       type="button"
-                      disabled={selectedControllerProfileIsDefault || pendingAction !== null}
+                      disabled={selectedControllerProfileIsDefault || selectedControllerProfileIsGameOwned || pendingAction !== null}
                       onClick={renameControllerProfile}
                     >
                       <Pencil size={15} />
@@ -9353,6 +9963,254 @@ export function App() {
             </p>
             <div className="remap-profile-dialog-actions">
               <button type="button" className="secondary-action" onClick={() => setTriggerProfileDeleteConfirm(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="primary-action danger">
+                Delete
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {gameCreateOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setGameCreateOpen(false)}
+        >
+          <form
+            className="settings-menu bridge-settings-modal remap-profile-modal game-create-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add game"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitGameCreate();
+            }}
+          >
+            <div className="settings-menu-heading bridge-settings-modal-heading">
+              <div className="modal-heading-copy">
+                <Plus size={16} />
+                <span>Add Game</span>
+              </div>
+              <button
+                className="modal-close-button"
+                type="button"
+                aria-label="Close add game dialog"
+                onClick={() => setGameCreateOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <label className="remap-profile-name-field">
+              <span>Game Name</span>
+              <input
+                autoFocus
+                value={gameCreateName}
+                maxLength={100}
+                placeholder="Cyberpunk 2077"
+                onChange={(event) => setGameCreateName(event.target.value)}
+              />
+            </label>
+            <label className="remap-profile-name-field">
+              <span>Process Names</span>
+              <input
+                value={gameCreateProcessesInput}
+                placeholder="cyberpunk2077.exe"
+                onChange={(event) => setGameCreateProcessesInput(event.target.value)}
+              />
+            </label>
+            <div className="game-create-detect">
+              <button
+                type="button"
+                className="secondary-action"
+                disabled={gameCreateDetectLoading}
+                onClick={() => void detectGameCreateProcesses()}
+              >
+                <SearchIcon size={14} />
+                {gameCreateDetectLoading ? 'Scanning…' : 'Detect Running Game'}
+              </button>
+              {gameCreateCandidates !== null && (
+                gameCreateCandidates.length === 0 ? (
+                  <p className="game-create-detect-empty">No game processes found — is the game running?</p>
+                ) : (
+                  <div className="game-create-candidates">
+                    {gameCreateCandidates.map((candidate) => (
+                      <button
+                        key={candidate.name}
+                        type="button"
+                        className="trigger-lab-chip compact"
+                        onClick={() => setGameCreateProcessesInput((current) => (
+                          mergeDetectedProcessName(current, candidate.name)
+                        ))}
+                      >
+                        {candidate.name}
+                      </button>
+                    ))}
+                  </div>
+                )
+              )}
+            </div>
+            <p className="remap-profile-dialog-copy">
+              Trigger effects, per-game settings and cover art are added from the game's page afterwards.
+            </p>
+            <div className="remap-profile-dialog-actions">
+              <button type="button" className="secondary-action" onClick={() => setGameCreateOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="primary-action"
+                disabled={gameCreateBusy || gameCreateName.trim().length === 0}
+              >
+                {gameCreateBusy ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {gameArtworkDialogFor && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setGameArtworkDialogFor(null)}
+        >
+          <form
+            className="settings-menu bridge-settings-modal remap-profile-modal game-artwork-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Cover art"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void searchGameArtworkDialog();
+            }}
+          >
+            <div className="settings-menu-heading bridge-settings-modal-heading">
+              <div className="modal-heading-copy">
+                <IconPhoto size={16} />
+                <span>Cover Art</span>
+              </div>
+              <button
+                className="modal-close-button"
+                type="button"
+                aria-label="Close cover art dialog"
+                onClick={() => setGameArtworkDialogFor(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <label className="remap-profile-name-field">
+              <span>SteamGridDB API Key</span>
+              <input
+                value={steamGridDbKeyDraft ?? snapshot?.settings.steamGridDbApiKey ?? ''}
+                placeholder="Paste your API key"
+                onChange={(event) => setSteamGridDbKeyDraft(event.target.value)}
+              />
+            </label>
+            <p className="remap-profile-dialog-copy game-artwork-key-hint">
+              Covers come from SteamGridDB. Keys are free:{' '}
+              <button
+                type="button"
+                className="game-artwork-key-link"
+                onClick={() => void window.bridge.openExternal('https://www.steamgriddb.com/profile/preferences/api')}
+              >
+                steamgriddb.com → Preferences → API
+              </button>
+            </p>
+            <div className="game-artwork-search-row">
+              <input
+                className="game-artwork-search-input"
+                value={gameArtworkQuery}
+                placeholder="Search game title"
+                aria-label="Search game title"
+                onChange={(event) => setGameArtworkQuery(event.target.value)}
+              />
+              <button
+                type="submit"
+                className="primary-action"
+                disabled={gameArtworkBusy || gameArtworkQuery.trim().length === 0}
+              >
+                <SearchIcon size={14} />
+                {gameArtworkBusy ? 'Working…' : 'Search'}
+              </button>
+            </div>
+            {gameArtworkError && <p className="game-artwork-error">{gameArtworkError}</p>}
+            {gameArtworkResults !== null && gameArtworkResults.length > 0 && (
+              <div className="game-artwork-results" role="listbox" aria-label="Search results">
+                {gameArtworkResults.map((result) => (
+                  <button
+                    key={result.id}
+                    type="button"
+                    className="game-artwork-result"
+                    disabled={gameArtworkBusy}
+                    onClick={() => void applyGameArtworkChoice(result)}
+                  >
+                    <IconPhoto size={14} />
+                    <span>{result.name}</span>
+                    <span className="game-artwork-result-hint">Use this cover</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="remap-profile-dialog-actions">
+              {gameArtwork[gameArtworkDialogFor] && (
+                <button
+                  type="button"
+                  className="secondary-action danger"
+                  onClick={() => void removeGameArtworkChoice()}
+                >
+                  Remove Cover
+                </button>
+              )}
+              <button type="button" className="secondary-action" onClick={() => setGameArtworkDialogFor(null)}>
+                Close
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {gameDeleteConfirm && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setGameDeleteConfirm(null)}
+        >
+          <form
+            className="settings-menu bridge-settings-modal remap-profile-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Delete game profile"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void confirmDeleteGameProfile();
+            }}
+          >
+            <div className="settings-menu-heading bridge-settings-modal-heading">
+              <div className="modal-heading-copy">
+                <Trash2 size={16} />
+                <span>Delete Game Profile</span>
+              </div>
+              <button
+                className="modal-close-button"
+                type="button"
+                aria-label="Close delete game profile dialog"
+                onClick={() => setGameDeleteConfirm(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="remap-profile-dialog-copy">
+              Delete {gameDeleteConfirm.name}? Its trigger profile, game settings and cover art are removed.
+              Your global settings are not affected.
+            </p>
+            <div className="remap-profile-dialog-actions">
+              <button type="button" className="secondary-action" onClick={() => setGameDeleteConfirm(null)}>
                 Cancel
               </button>
               <button type="submit" className="primary-action danger">

@@ -330,6 +330,24 @@ export const DEFAULT_BUTTON_REMAP_PROFILE: ButtonRemapProfile = {
 };
 export const DEFAULT_CONTROLLER_PROFILE_ID = 'default';
 
+// Game Profile settings are ordinary controller/button-remap profiles keyed by the
+// trigger profile they belong to. The prefix is the whole convention: no separate
+// profile model exists. `game:cyberpunk-2077` in controllerProfiles is Cyberpunk's
+// game settings; the same id in buttonRemappingProfiles is its button mapping.
+export const GAME_SETTINGS_PROFILE_PREFIX = 'game:';
+
+export function gameSettingsProfileId(triggerProfileId: string): string {
+  return `${GAME_SETTINGS_PROFILE_PREFIX}${triggerProfileId}`;
+}
+
+export function isGameSettingsProfileId(value: string): boolean {
+  return value.startsWith(GAME_SETTINGS_PROFILE_PREFIX);
+}
+
+export function triggerProfileIdFromGameSettingsId(value: string): string | null {
+  return isGameSettingsProfileId(value) ? value.slice(GAME_SETTINGS_PROFILE_PREFIX.length) : null;
+}
+
 export function normalizeBridgePresetId(
   value: unknown,
   fallback: BridgePresetId = 'balanced'

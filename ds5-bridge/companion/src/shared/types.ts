@@ -31,6 +31,7 @@ export interface CompanionSettings {
   uiThemePreset: UiThemePreset;
   launchAtStartupEnabled: boolean;
   setupSkipped: boolean;
+  steamGridDbApiKey: string;
   showBatteryPercentTrayIcon: boolean;
   lastUpdateCheckAt: number;
   skippedUpdateVersions: string[];

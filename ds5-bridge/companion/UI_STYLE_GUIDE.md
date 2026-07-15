@@ -70,6 +70,26 @@ Light color selection belongs in the Lighting behavior card. Preset swatches sho
 
 Shelved research note: DualSense lightbar output is likely raw PWM rather than display-managed sRGB. A future calibrated mode could test gamma and per-channel weights against real hardware, but guessing those values in the normal UI made brightness misleading.
 
+## Game Profile Tab
+
+The Game Profile tab is the app's landing page and intentionally deviates from the
+paired-card contract: it is a cover grid (Nvidia-App style), not a settings surface.
+Its geometry rules:
+
+- The grid uses `game-tile-grid` (`repeat(auto-fill, minmax(148px, 1fr))`) with 3:4
+  cover tiles; tiles without SteamGridDB art render a deterministic gradient +
+  monogram (`game-tile-art-N`, literal colors on purpose — they stand in for box art
+  and do not follow the UI theme).
+- The per-game hub header (`game-detail-header`) and the Now Playing hero
+  (`game-hero`) are single full-width cards; everything below the hub header reuses
+  `overview-card-grid`.
+- While a game hub is open and another tab is active, `game-scope-banner` renders
+  above `control-pages` and the panel gets `game-scope-active`, which relaxes
+  `.control-pages` to `height: auto` so the banner can scroll with the page. Settings
+  pages themselves are NOT forked per game: scope is switched by selecting the
+  game-owned (`game:<trigger-profile-id>`) controller/remap profiles, so every tab
+  keeps its normal geometry.
+
 ## Visual QA
 
 Before considering a UI change finished:
