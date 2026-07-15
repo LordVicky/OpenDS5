@@ -3,6 +3,7 @@
   stdenv,
   buildNpmPackage,
   electron_42,
+  nodejs,
   libusb1,
   makeWrapper,
   pipewire,
@@ -35,7 +36,10 @@ buildNpmPackage {
     runHook preBuild
 
     pushd ds5-bridge/companion
-    npm run build:app
+    # npm's generated .bin shims use /usr/bin/env, which is not available in
+    # the Nix sandbox. Invoke the tools with the pinned Nix Node.js directly.
+    ${nodejs}/bin/node ../../node_modules/typescript/bin/tsc -p tsconfig.main.json
+    ${nodejs}/bin/node ../../node_modules/vite/bin/vite.js build
     popd
 
     runHook postBuild

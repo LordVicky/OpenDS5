@@ -58,6 +58,28 @@ export function UpdateToast({
         </>
       )}
 
+      {state.phase === 'notify' && (
+        <>
+          <div className="update-toast-head">
+            <div className="update-toast-glyph" aria-hidden="true">↑</div>
+            <div>
+              <p className="update-toast-title">Update available — {state.version}</p>
+              <p className="update-toast-sub">
+                Update OpenDS5 through your NixOS configuration or flake.
+              </p>
+            </div>
+          </div>
+          <div className="update-toast-actions">
+            <button type="button" className="primary" onClick={() => onAction('openReleasePage')}>
+              View release
+            </button>
+            <button type="button" onClick={() => onAction('dismiss')}>
+              Later
+            </button>
+          </div>
+        </>
+      )}
+
       {state.phase === 'downloading' && (
         <ProgressCard
           title={`Updating to ${state.version}`}

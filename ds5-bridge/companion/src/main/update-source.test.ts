@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fetchLatestRelease, parseRelease } from './update-source';
+import { fetchLatestRelease, parseRelease, updateReleaseUrl } from './update-source';
 
 const payload = {
   tag_name: 'v1.8.0',
@@ -42,6 +42,20 @@ describe('parseRelease', () => {
 });
 
 describe('fetchLatestRelease', () => {
+  it('uses the opt-in endpoint override for local UI testing', async () => {
+    vi.stubEnv('OPENDS5_UPDATE_RELEASE_URL', 'http://127.0.0.1:9999/latest');
+    const fake = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
+
+    await fetchLatestRelease(fake as unknown as typeof fetch);
+
+    expect(updateReleaseUrl()).toBe('http://127.0.0.1:9999/latest');
+    expect(fake).toHaveBeenCalledWith(
+      'http://127.0.0.1:9999/latest',
+      expect.objectContaining({ headers: { accept: 'application/vnd.github+json' } }),
+    );
+    vi.unstubAllEnvs();
+  });
+
   it('parses a successful response', async () => {
     const fake = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
     await expect(fetchLatestRelease(fake as unknown as typeof fetch)).resolves.toMatchObject({
