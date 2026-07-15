@@ -18,9 +18,14 @@ lets you shape your controller's adaptive triggers, haptics, audio, lighting,
 and buttons from one app — while your games see a wired DualSense with all
 its native features unlocked, even though you're playing over Bluetooth.
 
+<p align="center">
+  <img src="docs/screenshots/overview.png" alt="OpenDS5 Overview — connection status, quick actions and quick controls" width="850">
+</p>
+
 ---
 
 - [Features](#-features)
+- [Screenshots](#-screenshots)
 - [Why the "wired" part matters](#-why-the-wired-part-matters)
 - [Supported distros](#-supported-distros)
 - [Getting started](#-getting-started)
@@ -54,6 +59,24 @@ its native features unlocked, even though you're playing over Bluetooth.
 - 📦 **Painless install** — one AppImage. A first-launch setup wizard installs
   the kernel module and background service for you (one password prompt),
   with Secure Boot handled. See [Supported distros](#-supported-distros).
+
+## 📸 Screenshots
+
+| | |
+| --- | --- |
+| **Game Profiles** — cover art, native-feature flags, per-game everything ![Game Profile tab](docs/screenshots/game-profile.png) | **Trigger Lab** — design adaptive trigger effects, feel them live ![Trigger Profiles editor](docs/screenshots/trigger-profiles.png) |
+| **Haptics** — HD haptics, rumble and audio-reactive feedback ![Haptics tab](docs/screenshots/haptics.png) | **Chords** — button combos that fire functions in any game ![Chords page](docs/screenshots/chords.png) |
+
+<details>
+<summary><b>More screenshots</b> — audio, triggers, lighting, remapping, system</summary>
+
+| | |
+| --- | --- |
+| **Audio** ![Audio tab](docs/screenshots/audio.png) | **Adaptive Triggers** ![Triggers tab](docs/screenshots/triggers.png) |
+| **Lighting** ![Lighting tab](docs/screenshots/lighting.png) | **Button Remapping** ![Button Remapping tab](docs/screenshots/button-remapping.png) |
+| **System** ![System tab](docs/screenshots/system.png) | **Bridge Settings** ![Bridge settings](docs/screenshots/bridge-settings.png) |
+
+</details>
 
 ## 🔌 Why the "wired" part matters
 
