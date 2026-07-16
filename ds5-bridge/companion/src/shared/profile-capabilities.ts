@@ -24,6 +24,21 @@ function slotLabel(name: string, slot: TriggerSlotConfig): string | null {
 }
 
 export function describeCapabilities(profile: TriggerProfile): string {
+  // Multi-state profiles describe their state machinery; the per-slot labels
+  // below would only reflect states[0], which undersells what they carry.
+  if (profile.states && profile.states.length > 1) {
+    const parts = [`${profile.states.length} states`];
+    if (profile.switching?.stickWheel) parts.push('analog wheel');
+    const rules = profile.switching?.rules.length ?? 0;
+    if (rules > 0) parts.push(`${rules} switch ${rules === 1 ? 'rule' : 'rules'}`);
+    const modifiers = profile.states.reduce(
+      (sum, state) => sum + state.triggers.l2.modifiers.length + state.triggers.r2.modifiers.length,
+      0
+    );
+    if (modifiers > 0) parts.push(`${modifiers} ${modifiers === 1 ? 'modifier' : 'modifiers'}`);
+    return parts.join(' · ');
+  }
+
   const { l2, r2 } = profile.triggers;
   const parts = [slotLabel('L2', l2), slotLabel('R2', r2)].filter((part): part is string => part !== null);
 
