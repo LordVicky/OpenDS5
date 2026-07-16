@@ -29,5 +29,14 @@ describe('GestureEngine', () => {
     const emit = vi.fn(); const engine = new GestureEngine({ emit });
     engine.update(new Set(['ps']), 0); engine.reset(); vi.runAllTimers(); expect(emit).not.toHaveBeenCalled();
   });
+  it('does not turn a chord after a pending single into a later double press', () => {
+    const emit = vi.fn(); const engine = new GestureEngine({ emit });
+    engine.update(new Set(['ps']), 0); engine.update(new Set(), 1);
+    engine.update(new Set(['ps']), 100); engine.update(new Set(['ps', 'create']), 150); engine.update(new Set(), 151);
+    engine.update(new Set(['ps']), 1000); engine.update(new Set(), 1001); vi.runAllTimers();
+    expect(emit).toHaveBeenCalledWith({ type: 'chord', modifier: 'ps', button: 'create' });
+    expect(emit).toHaveBeenCalledWith({ type: 'single-press', button: 'ps' });
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'double-press' }));
+  });
   it('rejects invalid timing', () => { expect(() => new GestureEngine({ chordWindowMs: 0 })).toThrow(); });
 });

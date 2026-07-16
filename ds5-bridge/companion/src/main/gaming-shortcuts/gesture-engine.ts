@@ -32,6 +32,7 @@ export class GestureEngine {
   private pressedAt = new Map<ControllerButton, number>();
   private longTimer: GestureTimer | null = null;
   private singleTimer: GestureTimer | null = null;
+  private doublePressCycle = false;
   private longEmitted = false;
   private chordEmitted = false;
   private chordCycle = false;
@@ -54,16 +55,20 @@ export class GestureEngine {
     this.held = next;
   }
 
-  reset(): void { this.clearTimers(); this.held.clear(); this.pressedAt.clear(); this.longEmitted = false; this.chordEmitted = false; this.chordCycle = false; this.psPressAt = null; }
+  reset(): void { this.clearTimers(); this.held.clear(); this.pressedAt.clear(); this.longEmitted = false; this.chordEmitted = false; this.chordCycle = false; this.doublePressCycle = false; this.psPressAt = null; }
   stop(): void { this.reset(); }
 
   private press(button: ControllerButton, now: number): void {
     this.pressedAt.set(button, now);
     if (button === 'ps') {
-      if (this.singleTimer) this.clearSingleTimer();
+      if (this.singleTimer) { this.clearSingleTimer(); this.doublePressCycle = true; }
       this.psPressAt = now; this.longEmitted = false; this.chordEmitted = false; this.chordCycle = false;
       this.longTimer = this.scheduler.setTimeout(() => {
-        if (this.held.has('ps') && !this.chordEmitted) { this.longEmitted = true; this.emitGesture({ type: 'long-press', button: 'ps', durationMs: this.longThreshold }); }
+        if (this.held.has('ps') && !this.chordEmitted) {
+          this.doublePressCycle = false;
+          this.longEmitted = true;
+          this.emitGesture({ type: 'long-press', button: 'ps', durationMs: this.longThreshold });
+        }
       }, this.longThreshold);
       for (const secondary of this.held) {
         const secondaryAt = this.pressedAt.get(secondary);
@@ -74,12 +79,12 @@ export class GestureEngine {
     if (this.held.has('ps') && this.psPressAt !== null && now - this.psPressAt <= this.chordWindow) this.chord(button);
   }
 
-  private chord(button: ControllerButton): void { if (this.chordEmitted) return; this.chordEmitted = true; this.chordCycle = true; this.clearLongTimer(); this.clearSingleTimer(); this.emitGesture({ type: 'chord', modifier: 'ps', button }); }
+  private chord(button: ControllerButton): void { if (this.chordEmitted) return; this.chordEmitted = true; this.chordCycle = true; this.doublePressCycle = false; this.clearLongTimer(); this.clearSingleTimer(); this.emitGesture({ type: 'chord', modifier: 'ps', button }); }
   private release(button: ControllerButton): void {
     if (button !== 'ps') { this.pressedAt.delete(button); if (this.held.has('ps')) this.chordEmitted = false; return; }
     this.clearLongTimer();
     if (this.chordCycle || this.longEmitted) return;
-    if (this.singleTimer) { this.scheduler.clearTimeout(this.singleTimer); this.singleTimer = null; this.emitGesture({ type: 'double-press', button: 'ps' }); }
+    if (this.doublePressCycle) { this.doublePressCycle = false; this.emitGesture({ type: 'double-press', button: 'ps' }); }
     else this.singleTimer = this.scheduler.setTimeout(() => { this.singleTimer = null; this.emitGesture({ type: 'single-press', button: 'ps' }); }, this.doubleWindow);
   }
   private clearLongTimer(): void { if (this.longTimer) { this.scheduler.clearTimeout(this.longTimer); this.longTimer = null; } }
