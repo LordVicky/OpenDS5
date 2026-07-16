@@ -394,7 +394,7 @@ const STATE_SWITCH_ACTION_OPTIONS: Array<[string, StateSwitchAction]> = [
 const STATE_SWITCH_BUTTON_GLYPHS: Record<string, string> = {
   cross: '✕', circle: '○', triangle: '△', square: '□',
   l1: 'L1', r1: 'R1', l3: 'L3', r3: 'R3',
-  create: 'Create', options: 'Options', ps: 'PS',
+  create: 'CR', options: 'OP', ps: 'PS',
   'dpad-up': '↑', 'dpad-down': '↓', 'dpad-left': '←', 'dpad-right': '→'
 };
 const MUTE_BUTTON_MODE_OPTIONS: Array<[string, MuteButtonMode]> = [

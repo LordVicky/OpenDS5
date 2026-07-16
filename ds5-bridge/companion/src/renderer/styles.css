@@ -8014,18 +8014,20 @@ button.trigger-lab-chip {
   font-size: 13px;
 }
 
+/* Prototype-style capture chip: dashed accent outline around boxed glyph
+   badges, [CR] + [→], the trigger button on the accent treatment. */
 .rule-capture-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 11px;
-  border: 1px solid var(--surface-border-strong);
-  border-radius: 8px;
-  background: var(--surface-panel);
+  gap: 5px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--text-control);
-  font-size: 13px;
-  font-weight: 750;
+  font-size: 12.5px;
+  font-weight: 650;
   cursor: pointer;
 }
 
@@ -8034,16 +8036,35 @@ button.trigger-lab-chip {
 }
 
 .rule-capture-chip.listening {
-  border: 1px dashed var(--accent);
+  border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
+.rule-chip-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border-strong);
+  background: var(--surface-card);
+  color: var(--text-control);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1;
+}
+
 .rule-chip-glyph.accent {
+  border-color: var(--accent);
   color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .rule-chip-plus {
   color: var(--text-dim);
+  font-weight: 750;
 }
 
 .rule-add-listening {
