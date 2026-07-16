@@ -19,6 +19,7 @@ const EV_KEY = 1;
 const EV_ABS = 3;
 const ABS_RZ = 5;
 const BTN_TL = 0x136;
+const NEW_CODES = [0x13a, 0x13b, 0x13c, 0x14a, 248, 0x220, 0x221, 0x222, 0x223];
 
 async function collect(reader: EvdevInputReader, count: number): Promise<ControllerInputState[]> {
   const states: ControllerInputState[] = [];
@@ -31,6 +32,15 @@ async function collect(reader: EvdevInputReader, count: number): Promise<Control
 }
 
 describe('EvdevInputReader', () => {
+  it('normalizes all supported DualSense extra buttons and ignores unknown codes', async () => {
+    const stream = new PassThrough(); const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream }); reader.start();
+    const pending = collect(reader, 2);
+    stream.write(Buffer.concat([...NEW_CODES.map((code) => event(EV_KEY, code, 1)), event(EV_KEY, 999, 1), event(EV_SYN, 0, 0)]));
+    stream.write(Buffer.concat([...NEW_CODES.map((code) => event(EV_KEY, code, 0)), event(EV_SYN, 0, 0)]));
+    const [pressed, released] = await pending;
+    expect(pressed.buttons).toEqual(new Set(['create', 'options', 'ps', 'touchpad', 'mute', 'dpad-up', 'dpad-down', 'dpad-left', 'dpad-right']));
+    expect(released.buttons).toEqual(new Set());
+  });
   it('accumulates axis and button events and emits state on EV_SYN', async () => {
     const stream = new PassThrough();
     const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
@@ -132,6 +142,13 @@ describe('EvdevInputReader', () => {
     expect(second.buttons.has('dpad-up')).toBe(true);
     expect(third.buttons.has('dpad-left')).toBe(false);
     expect(third.buttons.has('dpad-up')).toBe(false);
+  });
+
+  it('clears buffered data and held state on stop', async () => {
+    let stream = new PassThrough(); const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream }); reader.start();
+    const pending = collect(reader, 1); stream.write(Buffer.concat([event(EV_KEY, BTN_TL, 1), event(EV_SYN, 0, 0)]));
+    const [first] = await pending; expect(first.buttons.has('l1')).toBe(true); reader.stop();
+    stream = new PassThrough(); const next = collect(reader, 1); reader.start(); stream.write(event(EV_SYN, 0, 0)); const [reset] = await next; expect(reset.buttons).toEqual(new Set());
   });
 
   it('resolves the device path lazily on each start() rather than once at construction', () => {

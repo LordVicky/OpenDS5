@@ -1,0 +1,33 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { GestureEngine } from './gesture-engine';
+
+describe('GestureEngine', () => {
+  beforeEach(() => vi.useFakeTimers());
+  it('delays a single press until the double window', () => {
+    const output: unknown[] = []; const engine = new GestureEngine({ emit: (event) => output.push(event) });
+    engine.update(new Set(['ps']), 0); engine.update(new Set(), 1);
+    expect(output).toEqual([]); vi.advanceTimersByTime(299); expect(output).toEqual([]);
+    vi.advanceTimersByTime(1); expect(output).toEqual([{ type: 'single-press', button: 'ps' }]);
+  });
+  it('emits only double press inside the boundary', () => {
+    const emit = vi.fn(); const engine = new GestureEngine({ emit });
+    engine.update(new Set(['ps']), 0); engine.update(new Set(), 1); engine.update(new Set(['ps']), 301); engine.update(new Set(), 302);
+    vi.runAllTimers(); expect(emit).toHaveBeenCalledTimes(1); expect(emit).toHaveBeenCalledWith({ type: 'double-press', button: 'ps' });
+  });
+  it('emits long press at threshold and no short gesture', () => {
+    const emit = vi.fn(); const engine = new GestureEngine({ emit });
+    engine.update(new Set(['ps']), 0); vi.advanceTimersByTime(650); expect(emit).toHaveBeenCalledWith({ type: 'long-press', button: 'ps', durationMs: 650 });
+    engine.update(new Set(), 651); vi.runAllTimers(); expect(emit).toHaveBeenCalledTimes(1);
+  });
+  it('recognizes either chord order and suppresses PS output', () => {
+    const emit = vi.fn(); const engine = new GestureEngine({ emit });
+    engine.update(new Set(['ps']), 0); engine.update(new Set(['ps', 'create']), 150); engine.update(new Set(), 151); vi.runAllTimers();
+    expect(emit).toHaveBeenCalledWith({ type: 'chord', modifier: 'ps', button: 'create' }); expect(emit).toHaveBeenCalledTimes(1);
+    engine.update(new Set(['create']), 1000); engine.update(new Set(['ps', 'create']), 1100); expect(emit).toHaveBeenCalledTimes(2);
+  });
+  it('reset clears stale timers and held state', () => {
+    const emit = vi.fn(); const engine = new GestureEngine({ emit });
+    engine.update(new Set(['ps']), 0); engine.reset(); vi.runAllTimers(); expect(emit).not.toHaveBeenCalled();
+  });
+  it('rejects invalid timing', () => { expect(() => new GestureEngine({ chordWindowMs: 0 })).toThrow(); });
+});

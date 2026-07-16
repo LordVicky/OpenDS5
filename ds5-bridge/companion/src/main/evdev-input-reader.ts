@@ -13,6 +13,9 @@ const ABS_RZ = 5;
 const ABS_HAT0X = 16;
 const ABS_HAT0Y = 17;
 
+// Codes verified against /usr/include/linux/input-event-codes.h. DualSense's
+// physical gamepad node reports its extra controls using these generic evdev
+// names; the node selector below excludes the touchpad/sensor/headset nodes.
 const BUTTON_NAMES: Record<number, string> = {
   0x130: 'cross',
   0x131: 'circle',
@@ -24,7 +27,13 @@ const BUTTON_NAMES: Record<number, string> = {
   0x13b: 'options',
   0x13c: 'ps',
   0x13d: 'l3',
-  0x13e: 'r3'
+  0x13e: 'r3',
+  0x14a: 'touchpad',
+  248: 'mute',
+  0x220: 'dpad-up',
+  0x221: 'dpad-down',
+  0x222: 'dpad-left',
+  0x223: 'dpad-right'
 };
 
 // Lowest word of the abs capability bitmask; bit 2 = ABS_Z (L2),
@@ -131,6 +140,9 @@ export class EvdevInputReader extends EventEmitter {
     }
     this.stream = null;
     this.pending = Buffer.alloc(0);
+    this.buttons.clear();
+    this.l2 = 0;
+    this.r2 = 0;
   }
 
   private consume(chunk: Buffer): void {
