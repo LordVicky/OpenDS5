@@ -32,6 +32,9 @@ type StickWheelEditorProps = {
   buttonOptions: Array<[string, string]>;
   liveSample: StickSample | null;
   onChange: (wheel: StickWheelConfig) => void;
+  // Fired when a sector holding a state is clicked, so the host can focus
+  // that state in its editor.
+  onPickState?: (stateName: string) => void;
   renderSelect: SelectRenderer;
 };
 
@@ -47,6 +50,7 @@ export function StickWheelEditor({
   buttonOptions,
   liveSample,
   onChange,
+  onPickState,
   renderSelect
 }: StickWheelEditorProps) {
   const [selectedSector, setSelectedSector] = useState(0);
@@ -103,9 +107,15 @@ export function StickWheelEditor({
             role="button"
             aria-label={`Sector ${index + 1}: ${state ?? 'unassigned'}`}
             tabIndex={0}
-            onClick={() => setSelectedSector(index)}
+            onClick={() => {
+              setSelectedSector(index);
+              if (state !== null) onPickState?.(state);
+            }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') setSelectedSector(index);
+              if (event.key === 'Enter' || event.key === ' ') {
+                setSelectedSector(index);
+                if (state !== null) onPickState?.(state);
+              }
             }}
           />
         ))}

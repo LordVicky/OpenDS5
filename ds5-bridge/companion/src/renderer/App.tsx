@@ -9373,6 +9373,12 @@ export function App() {
                             buttonOptions={STATE_SWITCH_BUTTON_OPTIONS}
                             liveSample={stickSample}
                             onChange={updateStickWheelSynced}
+                            onPickState={(stateName) => {
+                              const index = (triggerProfileDraft.states ?? []).findIndex(
+                                (state) => state.name === stateName
+                              );
+                              if (index >= 0) setTriggerProfileEditingState(index);
+                            }}
                             renderSelect={({ value, options, ariaLabel, onChange }) => (
                               <CustomSelect
                                 value={value}
