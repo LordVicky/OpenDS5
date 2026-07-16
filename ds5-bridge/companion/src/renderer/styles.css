@@ -8061,9 +8061,46 @@ button.trigger-lab-chip {
 .stick-wheel-controls {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-width: 220px;
-  flex: 1 1 220px;
+  gap: 12px;
+  min-width: 240px;
+  flex: 1 1 240px;
+}
+
+/* Headers left, control right — one row per setting. */
+.stick-wheel-slider {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stick-wheel-slider > span {
+  flex: 0 0 auto;
+}
+
+.stick-wheel-slider input[type='range'] {
+  width: 140px;
+  flex: 0 0 auto;
+}
+
+.stick-wheel-controls .trigger-profiles-modifier-param > span,
+.trigger-profiles-switch-settings .trigger-profiles-modifier-param > span {
+  color: var(--text-control);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+/* Match the number field to the selects beside it. */
+.trigger-profiles-switch-settings input[type='number'] {
+  height: 38px;
+  width: 84px;
+  padding: 0 12px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-control);
+  color: var(--text-control);
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .trigger-profiles-live-states {

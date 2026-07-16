@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import {
   MAX_WHEEL_SECTORS,
   MIN_WHEEL_SECTORS,
@@ -169,35 +169,40 @@ export function StickWheelEditor({
             onChange: (value) => assignSector(value === '' ? null : value)
           })}
         </label>
-        <label className="trigger-profiles-modifier-param">
+        <label className="trigger-profiles-modifier-param stick-wheel-slider">
           <span>{`Sector ${selectedSector + 1} width ${Math.round(spans[selectedSector])}°`}</span>
           <input
             type="range"
             min={10}
             max={360 - 10 * (count - 1)}
             value={Math.round(spans[selectedSector])}
+            style={{
+              '--range-fill': `${((Math.round(spans[selectedSector]) - 10) / (360 - 10 * (count - 1) - 10)) * 100}%`
+            } as CSSProperties}
             aria-label={`Sector ${selectedSector + 1} width degrees`}
             onChange={(event) => setSectorSpan(Number(event.target.value))}
           />
         </label>
-        <label className="trigger-profiles-modifier-param">
+        <label className="trigger-profiles-modifier-param stick-wheel-slider">
           <span>{`Threshold ${wheel.thresholdPercent}%`}</span>
           <input
             type="range"
             min={1}
             max={100}
             value={wheel.thresholdPercent}
+            style={{ '--range-fill': `${((wheel.thresholdPercent - 1) / 99) * 100}%` } as CSSProperties}
             aria-label="Stick threshold percent"
             onChange={(event) => onChange({ ...wheel, thresholdPercent: Number(event.target.value) })}
           />
         </label>
-        <label className="trigger-profiles-modifier-param">
+        <label className="trigger-profiles-modifier-param stick-wheel-slider">
           <span>{`Rotation ${wheel.angleOffsetDeg}°`}</span>
           <input
             type="range"
             min={0}
             max={359}
             value={wheel.angleOffsetDeg}
+            style={{ '--range-fill': `${(wheel.angleOffsetDeg / 359) * 100}%` } as CSSProperties}
             aria-label="Stick wheel rotation degrees"
             onChange={(event) => onChange({ ...wheel, angleOffsetDeg: Number(event.target.value) })}
           />
