@@ -25,6 +25,7 @@ export type RebuildOutcome =
 export type UpdateState =
   | { phase: 'idle' }
   | { phase: 'offer'; version: string; currentVersion: string; notes: string; sizeBytes: number }
+  | { phase: 'notify'; version: string; url: string }
   | { phase: 'downloading'; version: string; received: number; total: number }
   | { phase: 'verifying'; version: string }
   | { phase: 'installing'; version: string; step: string; index: number; total: number }
@@ -37,6 +38,16 @@ export function isCheckDue(lastCheckAt: number, now: number): boolean {
   if (lastCheckAt <= 0) return true;
   if (lastCheckAt > now) return true;
   return now - lastCheckAt >= UPDATE_CHECK_INTERVAL_MS;
+}
+
+/** NixOS updates are managed declaratively, so the AppImage updater must stay read-only. */
+export function isNixOS(readFile: (file: string) => string = (file) => fs.readFileSync(file, 'utf8')): boolean {
+  if (process.platform !== 'linux') return false;
+  try {
+    return /^ID=(?:"|')?nixos(?:"|')?\s*$/im.test(readFile('/etc/os-release'));
+  } catch {
+    return false;
+  }
 }
 
 function runCommand(cmd: string, args: string[]): string | null {
@@ -95,6 +106,7 @@ export type UpdateServiceDeps = {
   installedModuleVersion: () => string | null;
   fetchText: (url: string) => Promise<string>;
   moduleSourceRoot: () => string;
+  isNixOS: () => boolean;
 };
 
 const DEFAULT_DEPS: UpdateServiceDeps = {
@@ -113,6 +125,7 @@ const DEFAULT_DEPS: UpdateServiceDeps = {
   // no bundled module. Return '' rather than a cwd-relative 'vds-module', which a stray
   // directory of that name would turn into a live rebuild gate.
   moduleSourceRoot: () => (process.resourcesPath ? path.join(process.resourcesPath, 'vds-module') : ''),
+  isNixOS,
 };
 
 export class UpdateService {
@@ -145,7 +158,8 @@ export class UpdateService {
    */
   async check(skippedVersions: readonly string[]): Promise<UpdateState> {
     const target = this.deps.appImagePath();
-    if (!target) {
+    const nixos = this.deps.isNixOS();
+    if (!target && !nixos) {
       this.set({ phase: 'idle' });
       return this.state;
     }
@@ -163,6 +177,18 @@ export class UpdateService {
     }
 
     this.pending = decision;
+
+    if (nixos) {
+      this.set({ phase: 'notify', version: decision.version, url: decision.appImage.url });
+      return this.state;
+    }
+
+    // NixOS can notify without an AppImage path; all other update modes require one.
+    if (!target) {
+      this.pending = null;
+      this.set({ phase: 'idle' });
+      return this.state;
+    }
 
     if (!this.deps.canSelfReplace(target)) {
       this.set({ phase: 'readonly', version: decision.version, url: decision.appImage.url });
@@ -188,6 +214,7 @@ export class UpdateService {
    * old module from the old sources. See rebuildIfNeeded(), called on the next launch.
    */
   async start(): Promise<void> {
+    if (this.deps.isNixOS()) return;
     const decision = this.pending;
     const target = this.deps.appImagePath();
     if (!decision || !target) return;
@@ -268,6 +295,7 @@ export class UpdateService {
    * (nothing to do, or the rebuild failed — in which case the next launch retries).
    */
   async rebuildIfNeeded(recordedHash: string): Promise<string | null> {
+    if (this.deps.isNixOS()) return null;
     const outcome = decideRebuild({
       bundledHash: this.deps.moduleSourceHash(this.deps.moduleSourceRoot()),
       recordedHash,

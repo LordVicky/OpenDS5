@@ -3,6 +3,10 @@ import type { Release, ReleaseAsset } from './update-checker';
 export const LATEST_RELEASE_URL =
   'https://api.github.com/repos/LordVicky/OpenDS5/releases/latest';
 
+/** Opt-in local endpoint used for manual updater UI testing; production defaults to GitHub. */
+export const updateReleaseUrl = (): string =>
+  process.env.OPENDS5_UPDATE_RELEASE_URL || LATEST_RELEASE_URL;
+
 function parseAsset(value: unknown): ReleaseAsset | null {
   if (typeof value !== 'object' || value === null) return null;
   const asset = value as Record<string, unknown>;
@@ -33,7 +37,7 @@ export function parseRelease(payload: unknown): Release | null {
 /** Resolves null on any failure; a background check must never throw into launch. */
 export async function fetchLatestRelease(fetchImpl: typeof fetch = fetch): Promise<Release | null> {
   try {
-    const response = await fetchImpl(LATEST_RELEASE_URL, {
+    const response = await fetchImpl(updateReleaseUrl(), {
       headers: { accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(10_000),
     });
