@@ -6314,6 +6314,38 @@ export function App() {
     });
   }
 
+  // Moves a state to a new position in the state list (cycle order, chips,
+  // editor strip). Rules, defaultState, and wheel sectors reference states by
+  // name, so reordering never breaks them; only the states[0] triggers mirror
+  // needs refreshing.
+  function moveTriggerProfileState(from: number, to: number) {
+    setTriggerProfileDraft((draft) => {
+      if (!draft?.states || from === to || !draft.states[from] || to < 0 || to >= draft.states.length) return draft;
+      const states = [...draft.states];
+      const [moved] = states.splice(from, 1);
+      states.splice(to, 0, moved);
+      return { ...draft, states, triggers: states[0].triggers };
+    });
+    setTriggerProfileEditingState(to);
+  }
+
+  // Puts a state into a wheel slot from the state editor. If the target slot
+  // is occupied, the occupant moves to this state's old slot (a swap), so no
+  // assignment can silently orphan another state.
+  function assignStateToWheelSlot(stateName: string, slot: number | null) {
+    updateTriggerProfileSwitching((switching) => {
+      if (!switching.stickWheel) return switching;
+      const sectors = [...switching.stickWheel.sectors];
+      const previousSlot = sectors.indexOf(stateName);
+      if (previousSlot >= 0) sectors[previousSlot] = null;
+      if (slot !== null && slot >= 0 && slot < sectors.length) {
+        if (sectors[slot] !== null && previousSlot >= 0) sectors[previousSlot] = sectors[slot];
+        sectors[slot] = stateName;
+      }
+      return { ...switching, stickWheel: { ...switching.stickWheel, sectors } };
+    });
+  }
+
   function updateTriggerProfileSwitchRule(index: number, patch: Partial<StateSwitchRule>) {
     updateTriggerProfileSwitching((switching) => ({
       ...switching,
@@ -8709,6 +8741,40 @@ export function App() {
                           onChange={(event) => renameTriggerProfileState(triggerProfileEditingState, event.target.value)}
                         />
                       </label>
+                      <label className="trigger-profiles-state-name-field trigger-profiles-state-position-field">
+                        <span>Position</span>
+                        <CustomSelect
+                          value={String(triggerProfileEditingState)}
+                          options={(triggerProfileDraft.states ?? []).map((_, index): [string, string] => [
+                            `${index + 1} of ${triggerProfileDraft.states?.length ?? 0}`,
+                            String(index)
+                          ])}
+                          ariaLabel={`Position of ${triggerProfileDraft.states[triggerProfileEditingState].name}`}
+                          onChange={(value) => moveTriggerProfileState(triggerProfileEditingState, Number(value))}
+                        />
+                      </label>
+                      {triggerProfileDraft.switching?.stickWheel && (() => {
+                        const wheel = triggerProfileDraft.switching.stickWheel;
+                        const stateName = triggerProfileDraft.states[triggerProfileEditingState].name;
+                        const currentSlot = wheel.sectors.indexOf(stateName);
+                        return (
+                          <label className="trigger-profiles-state-name-field">
+                            <span>Wheel slot</span>
+                            <CustomSelect
+                              value={currentSlot >= 0 ? String(currentSlot) : ''}
+                              options={[
+                                ['Unassigned', ''],
+                                ...wheel.sectors.map((occupant, index): [string, string] => [
+                                  `Slot ${index + 1}${occupant && occupant !== stateName ? ` — ${occupant}` : ''}`,
+                                  String(index)
+                                ])
+                              ]}
+                              ariaLabel={`Wheel slot for ${stateName}`}
+                              onChange={(value) => assignStateToWheelSlot(stateName, value === '' ? null : Number(value))}
+                            />
+                          </label>
+                        );
+                      })()}
                       <button
                         type="button"
                         className="secondary-action"
