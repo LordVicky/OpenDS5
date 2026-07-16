@@ -8009,10 +8009,11 @@ button.trigger-lab-chip {
 
 .stick-wheel-sector {
   fill: var(--surface-card);
-  stroke: var(--surface-border-strong);
+  stroke: var(--surface-divider);
   stroke-width: 1;
   cursor: pointer;
-  transition: fill 120ms ease;
+  outline: none;
+  transition: fill 160ms ease, filter 160ms ease;
 }
 
 .stick-wheel-sector:hover {
@@ -8024,38 +8025,37 @@ button.trigger-lab-chip {
   stroke-dasharray: 3 3;
 }
 
-.stick-wheel-sector.selected {
-  stroke: var(--accent);
-  stroke-width: 2;
+.stick-wheel-sector.selected,
+.stick-wheel-sector:focus-visible {
+  fill: color-mix(in srgb, var(--accent) 22%, var(--surface-card));
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 65%, transparent));
 }
 
 .stick-wheel-sector.live {
-  fill: color-mix(in srgb, var(--accent) 28%, transparent);
+  fill: color-mix(in srgb, var(--accent) 38%, var(--surface-card));
 }
 
 .stick-wheel-label {
   fill: var(--text-secondary);
-  font-size: 11px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
   text-anchor: middle;
   dominant-baseline: middle;
   pointer-events: none;
 }
 
 .stick-wheel-deadzone {
-  fill: rgba(0, 0, 0, 0.25);
+  fill: rgba(0, 0, 0, 0.28);
   stroke: var(--surface-divider);
   pointer-events: none;
 }
 
-.stick-wheel-offset-marker {
-  fill: var(--accent);
-}
-
 .stick-wheel-stick-dot {
   fill: var(--accent);
-  stroke: #fff;
+  stroke: rgba(255, 255, 255, 0.85);
   stroke-width: 1.5;
   pointer-events: none;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 80%, transparent));
 }
 
 .stick-wheel-controls {

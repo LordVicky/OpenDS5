@@ -5,7 +5,7 @@ import {
   type StickWheelConfig
 } from '../shared/trigger-profiles';
 import { stickWheelSector } from '../shared/trigger-state-switcher';
-import { sectorLabelPoint, sectorPath, wheelPoint } from './stick-wheel-geometry';
+import { fitSectorLabel, sectorLabelPoint, sectorPath } from './stick-wheel-geometry';
 
 const SIZE = 260;
 const CENTER = SIZE / 2;
@@ -99,17 +99,28 @@ export function StickWheelEditor({
         ))}
         {wheel.sectors.map((state, index) => {
           const point = sectorLabelPoint(CENTER, CENTER, OUTER_RADIUS, innerRadius, index, count, wheel.angleOffsetDeg);
+          // Character budget from the chord width at the label radius, so
+          // labels shrink with the slot count instead of spilling over.
+          const labelRadius = (OUTER_RADIUS + innerRadius) / 2;
+          const chord = 2 * labelRadius * Math.sin(Math.PI / count);
+          const maxChars = Math.max(4, Math.min(16, Math.floor(chord / 6)));
+          const lines = fitSectorLabel(state ?? '—', maxChars);
           return (
-            <text key={index} x={point.x} y={point.y} className="stick-wheel-label">
-              {state ?? '—'}
+            <text
+              key={index}
+              x={point.x}
+              y={point.y - (lines.length - 1) * 5.5}
+              className="stick-wheel-label"
+            >
+              {lines.map((line, lineIndex) => (
+                <tspan key={lineIndex} x={point.x} dy={lineIndex === 0 ? 0 : 11}>
+                  {line}
+                </tspan>
+              ))}
             </text>
           );
         })}
         <circle cx={CENTER} cy={CENTER} r={innerRadius} className="stick-wheel-deadzone" />
-        {(() => {
-          const marker = wheelPoint(CENTER, CENTER, OUTER_RADIUS + 4, wheel.angleOffsetDeg);
-          return <circle cx={marker.x} cy={marker.y} r={3} className="stick-wheel-offset-marker" />;
-        })()}
         {livePoint && <circle cx={livePoint.x} cy={livePoint.y} r={5} className="stick-wheel-stick-dot" />}
       </svg>
 

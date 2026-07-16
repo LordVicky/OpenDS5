@@ -43,6 +43,32 @@ export function sectorPath(
   ].join(' ');
 }
 
+const ELLIPSIS = '…';
+
+function ellipsize(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(1, maxChars - 1))}${ELLIPSIS}`;
+}
+
+/**
+ * Fits a state name into a sector label: at most two lines of `maxChars`,
+ * wrapping on word boundaries and ellipsizing whatever still doesn't fit.
+ */
+export function fitSectorLabel(name: string, maxChars: number): string[] {
+  if (name.length <= maxChars) return [name];
+  const words = name.split(/\s+/);
+  if (words.length === 1) return [ellipsize(name, maxChars)];
+  let first = words[0];
+  let index = 1;
+  while (index < words.length && `${first} ${words[index]}`.length <= maxChars) {
+    first = `${first} ${words[index]}`;
+    index += 1;
+  }
+  const rest = words.slice(index).join(' ');
+  if (rest.length === 0) return [ellipsize(first, maxChars)];
+  return [ellipsize(first, maxChars), ellipsize(rest, maxChars)];
+}
+
 /** Center point of a sector: mid-angle, halfway between the radii. */
 export function sectorLabelPoint(
   cx: number,

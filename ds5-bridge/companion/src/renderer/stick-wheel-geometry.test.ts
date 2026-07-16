@@ -1,5 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { wheelPoint, sectorPath, sectorLabelPoint } from './stick-wheel-geometry';
+import { wheelPoint, sectorPath, sectorLabelPoint, fitSectorLabel } from './stick-wheel-geometry';
+
+describe('fitSectorLabel', () => {
+  it('keeps a short name on one line', () => {
+    expect(fitSectorLabel('Micer', 10)).toEqual(['Micer']);
+  });
+
+  it('wraps a two-word name that exceeds the budget onto two lines', () => {
+    expect(fitSectorLabel('Portable Freezer', 10)).toEqual(['Portable', 'Freezer']);
+  });
+
+  it('ellipsizes a line that still exceeds the budget', () => {
+    expect(fitSectorLabel('X-1 Demousifier', 8)).toEqual(['X-1', 'Demousi…']);
+  });
+
+  it('ellipsizes an unbreakable long word', () => {
+    expect(fitSectorLabel('Antidisestablish', 8)).toEqual(['Antidis…']);
+  });
+
+  it('never returns more than two lines', () => {
+    const lines = fitSectorLabel('One Two Three Four', 6);
+    expect(lines.length).toBeLessThanOrEqual(2);
+  });
+});
 
 describe('wheelPoint', () => {
   it('maps 0 degrees to straight up from center', () => {
