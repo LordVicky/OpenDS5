@@ -272,6 +272,9 @@ const api = {
   getTriggerProfileEngineStatus: (): Promise<EngineStatus> => (
     ipcRenderer.invoke('bridge:getTriggerProfileEngineStatus')
   ),
+  selectTriggerProfileState: (name: string): Promise<EngineStatus> => (
+    ipcRenderer.invoke('bridge:selectTriggerProfileState', name)
+  ),
   previewTriggerProfileDraft: (
     triggers: { l2: TriggerSlotConfig | null; r2: TriggerSlotConfig | null } | null
   ): Promise<EngineStatus> => (

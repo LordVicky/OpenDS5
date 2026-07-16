@@ -8,6 +8,8 @@ const EV_KEY = 1;
 const EV_ABS = 3;
 const ABS_Z = 2;
 const ABS_RZ = 5;
+const ABS_HAT0X = 16;
+const ABS_HAT0Y = 17;
 
 const BUTTON_NAMES: Record<number, string> = {
   0x130: 'cross',
@@ -16,6 +18,9 @@ const BUTTON_NAMES: Record<number, string> = {
   0x134: 'square',
   0x136: 'l1',
   0x137: 'r1',
+  0x13a: 'create',
+  0x13b: 'options',
+  0x13c: 'ps',
   0x13d: 'l3',
   0x13e: 'r3'
 };
@@ -133,10 +138,21 @@ export class EvdevInputReader extends EventEmitter {
     }
   }
 
+  // The d-pad is a hat axis, not key events; -1/0/1 per axis becomes a pair of
+  // synthetic button names so the switch/modifier layers see one vocabulary.
+  private setHatButtons(negative: string, positive: string, value: number): void {
+    this.buttons.delete(negative);
+    this.buttons.delete(positive);
+    if (value < 0) this.buttons.add(negative);
+    if (value > 0) this.buttons.add(positive);
+  }
+
   private handleEvent(type: number, code: number, value: number): void {
     if (type === EV_ABS) {
       if (code === ABS_Z) this.l2 = value;
       if (code === ABS_RZ) this.r2 = value;
+      if (code === ABS_HAT0X) this.setHatButtons('dpad-left', 'dpad-right', value);
+      if (code === ABS_HAT0Y) this.setHatButtons('dpad-up', 'dpad-down', value);
       return;
     }
     if (type === EV_KEY) {

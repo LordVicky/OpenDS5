@@ -1316,6 +1316,9 @@ function registerIpc(
     }
   });
   ipcMain.handle('bridge:getTriggerProfileEngineStatus', () => triggerProfileEngine.getStatus());
+  ipcMain.handle('bridge:selectTriggerProfileState', (_event, name: string) => (
+    triggerProfileEngine.selectState(String(name))
+  ));
   ipcMain.handle('bridge:previewTriggerProfileDraft', async (_event, triggers: DraftPreviewTriggers | null) => {
     await triggerProfileEngine.setDraftPreview(triggers);
     return triggerProfileEngine.getStatus();

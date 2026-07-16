@@ -397,4 +397,123 @@ describe('TriggerProfileEngine', () => {
       expect(sink.applied.some((effect) => effect.target === 'l2' && effect.forcePercent === 30)).toBe(true);
     });
   });
+
+  describe('multi-state profiles', () => {
+    const statefulProfile: TriggerProfile = {
+      version: 1,
+      id: 'stateful',
+      name: 'Stateful',
+      match: { processNames: [], windowTitles: [] },
+      triggers: {
+        l2: { base: null, modifiers: [] },
+        r2: { base: { mode: 'feedback', startPercent: 20, forcePercent: 30 }, modifiers: [] }
+      },
+      states: [
+        {
+          name: 'Pistol',
+          triggers: {
+            l2: { base: null, modifiers: [] },
+            r2: { base: { mode: 'feedback', startPercent: 20, forcePercent: 30 }, modifiers: [] }
+          }
+        },
+        {
+          name: 'Shotgun',
+          triggers: {
+            l2: { base: null, modifiers: [] },
+            r2: {
+              base: { mode: 'weapon', startPercent: 30, wallPercent: 70, forcePercent: 100 },
+              modifiers: [{
+                when: { source: 'input', condition: 'trigger-full-pull' },
+                effect: { mode: 'vibration', startPercent: 0, forcePercent: 60 }
+              }]
+            }
+          }
+        }
+      ],
+      switching: {
+        rules: [
+          { button: 'triangle', action: 'cycle' },
+          { button: 'dpad-left', action: 'select', state: 'Pistol' }
+        ],
+        menuButtons: ['options']
+      },
+      updatedAtMs: 0
+    };
+
+    beforeEach(async () => {
+      const store = new TriggerProfileStore(dir);
+      store.save(statefulProfile);
+      engine.refreshProfiles();
+      watcher.pinProfile('stateful');
+      await flush();
+    });
+
+    it('applies the default state bases on activation and reports the state name', () => {
+      expect(sink.applied).toHaveLength(1);
+      expect(sink.applied[0]).toMatchObject({ mode: 'feedback', target: 'r2', forcePercent: 30 });
+      expect(engine.getStatus().activeStateName).toBe('Pistol');
+    });
+
+    it('re-applies bases exactly once when a switch rule fires', async () => {
+      reader.feed({ buttons: new Set(['triangle']) });
+      await flush();
+      expect(engine.getStatus().activeStateName).toBe('Shotgun');
+      const weaponWrites = sink.applied.filter((effect) => effect.mode === 'weapon');
+      expect(weaponWrites).toHaveLength(1);
+      expect(weaponWrites[0]).toMatchObject({ target: 'r2', wallPercent: 70, forcePercent: 100 });
+      // Held button must not fire again.
+      reader.feed({ buttons: new Set(['triangle']) });
+      await flush();
+      expect(engine.getStatus().activeStateName).toBe('Shotgun');
+    });
+
+    it('evaluates modifiers against the active state slots', async () => {
+      reader.feed({ buttons: new Set(['triangle']) });
+      await flush();
+      reader.feed({ buttons: new Set(), r2: 255 });
+      await flush();
+      expect(sink.applied.at(-1)).toMatchObject({ mode: 'vibration', target: 'r2', forcePercent: 60 });
+    });
+
+    it('ignores switch rules while the menu guard is up', async () => {
+      reader.feed({ buttons: new Set(['options']) });
+      reader.feed({ buttons: new Set() });
+      reader.feed({ buttons: new Set(['triangle']) });
+      await flush();
+      expect(engine.getStatus().activeStateName).toBe('Pistol');
+    });
+
+    it('selectState switches manually and ignores unknown names', async () => {
+      const status = await engine.selectState('Shotgun');
+      expect(status.activeStateName).toBe('Shotgun');
+      expect(sink.applied.filter((effect) => effect.mode === 'weapon')).toHaveLength(1);
+      const unchanged = await engine.selectState('Nope');
+      expect(unchanged.activeStateName).toBe('Shotgun');
+    });
+
+    it('emits a status event carrying the new state name on switch', async () => {
+      const statuses: Array<{ activeStateName: string | null }> = [];
+      engine.on('status', (status) => statuses.push(status));
+      reader.feed({ buttons: new Set(['triangle']) });
+      await flush();
+      expect(statuses.some((status) => status.activeStateName === 'Shotgun')).toBe(true);
+    });
+
+    it('reports a null state name for states-less profiles', async () => {
+      watcher.pinProfile('shooter');
+      await flush();
+      expect(engine.getStatus().activeStateName).toBeNull();
+    });
+
+    it('resets to the default state when the profile re-activates', async () => {
+      reader.feed({ buttons: new Set(['triangle']) });
+      await flush();
+      expect(engine.getStatus().activeStateName).toBe('Shotgun');
+      watcher.pinProfile('shooter');
+      await flush();
+      watcher.pinProfile('stateful');
+      await flush();
+      expect(engine.getStatus().activeStateName).toBe('Pistol');
+    });
+  });
 });

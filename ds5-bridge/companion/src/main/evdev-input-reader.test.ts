@@ -71,6 +71,43 @@ describe('EvdevInputReader', () => {
     expect(second.buttons.has('l1')).toBe(false);
   });
 
+  it('reports create, options, and ps buttons', async () => {
+    const stream = new PassThrough();
+    const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
+    reader.start();
+    const pending = collect(reader, 1);
+    stream.write(Buffer.concat([
+      event(EV_KEY, 0x13a, 1),
+      event(EV_KEY, 0x13b, 1),
+      event(EV_KEY, 0x13c, 1),
+      event(EV_SYN, 0, 0)
+    ]));
+    const [state] = await pending;
+    expect(state.buttons.has('create')).toBe(true);
+    expect(state.buttons.has('options')).toBe(true);
+    expect(state.buttons.has('ps')).toBe(true);
+  });
+
+  it('synthesizes d-pad buttons from the hat axes and clears them on center', async () => {
+    const ABS_HAT0X = 16;
+    const ABS_HAT0Y = 17;
+    const stream = new PassThrough();
+    const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
+    reader.start();
+    const pending = collect(reader, 3);
+    stream.write(Buffer.concat([event(EV_ABS, ABS_HAT0X, 1), event(EV_ABS, ABS_HAT0Y, -1), event(EV_SYN, 0, 0)]));
+    stream.write(Buffer.concat([event(EV_ABS, ABS_HAT0X, -1), event(EV_SYN, 0, 0)]));
+    stream.write(Buffer.concat([event(EV_ABS, ABS_HAT0X, 0), event(EV_ABS, ABS_HAT0Y, 0), event(EV_SYN, 0, 0)]));
+    const [first, second, third] = await pending;
+    expect(first.buttons.has('dpad-right')).toBe(true);
+    expect(first.buttons.has('dpad-up')).toBe(true);
+    expect(second.buttons.has('dpad-left')).toBe(true);
+    expect(second.buttons.has('dpad-right')).toBe(false);
+    expect(second.buttons.has('dpad-up')).toBe(true);
+    expect(third.buttons.has('dpad-left')).toBe(false);
+    expect(third.buttons.has('dpad-up')).toBe(false);
+  });
+
   it('resolves the device path lazily on each start() rather than once at construction', () => {
     const stream = new PassThrough();
     let resolved: string | null = null;

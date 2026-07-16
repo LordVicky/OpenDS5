@@ -333,17 +333,21 @@ describe('trigger profiles panel helpers', () => {
 
   it('formats the engine status line', () => {
     expect(formatEngineStatusLine(
-      { enabled: true, suspended: false, activeProfileId: 'shooter', matchedBy: 'process', matchedName: 'game.exe' },
+      { enabled: true, suspended: false, activeProfileId: 'shooter', matchedBy: 'process', matchedName: 'game.exe', activeStateName: null },
       'Generic Shooter'
     )).toBe('Active: Generic Shooter (matched: game.exe)');
     expect(formatEngineStatusLine(
-      { enabled: true, suspended: false, activeProfileId: 'shooter', matchedBy: 'pin', matchedName: null },
+      { enabled: true, suspended: false, activeProfileId: 'shooter', matchedBy: 'pin', matchedName: null, activeStateName: null },
       'Generic Shooter'
     )).toBe('Active: Generic Shooter (pinned)');
     expect(formatEngineStatusLine(
-      { enabled: true, suspended: true, activeProfileId: 'default', matchedBy: 'default', matchedName: null },
+      { enabled: true, suspended: true, activeProfileId: 'default', matchedBy: 'default', matchedName: null, activeStateName: null },
       'Default'
     )).toBe('Active: Default (suspended)');
+    expect(formatEngineStatusLine(
+      { enabled: true, suspended: false, activeProfileId: 'shooter', matchedBy: 'process', matchedName: 'game.exe', activeStateName: 'Shotgun' },
+      'Generic Shooter'
+    )).toBe('Active: Generic Shooter — Shotgun (matched: game.exe)');
   });
 });
 

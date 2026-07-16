@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   createDefaultProfile,
+  defaultStateIndex,
   effectSpecEquals,
+  profileStateList,
   validateTriggerProfile,
   type TriggerProfile,
   type TriggerModifier
@@ -165,6 +167,145 @@ describe('effect union validation', () => {
     expect(effectSpecEquals(a, { ...a, zones: [0,1,2,3,4,5,6,7,8,10] })).toBe(false);
     expect(effectSpecEquals(null, { mode: 'off' })).toBe(false);
     expect(effectSpecEquals(null, null)).toBe(true);
+  });
+});
+
+describe('validateTriggerProfile states and switching', () => {
+  const emptySlots = {
+    l2: { base: null, modifiers: [] },
+    r2: { base: null, modifiers: [] }
+  };
+  const twoStates = [
+    { name: 'Pistol', triggers: valid.triggers },
+    { name: 'Shotgun', triggers: emptySlots }
+  ];
+
+  it('accepts states with switching rules and preserves them', () => {
+    const result = validateTriggerProfile({
+      ...valid,
+      states: twoStates,
+      switching: {
+        defaultState: 'Shotgun',
+        rules: [
+          { button: 'triangle', action: 'cycle' },
+          { button: 'dpad-right', action: 'select', state: 'Shotgun' },
+          { button: 'r1', while: 'ps', action: 'cycle' }
+        ],
+        menuButtons: ['options'],
+        menuTimeoutMs: 30000
+      }
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.profile.states).toHaveLength(2);
+      expect(result.profile.states?.[0].name).toBe('Pistol');
+      expect(result.profile.switching?.defaultState).toBe('Shotgun');
+      expect(result.profile.switching?.rules[2].while).toBe('ps');
+      expect(result.profile.switching?.menuButtons).toEqual(['options']);
+    }
+  });
+
+  it('leaves states and switching absent when not provided', () => {
+    const result = validateTriggerProfile(valid);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect('states' in result.profile).toBe(false);
+      expect('switching' in result.profile).toBe(false);
+    }
+  });
+
+  it('rejects switching without states', () => {
+    const result = validateTriggerProfile({ ...valid, switching: { rules: [] } });
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('states') });
+  });
+
+  it('rejects empty and oversized state lists', () => {
+    expect(validateTriggerProfile({ ...valid, states: [] }).ok).toBe(false);
+    const many = Array.from({ length: 13 }, (_, index) => ({ name: `S${index}`, triggers: emptySlots }));
+    expect(validateTriggerProfile({ ...valid, states: many }).ok).toBe(false);
+  });
+
+  it('rejects duplicate, empty, and overlong state names', () => {
+    const dup = [twoStates[0], { ...twoStates[1], name: 'Pistol' }];
+    expect(validateTriggerProfile({ ...valid, states: dup }).ok).toBe(false);
+    expect(validateTriggerProfile({ ...valid, states: [{ name: '', triggers: emptySlots }] }).ok).toBe(false);
+    expect(validateTriggerProfile({ ...valid, states: [{ name: 'x'.repeat(33), triggers: emptySlots }] }).ok).toBe(false);
+  });
+
+  it('validates state trigger slots with the shared effect validator', () => {
+    const result = validateTriggerProfile({
+      ...valid,
+      states: [{ name: 'Bad', triggers: { l2: { base: { mode: 'laser' }, modifiers: [] }, r2: emptySlots.r2 } }]
+    });
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('laser') });
+  });
+
+  it('rejects unknown fields in states, rules, and switching naming the offender', () => {
+    expect(validateTriggerProfile({
+      ...valid,
+      states: [{ name: 'A', triggers: emptySlots, bogus: 1 }]
+    })).toEqual({ ok: false, error: expect.stringContaining('bogus') });
+    expect(validateTriggerProfile({
+      ...valid,
+      states: twoStates,
+      switching: { rules: [{ button: 'triangle', action: 'cycle', extra: 1 }] }
+    })).toEqual({ ok: false, error: expect.stringContaining('extra') });
+    expect(validateTriggerProfile({
+      ...valid,
+      states: twoStates,
+      switching: { rules: [], surprise: true }
+    })).toEqual({ ok: false, error: expect.stringContaining('surprise') });
+  });
+
+  it('rejects rules with unknown buttons, bad actions, or bad state targets', () => {
+    const withRules = (rules: unknown[]) => validateTriggerProfile({
+      ...valid,
+      states: twoStates,
+      switching: { rules }
+    });
+    expect(withRules([{ button: 'megabutton', action: 'cycle' }]).ok).toBe(false);
+    expect(withRules([{ button: 'triangle', action: 'teleport' }]).ok).toBe(false);
+    expect(withRules([{ button: 'triangle', action: 'select', state: 'Nope' }]).ok).toBe(false);
+    expect(withRules([{ button: 'triangle', action: 'select' }]).ok).toBe(false);
+    expect(withRules([{ button: 'triangle', action: 'cycle', state: 'Pistol' }]).ok).toBe(false);
+    expect(withRules([{ button: 'triangle', action: 'cycle', while: 'megabutton' }]).ok).toBe(false);
+  });
+
+  it('rejects a defaultState that names no state and bad menu settings', () => {
+    const base = { ...valid, states: twoStates };
+    expect(validateTriggerProfile({ ...base, switching: { defaultState: 'Nope', rules: [] } }).ok).toBe(false);
+    expect(validateTriggerProfile({ ...base, switching: { rules: [], menuButtons: ['megabutton'] } }).ok).toBe(false);
+    expect(validateTriggerProfile({ ...base, switching: { rules: [], menuTimeoutMs: -1 } }).ok).toBe(false);
+    expect(validateTriggerProfile({ ...base, switching: { rules: [], menuTimeoutMs: 1.5 } }).ok).toBe(false);
+  });
+
+  it('caps the rule list', () => {
+    const rules = Array.from({ length: 17 }, () => ({ button: 'triangle', action: 'cycle' }));
+    expect(validateTriggerProfile({ ...valid, states: twoStates, switching: { rules } }).ok).toBe(false);
+  });
+});
+
+describe('profileStateList and defaultStateIndex', () => {
+  it('wraps a states-less profile as a single anonymous state', () => {
+    const list = profileStateList(valid);
+    expect(list).toHaveLength(1);
+    expect(list[0].name).toBe('');
+    expect(list[0].triggers).toBe(valid.triggers);
+  });
+
+  it('returns declared states and resolves the default index', () => {
+    const profile: TriggerProfile = {
+      ...valid,
+      states: [
+        { name: 'A', triggers: valid.triggers },
+        { name: 'B', triggers: valid.triggers }
+      ],
+      switching: { defaultState: 'B', rules: [] }
+    };
+    expect(profileStateList(profile)).toHaveLength(2);
+    expect(defaultStateIndex(profile)).toBe(1);
+    expect(defaultStateIndex({ ...profile, switching: { rules: [] } })).toBe(0);
+    expect(defaultStateIndex(valid)).toBe(0);
   });
 });
 

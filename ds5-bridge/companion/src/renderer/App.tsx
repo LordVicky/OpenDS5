@@ -909,10 +909,13 @@ export function mergeDetectedProcessName(processNamesInput: string, candidateNam
 }
 
 export function formatEngineStatusLine(status: EngineStatus, activeProfileName: string): string {
-  if (status.suspended) return `Active: ${activeProfileName} (suspended)`;
-  if (status.matchedBy === 'pin') return `Active: ${activeProfileName} (pinned)`;
-  if (status.matchedBy === 'process') return `Active: ${activeProfileName} (matched: ${status.matchedName})`;
-  return `Active: ${activeProfileName} (default)`;
+  const name = status.activeStateName
+    ? `${activeProfileName} — ${status.activeStateName}`
+    : activeProfileName;
+  if (status.suspended) return `Active: ${name} (suspended)`;
+  if (status.matchedBy === 'pin') return `Active: ${name} (pinned)`;
+  if (status.matchedBy === 'process') return `Active: ${name} (matched: ${status.matchedName})`;
+  return `Active: ${name} (default)`;
 }
 
 /**
