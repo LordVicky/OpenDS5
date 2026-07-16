@@ -45,19 +45,6 @@ in {
       description = "Users granted access to the vDS socket through the vds group.";
     };
 
-    disableBluezInputPlugin = lib.mkOption {
-      type = lib.types.bool;
-      default = false;
-
-      description = ''
-        Disable BlueZ's input plugin so vdsd can directly own the
-        DualSense Bluetooth HID Control and Interrupt L2CAP channels.
-
-        This may prevent Bluetooth keyboards, mice, and other Bluetooth
-        HID devices from functioning through BlueZ.
-      '';
-    };
-
     disableBluetoothInputPlugin = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -74,11 +61,6 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    warnings = lib.optional cfg.disableBluezInputPlugin ''
-      OpenDS5 is disabling BlueZ's input plugin. Bluetooth keyboards,
-      mice, and other Bluetooth HID devices may stop working.
-    '';
-
     boot.extraModulePackages = [
       (pkgs.callPackage ./vds-module.nix {
         kernel = config.boot.kernelPackages.kernel;
@@ -118,10 +100,6 @@ in {
     ];
 
     environment.etc."wireplumber/wireplumber.conf.d/99-vds-dualsense.conf".source = "${cfg.vdsPackage}/share/wireplumber/wireplumber.conf.d/99-vds-dualsense.conf";
-
-    hardware.bluetooth.disabledPlugins = lib.mkIf cfg.disableBluezInputPlugin [
-      "input"
-    ];
 
     systemd.services.vdsd = {
       description = "vDS userspace daemon (OpenDS5)";
