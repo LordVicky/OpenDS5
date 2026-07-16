@@ -26,6 +26,14 @@ describe('LinuxActionProvider', () => {
     });
   });
 
+  it('resolves MangoHud toggle to the focused-window F12 key', () => {
+    const provider = new LinuxActionProvider({ hasExecutable: (executable) => executable === 'wtype' });
+    expect(provider.resolve({ type: 'performance-hud-toggle', provider: 'mangohud' })).toEqual({
+      executable: 'wtype',
+      args: ['-k', 'F12']
+    });
+  });
+
   it('reports unavailable when wpctl is missing', () => {
     expect(new LinuxActionProvider({ hasExecutable: () => false }).resolve({ type: 'volume', direction: 'up' })).toBeNull();
   });

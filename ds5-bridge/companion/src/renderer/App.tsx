@@ -2944,6 +2944,7 @@ export function App() {
   const [edgeRemapControlLayout, setEdgeRemapControlLayout] = useState<Record<DualSenseEdgeRemapButtonId, EdgeRemapControlLayout> | null>(null);
   const [hoveredRemapButton, setHoveredRemapButton] = useState<RemapButtonId | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [feedbackTestError, setFeedbackTestError] = useState<string | null>(null);
   const [showBridgeSettings, setShowBridgeSettings] = useState(false);
   const [settingsFocusTarget, setSettingsFocusTarget] = useState<SettingsFocusTarget | null>(null);
   const [notificationFocusTarget, setNotificationFocusTarget] = useState<NotificationFocusTarget | null>(null);
@@ -4408,10 +4409,14 @@ export function App() {
       return;
     }
     setPendingAction(label);
+    if (label === 'test' || label === 'test-rumble') setFeedbackTestError(null);
     try {
       const next = await action();
       setSnapshot(next);
-    } catch {
+    } catch (error) {
+      if (label === 'test' || label === 'test-rumble') {
+        setFeedbackTestError(error instanceof Error ? error.message : String(error));
+      }
       const next = await window.bridge.getStatus();
       setSnapshot(next);
     } finally {
@@ -8180,6 +8185,7 @@ export function App() {
                       <strong>{activeFeedbackStatusLabel}</strong>
                     </span>
                   </div>
+                  {feedbackTestError && <p className="test-error" role="alert">{feedbackTestError}</p>}
                 </section>
               </div>
               )}

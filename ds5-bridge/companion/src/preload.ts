@@ -63,6 +63,7 @@ const api = {
   getGamingShortcutProviders: (): Promise<ProviderCapabilities> => (
     ipcRenderer.invoke('bridge:getGamingShortcutProviders')
   ),
+  previewGamingShortcutNotification: (): Promise<void> => ipcRenderer.invoke('bridge:previewGamingShortcutNotification'),
   listDevices: () => ipcRenderer.invoke('bridge:listDevices'),
   listAudioHapticsSessions: (): Promise<AudioHapticsSession[]> => (
     ipcRenderer.invoke('bridge:listAudioHapticsSessions')

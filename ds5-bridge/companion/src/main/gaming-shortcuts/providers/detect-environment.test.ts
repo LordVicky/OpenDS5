@@ -26,7 +26,8 @@ describe('detectProviderCapabilities', () => {
       environment: 'hyprland',
       screenshot: ['grim'],
       recording: ['gpu-screen-recorder'],
-      hud: ['mangohud']
+      hud: ['mangohud'],
+      keyboard: []
     });
   });
 });

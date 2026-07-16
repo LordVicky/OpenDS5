@@ -6,7 +6,7 @@ import { ActionExecutor } from './action-executor';
 import { GamingShortcutsCoordinator } from './coordinator';
 
 async function flushQueue(): Promise<void> {
-  for (let index = 0; index < 4; index += 1) await Promise.resolve();
+  for (let index = 0; index < 12; index += 1) await Promise.resolve();
 }
 
 class FakeInput extends EventEmitter {
@@ -20,7 +20,7 @@ describe('GamingShortcutsCoordinator', () => {
 
   it('resolves a global PS binding and dispatches it asynchronously', async () => {
     const input = new FakeInput();
-    const settings: GamingShortcutsSettings = { ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true, singlePress: { type: 'open-opends5' } };
+    const settings: GamingShortcutsSettings = { ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true, psPressAction: 'open-opends5' };
     const execute = vi.fn().mockResolvedValue({ ok: true });
     const coordinator = new GamingShortcutsCoordinator({
       input,
@@ -36,6 +36,20 @@ describe('GamingShortcutsCoordinator', () => {
     coordinator.stop();
   });
 
+  it('dispatches a configured single-press action', async () => {
+    const input = new FakeInput();
+    const action = { type: 'screenshot' as const, provider: 'auto' as const };
+    const execute = vi.fn().mockResolvedValue({ ok: true });
+    const settings: GamingShortcutsSettings = { ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true, singlePress: action };
+    const coordinator = new GamingShortcutsCoordinator({ input, settingsStore: { get: () => ({ gamingShortcuts: settings }) }, executor: { execute } as unknown as ActionExecutor });
+    coordinator.start();
+    input.emitInput(new Set(['ps']), 0); input.emitInput(new Set(), 1);
+    vi.advanceTimersByTime(300);
+    await flushQueue();
+    expect(execute).toHaveBeenCalledWith(action);
+    coordinator.stop();
+  });
+
   it('does not dispatch while disabled and removes its listener on stop', () => {
     const input = new FakeInput();
     const execute = vi.fn();
@@ -48,11 +62,49 @@ describe('GamingShortcutsCoordinator', () => {
     const input = new FakeInput(); let release!: () => void;
     const first = new Promise<void>((resolve) => { release = resolve; });
     const execute = vi.fn().mockReturnValueOnce(first.then(() => ({ ok: true }))).mockResolvedValueOnce({ ok: true });
-    const settings = { ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true, singlePress: { type: 'open-opends5' } as const };
+    const settings = { ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true, chords: [{ button: 'create' as const, action: { type: 'screenshot', provider: 'auto' as const } }] };
     const coordinator = new GamingShortcutsCoordinator({ input, settingsStore: { get: () => ({ gamingShortcuts: settings }) }, executor: { execute } as unknown as ActionExecutor }); coordinator.start();
-    input.emitInput(new Set(['ps']), 0); input.emitInput(new Set(), 1); vi.advanceTimersByTime(300); await Promise.resolve();
-    input.emitInput(new Set(['ps']), 1000); input.emitInput(new Set(), 1001); vi.advanceTimersByTime(300); await flushQueue();
+    input.emitInput(new Set(['ps']), 0); input.emitInput(new Set(['ps', 'create']), 1); input.emitInput(new Set(['ps']), 2); input.emitInput(new Set(), 3); await Promise.resolve();
+    input.emitInput(new Set(['ps']), 1000); input.emitInput(new Set(['ps', 'create']), 1001); input.emitInput(new Set(['ps']), 1002); input.emitInput(new Set(), 1003); await flushQueue();
     expect(execute).toHaveBeenCalledTimes(1); release(); await flushQueue(); expect(execute).toHaveBeenCalledTimes(2);
+    coordinator.stop();
+  });
+
+  it('enters shortcut mode, ignores the activation press, and executes the next mapped button once', async () => {
+    const input = new FakeInput();
+    const execute = vi.fn().mockResolvedValue({ ok: true });
+    const notifications = {
+      showShortcutMode: vi.fn().mockResolvedValue(undefined),
+      showShortcutReference: vi.fn().mockResolvedValue(undefined),
+      showActionResult: vi.fn().mockResolvedValue(undefined),
+      showActionError: vi.fn().mockResolvedValue(undefined),
+      dismissShortcutNotification: vi.fn().mockResolvedValue(undefined)
+    };
+    const settings = { ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true, chords: [{ button: 'create' as const, action: { type: 'screenshot', provider: 'auto' as const } }] };
+    const coordinator = new GamingShortcutsCoordinator({ input, settingsStore: { get: () => ({ gamingShortcuts: settings }) }, executor: { execute } as unknown as ActionExecutor, notifications });
+    coordinator.start();
+    input.emitInput(new Set(['ps']), 0); input.emitInput(new Set(), 1);
+    vi.advanceTimersByTime(300);
+    expect(coordinator.getMode().state).toBe('awaiting-selection');
+    expect(notifications.showShortcutMode).toHaveBeenCalledOnce();
+    input.emitInput(new Set(['create']), 400); input.emitInput(new Set(), 401);
+    await flushQueue();
+    expect(execute).toHaveBeenCalledWith({ type: 'screenshot', provider: 'auto' });
+    expect(coordinator.getMode().state).toBe('inactive');
+    coordinator.stop();
+  });
+
+  it('cancels shortcut mode on Circle and on timeout', () => {
+    const input = new FakeInput();
+    const notifications = { showShortcutMode: vi.fn(), showShortcutReference: vi.fn(), showActionResult: vi.fn(), showActionError: vi.fn(), dismissShortcutNotification: vi.fn() };
+    const coordinator = new GamingShortcutsCoordinator({ input, settingsStore: { get: () => ({ gamingShortcuts: { ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true } }) }, executor: { execute: vi.fn() } as unknown as ActionExecutor, notifications });
+    coordinator.start(); input.emitInput(new Set(['ps']), 0); input.emitInput(new Set(), 1); vi.advanceTimersByTime(300);
+    input.emitInput(new Set(['circle']), 400); input.emitInput(new Set(), 401);
+    expect(coordinator.getMode().state).toBe('inactive');
+    input.emitInput(new Set(['ps']), 1000); input.emitInput(new Set(), 1001); vi.advanceTimersByTime(300);
+    expect(coordinator.getMode().state).toBe('awaiting-selection');
+    vi.advanceTimersByTime(3000);
+    expect(coordinator.getMode().state).toBe('inactive');
     coordinator.stop();
   });
 });

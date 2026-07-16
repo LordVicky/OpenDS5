@@ -76,7 +76,10 @@ export class GestureEngine {
       }
       return;
     }
-    if (this.held.has('ps') && this.psPressAt !== null && now - this.psPressAt <= this.chordWindow) this.chord(button);
+    // PS is a modifier while held. The chord window still applies when the
+    // secondary button is pressed first, but a held PS button must remain
+    // usable after the initial detection window has elapsed.
+    if (this.held.has('ps')) this.chord(button);
   }
 
   private chord(button: ControllerButton): void { if (this.chordEmitted) return; this.chordEmitted = true; this.chordCycle = true; this.doublePressCycle = false; this.clearLongTimer(); this.clearSingleTimer(); this.emitGesture({ type: 'chord', modifier: 'ps', button }); }

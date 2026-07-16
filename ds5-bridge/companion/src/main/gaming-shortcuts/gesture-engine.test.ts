@@ -25,6 +25,23 @@ describe('GestureEngine', () => {
     expect(emit).toHaveBeenCalledWith({ type: 'chord', modifier: 'ps', button: 'create' }); expect(emit).toHaveBeenCalledTimes(1);
     engine.update(new Set(['create']), 1000); engine.update(new Set(['ps', 'create']), 1100); expect(emit).toHaveBeenCalledTimes(2);
   });
+  it('recognizes a chord after PS has been held beyond the chord window', () => {
+    const emit = vi.fn(); const engine = new GestureEngine({ emit });
+    engine.update(new Set(['ps']), 0);
+    engine.update(new Set(['ps']), 500);
+    engine.update(new Set(['ps', 'create']), 1000);
+    expect(emit).toHaveBeenCalledWith({ type: 'chord', modifier: 'ps', button: 'create' });
+  });
+  it('repeats chords when the secondary button is released and pressed again', () => {
+    const emit = vi.fn(); const engine = new GestureEngine({ emit });
+    engine.update(new Set(['ps']), 0);
+    engine.update(new Set(['ps', 'dpad-up']), 10);
+    engine.update(new Set(['ps']), 20);
+    engine.update(new Set(['ps', 'dpad-up']), 30);
+    engine.update(new Set(['ps']), 40);
+    expect(emit).toHaveBeenNthCalledWith(1, { type: 'chord', modifier: 'ps', button: 'dpad-up' });
+    expect(emit).toHaveBeenNthCalledWith(2, { type: 'chord', modifier: 'ps', button: 'dpad-up' });
+  });
   it('reset clears stale timers and held state', () => {
     const emit = vi.fn(); const engine = new GestureEngine({ emit });
     engine.update(new Set(['ps']), 0); engine.reset(); vi.runAllTimers(); expect(emit).not.toHaveBeenCalled();

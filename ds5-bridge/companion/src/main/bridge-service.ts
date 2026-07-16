@@ -180,6 +180,7 @@ type HostPersonaDefaultRenderRestore = {
 export type BridgeToast = {
   title: string;
   body: string;
+  replaceGroup?: string;
 };
 
 const PRESET_SETTINGS: Record<Exclude<BridgePresetId, 'custom'>, Partial<CompanionSettings>> = {

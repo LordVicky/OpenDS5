@@ -2459,6 +2459,8 @@ button {
   grid-template-rows: auto auto auto auto auto;
 }
 
+.test-error { margin: 10px 0 0; color: #ffaaa7; font-size: 12px; line-height: 1.4; }
+
 .gaming-shortcuts-card {
   padding: 18px 20px;
 }

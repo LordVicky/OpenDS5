@@ -28,7 +28,9 @@ import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } fr
 import { GameSettingsCoordinator, type GameSettingsStatus } from './game-settings-coordinator';
 import { GameArtworkStore } from './game-artwork';
 import { GamingShortcutsCoordinator } from './gaming-shortcuts/coordinator';
+import { ActionExecutor } from './gaming-shortcuts/action-executor';
 import { detectProviderCapabilities } from './gaming-shortcuts/providers/detect-environment';
+import { formatShortcutBindings, type GamingShortcutNotifications, type GamingShortcutResult } from './gaming-shortcuts/notifications';
 import { normalizeGamingShortcutsSettings } from '../shared/gaming-shortcuts';
 import {
   InstalledGamesScanner,
@@ -801,7 +803,13 @@ function ensureWindowsNotificationShortcut(): void {
   }
 }
 
+const activeNotifications = new Map<string, Notification>();
+
 function showBridgeNotification(toast: BridgeToast): void {
+  const replaceGroup = toast.replaceGroup;
+  if (replaceGroup) {
+    activeNotifications.get(replaceGroup)?.close();
+  }
   if (Notification.isSupported()) {
     const notification = new Notification({
       title: toast.title,
@@ -812,8 +820,22 @@ function showBridgeNotification(toast: BridgeToast): void {
     notification.once('failed', (_event, error) => {
       console.warn('Windows notification failed:', error);
     });
+    if (replaceGroup) activeNotifications.set(replaceGroup, notification);
     notification.show();
   }
+}
+
+function gamingShortcutNotifications(service: BridgeService): GamingShortcutNotifications {
+  return {
+    showShortcutReference: async (bindings) => { service.emit('toast', { title: 'OpenDS5 Gaming Shortcuts', body: formatShortcutBindings(bindings), replaceGroup: 'gaming-shortcut-mode' } satisfies BridgeToast); },
+    showShortcutMode: async (bindings, timeoutMs) => { service.emit('toast', { title: 'OpenDS5 Gaming Shortcuts', body: `${formatShortcutBindings(bindings)}\n\nSelect a shortcut within ${Math.ceil(timeoutMs / 1000)}s`, replaceGroup: 'gaming-shortcut-mode' } satisfies BridgeToast); },
+    showActionResult: async (result: GamingShortcutResult) => { service.emit('toast', { title: result.title, body: result.body ?? '', replaceGroup: result.replaceGroup } satisfies BridgeToast); },
+    showActionError: async (result: GamingShortcutResult) => { service.emit('toast', { title: result.title, body: result.body ?? '', replaceGroup: result.replaceGroup } satisfies BridgeToast); },
+    dismissShortcutNotification: async () => {
+      activeNotifications.get('gaming-shortcut-mode')?.close();
+      activeNotifications.delete('gaming-shortcut-mode');
+    }
+  };
 }
 
 async function addAudioHapticsSessionIcons(sessions: AudioHapticsSession[]): Promise<AudioHapticsSession[]> {
@@ -1116,6 +1138,7 @@ function registerIpc(
     return saved.gamingShortcuts;
   });
   ipcMain.handle('bridge:getGamingShortcutProviders', () => detectProviderCapabilities());
+  ipcMain.handle('bridge:previewGamingShortcutNotification', () => gamingShortcuts?.previewShortcutNotification());
   ipcMain.handle('bridge:listTriggerProfiles', () => triggerProfileStore.list());
   ipcMain.handle('bridge:saveTriggerProfile', (_event, profile: TriggerProfile) => {
     const saved = triggerProfileStore.save(profile);
@@ -1704,11 +1727,21 @@ app.whenReady().then(async () => {
     gamingShortcutsCoordinator = new GamingShortcutsCoordinator({
       input: shortcutReader,
       settingsStore,
-      activeGameId: () => triggerProfileEngine?.getActiveGameId() ?? null
+      activeGameId: () => triggerProfileEngine?.getActiveGameId() ?? null,
+      executor: new ActionExecutor({
+        quitActiveGame: () => {
+          const processName = triggerProfileEngine?.getStatus().matchedName;
+          if (!processName || processName === 'OpenDS5') return { ok: false, reason: 'unavailable' as const };
+          const result = spawnSync('pkill', ['-TERM', '-x', processName], { stdio: 'ignore', timeout: 1000 });
+          return result.status === 0 ? { ok: true as const } : { ok: false, reason: 'unavailable' as const };
+        }
+      }),
+      notifications: gamingShortcutNotifications(bridgeService)
     });
     gamingShortcutsCoordinator.on('error', (error) => {
       console.error('[gaming-shortcuts] action error', error);
     });
+    shortcutReader.on('error', () => gamingShortcutsCoordinator?.disconnect());
     if (settingsStore.get().gamingShortcuts.enabled) {
       gamingShortcutsCoordinator.start();
       shortcutReader.start();

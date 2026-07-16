@@ -69,6 +69,10 @@ export class ScreenshotProvider {
     fs.mkdirSync(path.dirname(command.outputPath), { recursive: true });
   }
 
+  outputExists(command: ScreenshotCommand): boolean {
+    return fs.existsSync(command.outputPath);
+  }
+
   private autoProvider(): CaptureProvider | null {
     const wayland = Boolean(this.env.WAYLAND_DISPLAY || this.env.HYPRLAND_INSTANCE_SIGNATURE || this.env.SWAYSOCK);
     const candidates = this.env.HYPRLAND_INSTANCE_SIGNATURE

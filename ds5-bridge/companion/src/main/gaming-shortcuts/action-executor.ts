@@ -11,6 +11,7 @@ export type ActionExecutionResult =
 export interface ActionExecutorOptions {
   runner?: ProcessRunner;
   openOpenDS5?: () => Promise<void> | void;
+  quitActiveGame?: () => Promise<ActionExecutionResult> | ActionExecutionResult;
   linuxProvider?: LinuxActionProvider;
   screenshotProvider?: ScreenshotProvider;
   recordingProvider?: GpuScreenRecorderProvider;
@@ -20,6 +21,7 @@ export interface ActionExecutorOptions {
 export class ActionExecutor {
   private readonly runner: ProcessRunner;
   private readonly openOpenDS5: (() => Promise<void> | void) | null;
+  private readonly quitActiveGame: (() => Promise<ActionExecutionResult> | ActionExecutionResult) | null;
   private readonly linuxProvider: LinuxActionProvider;
   private readonly screenshotProvider: ScreenshotProvider;
   private readonly recordingProvider: GpuScreenRecorderProvider;
@@ -27,6 +29,7 @@ export class ActionExecutor {
   constructor(options: ActionExecutorOptions = {}) {
     this.runner = options.runner ?? createProcessRunner();
     this.openOpenDS5 = options.openOpenDS5 ?? null;
+    this.quitActiveGame = options.quitActiveGame ?? null;
     this.linuxProvider = options.linuxProvider ?? new LinuxActionProvider();
     this.screenshotProvider = options.screenshotProvider ?? new ScreenshotProvider();
     this.recordingProvider = options.recordingProvider ?? new GpuScreenRecorderProvider();
@@ -51,7 +54,9 @@ export class ActionExecutor {
             : { ok: false, reason: 'failed', error: result.timedOut ? 'Process timed out' : `Process exited with code ${result.code ?? 'unknown'}` };
         }
         case 'volume':
-        case 'microphone-mute-toggle': {
+        case 'microphone-mute-toggle':
+        case 'on-screen-keyboard':
+        case 'performance-hud-toggle': {
           const command = this.linuxProvider.resolve(action);
           if (!command) return { ok: false, reason: 'unavailable' };
           const result = await this.runner.run(command.executable, command.args);
@@ -64,12 +69,17 @@ export class ActionExecutor {
           if (!command) return { ok: false, reason: 'unavailable' };
           this.screenshotProvider.ensureOutputDirectory(command);
           const result = await this.runner.run(command.executable, command.args);
-          return result.code === 0 && result.signal === null && !result.timedOut
+          // Some desktop capture helpers save the image before returning a
+          // non-zero status (for example after a portal notification issue).
+          // The file is the reliable success signal for screenshot actions.
+          return (result.code === 0 && result.signal === null && !result.timedOut) || this.screenshotProvider.outputExists(command)
             ? { ok: true }
             : { ok: false, reason: 'failed', error: result.timedOut ? 'Process timed out' : `Process exited with ${result.code ?? 'unknown'}` };
         }
         case 'recording-toggle':
           return this.recordingProvider.toggle(action.provider);
+        case 'quit-active-game':
+          return this.quitActiveGame ? await this.quitActiveGame() : { ok: false, reason: 'unavailable' };
         default:
           return { ok: false, reason: 'unavailable' };
       }

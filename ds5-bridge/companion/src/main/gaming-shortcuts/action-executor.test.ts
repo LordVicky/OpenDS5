@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { ActionExecutor } from './action-executor';
 import { LinuxActionProvider } from './providers/linux-actions';
@@ -41,6 +42,13 @@ describe('ActionExecutor', () => {
     expect(run).toHaveBeenCalledWith('wpctl', ['set-volume', '-l', '1.5', '@DEFAULT_AUDIO_SINK@', '5%+']);
   });
 
+  it('toggles MangoHud by sending F12 to the focused game', async () => {
+    const run = vi.fn().mockResolvedValue({ code: 0, signal: null, timedOut: false });
+    const executor = new ActionExecutor({ runner: { run }, linuxProvider: new LinuxActionProvider({ hasExecutable: (name) => name === 'wtype' }) });
+    await expect(executor.execute({ type: 'performance-hud-toggle', provider: 'mangohud' })).resolves.toEqual({ ok: true });
+    expect(run).toHaveBeenCalledWith('wtype', ['-k', 'F12']);
+  });
+
   it('executes screenshots through the selected provider', async () => {
     const run = vi.fn().mockResolvedValue({ code: 0, signal: null, timedOut: false });
     const executor = new ActionExecutor({
@@ -69,6 +77,27 @@ describe('ActionExecutor', () => {
     expect(run).toHaveBeenCalledWith('hyprshot', ['-m', 'window', '-m', 'active', '-o', '/tmp', '-f', 'OpenDS5-2026-07-16T12-34-56-789Z.png']);
   });
 
+  it('accepts a screenshot when the image was saved despite a non-zero exit code', async () => {
+    const outputPath = '/tmp/OpenDS5-2026-07-16T12-34-56-789Z.png';
+    const run = vi.fn().mockImplementation(async () => {
+      fs.writeFileSync(outputPath, 'screenshot');
+      return { code: 1, signal: null, timedOut: false };
+    });
+    try {
+      const executor = new ActionExecutor({
+        runner: { run },
+        screenshotProvider: new ScreenshotProvider({
+          env: { HOME: '/home/test', XDG_PICTURES_DIR: '/tmp' },
+          now: () => new Date('2026-07-16T12:34:56.789Z'),
+          hasExecutable: (name) => name === 'grim'
+        })
+      });
+      await expect(executor.execute({ type: 'screenshot', provider: 'grim' })).resolves.toEqual({ ok: true });
+    } finally {
+      fs.rmSync(outputPath, { force: true });
+    }
+  });
+
   it('does not invoke a runner for unavailable provider actions', async () => {
     const run = vi.fn();
     const executor = new ActionExecutor({ runner: { run }, linuxProvider: new LinuxActionProvider({ hasExecutable: () => false }) });
@@ -84,6 +113,12 @@ describe('ActionExecutor', () => {
 
   it('reports OpenDS5 unavailable when no callback is configured', async () => {
     await expect(new ActionExecutor().execute({ type: 'open-opends5' })).resolves.toEqual({ ok: false, reason: 'unavailable' });
+  });
+
+  it('routes confirmed quit requests through the guarded callback', async () => {
+    const quitActiveGame = vi.fn().mockResolvedValue({ ok: true });
+    await expect(new ActionExecutor({ quitActiveGame }).execute({ type: 'quit-active-game', confirmation: true })).resolves.toEqual({ ok: true });
+    expect(quitActiveGame).toHaveBeenCalledOnce();
   });
 
   it('starts and stops only its owned GPU Screen Recorder process', async () => {

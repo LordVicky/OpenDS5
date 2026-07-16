@@ -54,11 +54,22 @@ function isAudioSink(object) {
 
 function isBridgeSink(object) {
   const props = nodeProps(object);
-  return isAudioSink(object) && (
-    BRIDGE_NODE_PATTERN.test(props['node.name'] ?? '')
-    || BRIDGE_NODE_PATTERN.test(props['node.description'] ?? '')
-    || BRIDGE_NODE_PATTERN.test(props['device.product.name'] ?? '')
+  if (!isAudioSink(object)) {
+    return false;
+  }
+  const bridgeName = [
+    props['node.name'],
+    props['node.description'],
+    props['node.nick'],
+    props['device.product.name'],
+    props['device.description'],
+    props['device.nick']
+  ].some((value) => BRIDGE_NODE_PATTERN.test(value ?? ''));
+  const wirelessController = /wireless controller/i.test(
+    `${props['node.description'] ?? ''} ${props['node.nick'] ?? ''} ${props['device.description'] ?? ''} ${props['device.nick'] ?? ''}`
   );
+  const fourChannel = Number(props['audio.channels']) === 4;
+  return bridgeName || (wirelessController && fourChannel);
 }
 
 async function findBridgeSink() {

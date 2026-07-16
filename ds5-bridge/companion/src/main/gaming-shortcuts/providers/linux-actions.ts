@@ -40,6 +40,15 @@ export class LinuxActionProvider {
         return this.hasExecutable('wpctl')
           ? { executable: 'wpctl', args: ['set-mute', '@DEFAULT_AUDIO_SOURCE@', 'toggle'] }
           : null;
+      case 'on-screen-keyboard': {
+        const providers = action.provider === 'auto' ? ['wvkbd', 'onboard', 'squeekboard'] : [action.provider];
+        const executable = providers.find((candidate) => this.hasExecutable(candidate));
+        return executable ? { executable, args: [] } : null;
+      }
+      case 'performance-hud-toggle':
+        // MangoHud handles the toggle in the game; send its default hotkey to
+        // the focused application rather than launching mangohud again.
+        return this.hasExecutable('wtype') ? { executable: 'wtype', args: ['-k', 'F12'] } : null;
       default:
         return null;
     }

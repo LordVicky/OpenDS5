@@ -18,6 +18,7 @@ export interface ProviderCapabilities {
   screenshot: string[];
   recording: string[];
   hud: string[];
+  keyboard: string[];
 }
 
 function defaultHasExecutable(executable: string): boolean {
@@ -65,6 +66,8 @@ export function detectProviderCapabilities(options: EnvironmentProbe = {}): Prov
 
   const hud: string[] = [];
   if (hasExecutable('mangohud')) hud.push('mangohud');
-  return { environment, screenshot, recording, hud };
+  const keyboard: string[] = [];
+  for (const provider of ['wvkbd', 'onboard', 'squeekboard']) if (hasExecutable(provider)) keyboard.push(provider);
+  return { environment, screenshot, recording, hud, keyboard };
 }
 import { execFileSync } from 'node:child_process';

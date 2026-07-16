@@ -40,4 +40,14 @@ describe('normalizeGamingShortcutsSettings', () => {
     });
     expect(resolveGamingShortcutBindings(settings, null).singlePress).toEqual({ type: 'open-opends5' });
   });
+
+  it('repairs the removed overlay action without affecting unrelated bindings', () => {
+    const settings = normalizeGamingShortcutsSettings({
+      singlePress: { type: 'open-overlay' },
+      chords: [{ button: 'create', action: { type: 'screenshot', provider: 'grim' } }]
+    });
+    expect(settings.singlePress).toEqual({ type: 'none' });
+    expect(settings.chords[0]).toEqual({ button: 'create', action: { type: 'screenshot', provider: 'grim' } });
+    expect(settings.shortcutModeTimeoutMs).toBe(3000);
+  });
 });
