@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ActionExecutor } from './action-executor';
 import { LinuxActionProvider } from './providers/linux-actions';
+import { ScreenshotProvider } from './providers/screenshot';
 
 describe('ActionExecutor', () => {
   it('runs explicit executable arguments', async () => {
@@ -37,6 +38,20 @@ describe('ActionExecutor', () => {
     const executor = new ActionExecutor({ runner: { run }, linuxProvider: new LinuxActionProvider({ hasExecutable: () => true }) });
     await expect(executor.execute({ type: 'volume', direction: 'up' })).resolves.toEqual({ ok: true });
     expect(run).toHaveBeenCalledWith('wpctl', ['set-volume', '-l', '1.5', '@DEFAULT_AUDIO_SINK@', '5%+']);
+  });
+
+  it('executes screenshots through the selected provider', async () => {
+    const run = vi.fn().mockResolvedValue({ code: 0, signal: null, timedOut: false });
+    const executor = new ActionExecutor({
+      runner: { run },
+      screenshotProvider: new ScreenshotProvider({
+        env: { HOME: '/home/test', XDG_PICTURES_DIR: '/tmp' },
+        now: () => new Date('2026-07-16T12:34:56.789Z'),
+        hasExecutable: (name) => name === 'grim'
+      })
+    });
+    await expect(executor.execute({ type: 'screenshot', provider: 'grim' })).resolves.toEqual({ ok: true });
+    expect(run).toHaveBeenCalledWith('grim', ['/tmp/OpenDS5-2026-07-16T12-34-56-789Z.png']);
   });
 
   it('does not invoke a runner for unavailable provider actions', async () => {

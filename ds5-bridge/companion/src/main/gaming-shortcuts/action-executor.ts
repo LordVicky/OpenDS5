@@ -1,6 +1,7 @@
 import { validateGamingShortcutAction, type GamingShortcutAction } from '../../shared/gaming-shortcuts';
 import { createProcessRunner, type ProcessRunner } from './process-runner';
 import { LinuxActionProvider } from './providers/linux-actions';
+import { ScreenshotProvider } from './providers/screenshot';
 
 export type ActionExecutionResult =
   | { ok: true }
@@ -10,6 +11,7 @@ export interface ActionExecutorOptions {
   runner?: ProcessRunner;
   openOpenDS5?: () => Promise<void> | void;
   linuxProvider?: LinuxActionProvider;
+  screenshotProvider?: ScreenshotProvider;
 }
 
 /** Executes only validated actions; desktop-specific actions are provider work. */
@@ -17,11 +19,13 @@ export class ActionExecutor {
   private readonly runner: ProcessRunner;
   private readonly openOpenDS5: (() => Promise<void> | void) | null;
   private readonly linuxProvider: LinuxActionProvider;
+  private readonly screenshotProvider: ScreenshotProvider;
 
   constructor(options: ActionExecutorOptions = {}) {
     this.runner = options.runner ?? createProcessRunner();
     this.openOpenDS5 = options.openOpenDS5 ?? null;
     this.linuxProvider = options.linuxProvider ?? new LinuxActionProvider();
+    this.screenshotProvider = options.screenshotProvider ?? new ScreenshotProvider();
   }
 
   async execute(rawAction: unknown): Promise<ActionExecutionResult> {
@@ -46,6 +50,15 @@ export class ActionExecutor {
         case 'microphone-mute-toggle': {
           const command = this.linuxProvider.resolve(action);
           if (!command) return { ok: false, reason: 'unavailable' };
+          const result = await this.runner.run(command.executable, command.args);
+          return result.code === 0 && result.signal === null && !result.timedOut
+            ? { ok: true }
+            : { ok: false, reason: 'failed', error: result.timedOut ? 'Process timed out' : `Process exited with ${result.code ?? 'unknown'}` };
+        }
+        case 'screenshot': {
+          const command = this.screenshotProvider.resolve(action.provider);
+          if (!command) return { ok: false, reason: 'unavailable' };
+          this.screenshotProvider.ensureOutputDirectory(command);
           const result = await this.runner.run(command.executable, command.args);
           return result.code === 0 && result.signal === null && !result.timedOut
             ? { ok: true }
