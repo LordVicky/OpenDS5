@@ -29,6 +29,7 @@ const BUTTON_NAMES: Record<number, string> = {
   0x13d: 'l3',
   0x13e: 'r3',
   0x14a: 'touchpad',
+  272: 'touchpad',
   248: 'mute',
   0x220: 'dpad-up',
   0x221: 'dpad-down',
@@ -62,18 +63,24 @@ function hasAnyCapabilityBit(raw: string): boolean {
     });
 }
 
-export function findDualSenseEventNode(sysInputDir = '/sys/class/input'): string | null {
+export function findDualSenseEventNodes(sysInputDir = '/sys/class/input'): string[] {
   let entries: string[];
   try {
     entries = readdirSync(sysInputDir);
   } catch {
-    return null;
+    return [];
   }
+  let gamepad: string | null = null;
+  let touchpad: string | null = null;
   for (const entry of entries) {
     if (!entry.startsWith('event')) continue;
     try {
       const name = readFileSync(`${sysInputDir}/${entry}/device/name`, 'utf8').trim();
       if (!name.toLowerCase().includes('dualsense')) continue;
+      if (name.toLowerCase().includes('touchpad')) {
+        touchpad ??= `/dev/input/${entry}`;
+        continue;
+      }
       // The DualSense exposes several nodes that all match by name (gamepad,
       // touchpad, motion sensors, headset jack). Only the gamepad has both
       // trigger axes and button capabilities.
@@ -83,26 +90,31 @@ export function findDualSenseEventNode(sysInputDir = '/sys/class/input'): string
       if ((abs & TRIGGER_ABS_MASK) !== TRIGGER_ABS_MASK) continue;
       const key = readFileSync(`${sysInputDir}/${entry}/device/capabilities/key`, 'utf8');
       if (!hasAnyCapabilityBit(key)) continue;
-      return `/dev/input/${entry}`;
+      gamepad ??= `/dev/input/${entry}`;
     } catch {
       // ignore unreadable nodes
     }
   }
-  return null;
+  return gamepad ? [gamepad, ...(touchpad ? [touchpad] : [])] : [];
+}
+
+export function findDualSenseEventNode(sysInputDir = '/sys/class/input'): string | null {
+  return findDualSenseEventNodes(sysInputDir)[0] ?? null;
 }
 
 type ReaderOptions = {
   devicePath?: string;
   openStream?: (path: string) => NodeJS.ReadableStream;
   findNode?: () => string | null;
+  findNodes?: () => string[];
 };
 
 export class EvdevInputReader extends EventEmitter {
   private readonly explicitDevicePath: string | null;
   private readonly openStream: (path: string) => NodeJS.ReadableStream;
   private readonly findNode: () => string | null;
-  private stream: NodeJS.ReadableStream | null = null;
-  private pending: Buffer = Buffer.alloc(0);
+  private readonly findNodes: (() => string[]) | null;
+  private streams: Array<{ stream: NodeJS.ReadableStream; pending: Buffer }> = [];
   private l2 = 0;
   private r2 = 0;
   private lx = 128;
@@ -116,32 +128,37 @@ export class EvdevInputReader extends EventEmitter {
     this.explicitDevicePath = options.devicePath ?? null;
     this.openStream = options.openStream ?? ((path) => createReadStream(path));
     this.findNode = options.findNode ?? findDualSenseEventNode;
+    this.findNodes = options.findNodes ?? (options.findNode ? null : findDualSenseEventNodes);
   }
 
   start(): void {
-    if (this.stream) return;
-    const devicePath = this.explicitDevicePath ?? this.findNode();
-    if (!devicePath) {
+    if (this.streams.length > 0) return;
+    const devicePaths = this.explicitDevicePath
+      ? [this.explicitDevicePath]
+      : this.findNodes?.() ?? (() => { const node = this.findNode(); return node ? [node] : []; })();
+    if (devicePaths.length === 0) {
       this.emit('error', new Error('No DualSense evdev node found.'));
       return;
     }
-    const stream = this.openStream(devicePath);
-    this.stream = stream;
-    stream.on('data', (chunk: Buffer) => this.consume(chunk));
-    stream.on('error', (error: Error) => {
-      if (this.stream === stream) {
-        this.stream = null;
-      }
-      this.emit('error', error);
-    });
+    for (const devicePath of devicePaths) {
+      const stream = this.openStream(devicePath);
+      const source = { stream, pending: Buffer.alloc(0) };
+      this.streams.push(source);
+      stream.on('data', (chunk: Buffer) => this.consume(source, chunk));
+      stream.on('error', (error: Error) => {
+        this.streams = this.streams.filter((current) => current !== source);
+        if (this.streams.length === 0) this.emit('error', error);
+      });
+    }
   }
 
   stop(): void {
-    if (this.stream && 'destroy' in this.stream) {
-      (this.stream as NodeJS.ReadableStream & { destroy(): void }).destroy();
+    for (const { stream } of this.streams) {
+      if ('destroy' in stream) {
+        (stream as NodeJS.ReadableStream & { destroy(): void }).destroy();
+      }
     }
-    this.stream = null;
-    this.pending = Buffer.alloc(0);
+    this.streams = [];
     this.buttons.clear();
     this.l2 = 0;
     this.r2 = 0;
@@ -149,11 +166,11 @@ export class EvdevInputReader extends EventEmitter {
     this.dpadY = 0;
   }
 
-  private consume(chunk: Buffer): void {
-    this.pending = this.pending.length === 0 ? chunk : (Buffer.concat([this.pending, chunk]) as Buffer);
-    while (this.pending.length >= EVENT_SIZE) {
-      const record = this.pending.subarray(0, EVENT_SIZE);
-      this.pending = this.pending.subarray(EVENT_SIZE);
+  private consume(source: { pending: Buffer }, chunk: Buffer): void {
+    source.pending = source.pending.length === 0 ? chunk : (Buffer.concat([source.pending, chunk]) as Buffer);
+    while (source.pending.length >= EVENT_SIZE) {
+      const record = source.pending.subarray(0, EVENT_SIZE);
+      source.pending = source.pending.subarray(EVENT_SIZE);
       this.handleEvent(record.readUInt16LE(16), record.readUInt16LE(18), record.readInt32LE(20));
     }
   }

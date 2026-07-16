@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EvdevInputReader, findDualSenseEventNode } from './evdev-input-reader';
+import { EvdevInputReader, findDualSenseEventNode, findDualSenseEventNodes } from './evdev-input-reader';
 import type { ControllerInputState } from '../shared/trigger-modifier-eval';
 
 function event(type: number, code: number, value: number): Buffer {
@@ -99,6 +99,21 @@ describe('EvdevInputReader', () => {
     expect(up.buttons).toEqual(new Set(['dpad-up']));
     expect(right.buttons).toEqual(new Set(['dpad-right']));
     expect(released.buttons).toEqual(new Set());
+  });
+
+  it('merges touchpad-click events from the DualSense auxiliary node', async () => {
+    const gamepad = new PassThrough();
+    const touchpad = new PassThrough();
+    const reader = new EvdevInputReader({
+      findNodes: () => ['/dev/input/event-gamepad', '/dev/input/event-touchpad'],
+      openStream: (path) => path.endsWith('touchpad') ? touchpad : gamepad
+    });
+    reader.start();
+    const pending = collect(reader, 1);
+    touchpad.write(Buffer.concat([event(EV_KEY, 272, 1), event(EV_SYN, 0, 0)]));
+    const [state] = await pending;
+    expect(state.buttons).toEqual(new Set(['touchpad']));
+    reader.stop();
   });
 
   it('handles packets split across chunk boundaries', async () => {
@@ -221,6 +236,13 @@ describe('findDualSenseEventNode', () => {
     addNode('event30', 'Sony Interactive Entertainment DualSense Wireless Controller Motion Sensors', '3f', '0');
     addNode('event31', 'Sony Interactive Entertainment DualSense Wireless Controller Touchpad', '2608000 3', '2420 10000 0 0 0 0');
     expect(findDualSenseEventNode(sysDir)).toBe('/dev/input/event29');
+  });
+
+  it('returns the gamepad and touchpad nodes as one DualSense input group', () => {
+    sysDir = mkdtempSync(path.join(tmpdir(), 'sys-input-'));
+    addNode('event29', 'Sony Interactive Entertainment DualSense Wireless Controller', '3003f', '7fdb000000000000 0 0 0 0');
+    addNode('event31', 'Sony Interactive Entertainment DualSense Wireless Controller Touchpad', '2608000 3', '2420 10000 0 0 0 0');
+    expect(findDualSenseEventNodes(sysDir)).toEqual(['/dev/input/event29', '/dev/input/event31']);
   });
 
   it('returns null when no node has both trigger axes and buttons', () => {
