@@ -285,6 +285,74 @@ describe('validateTriggerProfile states and switching', () => {
   });
 });
 
+describe('validateTriggerProfile stickWheel', () => {
+  const states = [
+    { name: 'Pistol', triggers: valid.triggers },
+    { name: 'Shotgun', triggers: valid.triggers }
+  ];
+  const wheel = {
+    button: 'triangle',
+    thresholdPercent: 50,
+    angleOffsetDeg: 0,
+    sectors: ['Pistol', 'Shotgun']
+  };
+  function profileWith(stickWheel: unknown, switchingExtra: Record<string, unknown> = {}) {
+    return { ...valid, states, switching: { rules: [], stickWheel, ...switchingExtra } };
+  }
+
+  it('accepts a valid stickWheel and preserves it', () => {
+    const result = validateTriggerProfile(profileWith(wheel));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.profile.switching?.stickWheel).toEqual(wheel);
+  });
+
+  it('accepts null sector entries', () => {
+    const result = validateTriggerProfile(profileWith({ ...wheel, sectors: ['Pistol', null, 'Shotgun'] }));
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects unknown stickWheel fields', () => {
+    const result = validateTriggerProfile(profileWith({ ...wheel, bogus: 1 }));
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('bogus') });
+  });
+
+  it('rejects an unknown wheel button', () => {
+    const result = validateTriggerProfile(profileWith({ ...wheel, button: 'flipper' }));
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('button') });
+  });
+
+  it('rejects thresholdPercent outside 1-100 or non-integer', () => {
+    for (const thresholdPercent of [0, 101, 50.5]) {
+      const result = validateTriggerProfile(profileWith({ ...wheel, thresholdPercent }));
+      expect(result).toEqual({ ok: false, error: expect.stringContaining('thresholdPercent') });
+    }
+  });
+
+  it('rejects angleOffsetDeg outside 0-359 or non-integer', () => {
+    for (const angleOffsetDeg of [-1, 360, 12.5]) {
+      const result = validateTriggerProfile(profileWith({ ...wheel, angleOffsetDeg }));
+      expect(result).toEqual({ ok: false, error: expect.stringContaining('angleOffsetDeg') });
+    }
+  });
+
+  it('rejects sectors with fewer than 2 or more than 12 entries', () => {
+    for (const sectors of [['Pistol'], Array.from({ length: 13 }, () => null)]) {
+      const result = validateTriggerProfile(profileWith({ ...wheel, sectors }));
+      expect(result).toEqual({ ok: false, error: expect.stringContaining('sectors') });
+    }
+  });
+
+  it('rejects a sector naming a state that does not exist', () => {
+    const result = validateTriggerProfile(profileWith({ ...wheel, sectors: ['Pistol', 'Bazooka'] }));
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('existing state') });
+  });
+
+  it('rejects a wheel button that is also a menu button', () => {
+    const result = validateTriggerProfile(profileWith(wheel, { menuButtons: ['triangle'] }));
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('menuButtons') });
+  });
+});
+
 describe('profileStateList and defaultStateIndex', () => {
   it('wraps a states-less profile as a single anonymous state', () => {
     const list = profileStateList(valid);

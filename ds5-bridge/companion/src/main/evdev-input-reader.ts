@@ -6,6 +6,8 @@ const EVENT_SIZE = 24;
 const EV_SYN = 0;
 const EV_KEY = 1;
 const EV_ABS = 3;
+const ABS_X = 0;
+const ABS_Y = 1;
 const ABS_Z = 2;
 const ABS_RZ = 5;
 const ABS_HAT0X = 16;
@@ -94,6 +96,8 @@ export class EvdevInputReader extends EventEmitter {
   private pending: Buffer = Buffer.alloc(0);
   private l2 = 0;
   private r2 = 0;
+  private lx = 128;
+  private ly = 128;
   private buttons = new Set<string>();
 
   constructor(options: ReaderOptions = {}) {
@@ -149,6 +153,8 @@ export class EvdevInputReader extends EventEmitter {
 
   private handleEvent(type: number, code: number, value: number): void {
     if (type === EV_ABS) {
+      if (code === ABS_X) this.lx = value;
+      if (code === ABS_Y) this.ly = value;
       if (code === ABS_Z) this.l2 = value;
       if (code === ABS_RZ) this.r2 = value;
       if (code === ABS_HAT0X) this.setHatButtons('dpad-left', 'dpad-right', value);
@@ -167,6 +173,8 @@ export class EvdevInputReader extends EventEmitter {
         timestampMs: Date.now(),
         l2: this.l2,
         r2: this.r2,
+        lx: this.lx,
+        ly: this.ly,
         buttons: new Set(this.buttons)
       };
       this.emit('input', state);

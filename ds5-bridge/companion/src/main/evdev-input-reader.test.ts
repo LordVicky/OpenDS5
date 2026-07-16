@@ -47,6 +47,32 @@ describe('EvdevInputReader', () => {
     expect(state.buttons.has('l1')).toBe(true);
   });
 
+  it('decodes left-stick ABS_X/ABS_Y into lx/ly', async () => {
+    const stream = new PassThrough();
+    const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
+    reader.start();
+    const pending = collect(reader, 1);
+    stream.write(Buffer.concat([
+      event(EV_ABS, 0, 255),
+      event(EV_ABS, 1, 10),
+      event(EV_SYN, 0, 0)
+    ]));
+    const [state] = await pending;
+    expect(state.lx).toBe(255);
+    expect(state.ly).toBe(10);
+  });
+
+  it('reports the stick centered (128) before any stick event arrives', async () => {
+    const stream = new PassThrough();
+    const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
+    reader.start();
+    const pending = collect(reader, 1);
+    stream.write(Buffer.concat([event(EV_ABS, ABS_RZ, 55), event(EV_SYN, 0, 0)]));
+    const [state] = await pending;
+    expect(state.lx).toBe(128);
+    expect(state.ly).toBe(128);
+  });
+
   it('handles packets split across chunk boundaries', async () => {
     const stream = new PassThrough();
     const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });

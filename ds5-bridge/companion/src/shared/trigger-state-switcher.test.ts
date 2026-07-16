@@ -21,8 +21,8 @@ function makeProfile(switching: StateSwitching, stateNames = ['Pistol', 'Shotgun
   };
 }
 
-function input(buttons: string[], timestampMs = 0): ControllerInputState {
-  return { timestampMs, l2: 0, r2: 0, buttons: new Set(buttons) };
+function input(buttons: string[], timestampMs = 0, stick?: { lx: number; ly: number }): ControllerInputState {
+  return { timestampMs, l2: 0, r2: 0, lx: stick?.lx ?? 128, ly: stick?.ly ?? 128, buttons: new Set(buttons) };
 }
 
 describe('StateSwitcher', () => {
@@ -132,5 +132,117 @@ describe('StateSwitcher', () => {
     const switcher = new StateSwitcher();
     switcher.setProfile(makeProfile({ rules: [{ button: 'triangle', action: 'cycle' }] }));
     expect(switcher.update(input(['cross', 'square'])).changed).toBe(false);
+  });
+});
+
+describe('StateSwitcher stick wheel', () => {
+  // States Pistol/Shotgun/Sniper, three 120-degree sectors clockwise from 12
+  // o'clock: sector 0 = Pistol (up/right side), 1 = Shotgun (down), 2 = Sniper (left).
+  function wheelProfile(overrides: Record<string, unknown> = {}) {
+    return makeProfile({
+      rules: [],
+      stickWheel: {
+        button: 'triangle',
+        thresholdPercent: 50,
+        angleOffsetDeg: 0,
+        sectors: ['Pistol', 'Shotgun', 'Sniper'],
+        ...overrides
+      }
+    });
+  }
+  const UP = { lx: 128, ly: 0 };
+  const DOWN = { lx: 128, ly: 255 };
+  const LEFT = { lx: 0, ly: 128 };
+  const CENTER = { lx: 128, ly: 128 };
+
+  it('commits the pointed sector when the wheel button is released', () => {
+    const switcher = new StateSwitcher();
+    switcher.setProfile(wheelProfile());
+    switcher.update(input(['triangle'], 0, CENTER));
+    switcher.update(input(['triangle'], 1, DOWN));
+    const result = switcher.update(input([], 2, CENTER));
+    expect(result).toMatchObject({ changed: true });
+    expect(switcher.activeStateName).toBe('Shotgun');
+  });
+
+  it('changes nothing when released without crossing the threshold', () => {
+    const switcher = new StateSwitcher();
+    switcher.setProfile(wheelProfile());
+    switcher.update(input(['triangle'], 0, CENTER));
+    switcher.update(input(['triangle'], 1, { lx: 140, ly: 120 }));
+    const result = switcher.update(input([], 2, CENTER));
+    expect(result.changed).toBe(false);
+    expect(switcher.activeStateName).toBe('Pistol');
+  });
+
+  it('commits the last sector visited when the stick wanders', () => {
+    const switcher = new StateSwitcher();
+    switcher.setProfile(wheelProfile());
+    switcher.update(input(['triangle'], 0, DOWN));
+    switcher.update(input(['triangle'], 1, LEFT));
+    switcher.update(input([], 2, CENTER));
+    expect(switcher.activeStateName).toBe('Sniper');
+  });
+
+  it('keeps the last valid sector when the stick ends on a null sector', () => {
+    const switcher = new StateSwitcher();
+    switcher.setProfile(wheelProfile({ sectors: ['Pistol', 'Shotgun', null] }));
+    switcher.update(input(['triangle'], 0, DOWN));
+    switcher.update(input(['triangle'], 1, LEFT));
+    switcher.update(input([], 2, CENTER));
+    expect(switcher.activeStateName).toBe('Shotgun');
+  });
+
+  it('registers a sector at exactly the threshold magnitude', () => {
+    const switcher = new StateSwitcher();
+    // threshold 50% of 128 = 64: ly = 128 + 64 = 192 points straight down.
+    switcher.setProfile(wheelProfile());
+    switcher.update(input(['triangle'], 0, CENTER));
+    switcher.update(input(['triangle'], 1, { lx: 128, ly: 192 }));
+    switcher.update(input([], 2, CENTER));
+    expect(switcher.activeStateName).toBe('Shotgun');
+  });
+
+  it('applies the angle offset when mapping sectors', () => {
+    const switcher = new StateSwitcher();
+    // Straight down is 180deg raw -> sector 1 ('Shotgun') without offset; with
+    // offset 90 it becomes relative 90deg -> sector 0 ('Sniper').
+    switcher.setProfile(wheelProfile({ angleOffsetDeg: 90, sectors: ['Sniper', 'Shotgun', 'Pistol'] }));
+    switcher.update(input(['triangle'], 0, DOWN));
+    switcher.update(input([], 1, CENTER));
+    expect(switcher.activeStateName).toBe('Sniper');
+  });
+
+  it('does not fire ordinary rules bound to the wheel button', () => {
+    const switcher = new StateSwitcher();
+    const profile = wheelProfile();
+    profile.switching!.rules = [{ button: 'triangle', action: 'cycle' }];
+    switcher.setProfile(profile);
+    switcher.update(input(['triangle'], 0, CENTER));
+    const result = switcher.update(input([], 1, CENTER));
+    expect(result.changed).toBe(false);
+    expect(switcher.activeStateName).toBe('Pistol');
+  });
+
+  it('commits even while the menu guard is up', () => {
+    const switcher = new StateSwitcher();
+    const profile = wheelProfile();
+    profile.switching!.menuButtons = ['options'];
+    switcher.setProfile(profile);
+    switcher.update(input(['options'], 0, CENTER));
+    switcher.update(input(['triangle'], 1, DOWN));
+    switcher.update(input([], 2, CENTER));
+    expect(switcher.activeStateName).toBe('Shotgun');
+  });
+
+  it('abandons an in-flight gesture on profile change', () => {
+    const switcher = new StateSwitcher();
+    const profile = wheelProfile();
+    switcher.setProfile(profile);
+    switcher.update(input(['triangle'], 0, DOWN));
+    switcher.setProfile(profile);
+    const result = switcher.update(input([], 1, CENTER));
+    expect(result.changed).toBe(false);
+    expect(switcher.activeStateName).toBe('Pistol');
   });
 });

@@ -48,9 +48,21 @@ export interface StateSwitchRule {
   while?: string;
 }
 
+// Mirrors an in-game analog weapon wheel: while `button` is held, the left
+// stick's sector is tracked; releasing the button commits that sector's state.
+// `sectors` runs clockwise from 12 o'clock after `angleOffsetDeg` rotation;
+// null entries are unassigned slots.
+export interface StickWheelConfig {
+  button: string;
+  thresholdPercent: number;
+  angleOffsetDeg: number;
+  sectors: (string | null)[];
+}
+
 export interface StateSwitching {
   defaultState?: string;
   rules: StateSwitchRule[];
+  stickWheel?: StickWheelConfig;
   // Buttons that toggle the menu guard: while the guard is up, switch rules
   // are ignored so menu navigation can't corrupt the tracked state.
   menuButtons?: string[];
@@ -81,6 +93,8 @@ export const KNOWN_BUTTONS = [
 ] as const;
 
 export const MAX_STATES_PER_PROFILE = 12;
+export const MIN_WHEEL_SECTORS = 2;
+export const MAX_WHEEL_SECTORS = 12;
 export const MAX_SWITCH_RULES = 16;
 export const MAX_STATE_NAME_LENGTH = 32;
 
@@ -385,7 +399,7 @@ function isKnownButton(value: unknown): value is string {
 function validateSwitching(raw: unknown, stateNames: ReadonlySet<string>): SwitchingResult {
   if (!isRecord(raw)) return { ok: false, error: 'switching must be an object' };
   for (const key of Object.keys(raw)) {
-    if (!['defaultState', 'rules', 'menuButtons', 'menuTimeoutMs'].includes(key)) {
+    if (!['defaultState', 'rules', 'menuButtons', 'menuTimeoutMs', 'stickWheel'].includes(key)) {
       return { ok: false, error: `switching.${key} is not an allowed switching field` };
     }
   }
@@ -440,7 +454,67 @@ function validateSwitching(raw: unknown, stateNames: ReadonlySet<string>): Switc
     }
     switching.menuTimeoutMs = raw.menuTimeoutMs;
   }
+  if (raw.stickWheel !== undefined) {
+    const wheelResult = validateStickWheel(raw.stickWheel, stateNames);
+    if (!wheelResult.ok) return wheelResult;
+    if (switching.menuButtons?.includes(wheelResult.wheel.button)) {
+      return { ok: false, error: 'switching.stickWheel.button must not also appear in menuButtons' };
+    }
+    switching.stickWheel = wheelResult.wheel;
+  }
   return { ok: true, switching };
+}
+
+type StickWheelResult = { ok: true; wheel: StickWheelConfig } | { ok: false; error: string };
+
+function validateStickWheel(raw: unknown, stateNames: ReadonlySet<string>): StickWheelResult {
+  const path = 'switching.stickWheel';
+  if (!isRecord(raw)) return { ok: false, error: `${path} must be an object` };
+  for (const key of Object.keys(raw)) {
+    if (!['button', 'thresholdPercent', 'angleOffsetDeg', 'sectors'].includes(key)) {
+      return { ok: false, error: `${path}.${key} is not an allowed stickWheel field` };
+    }
+  }
+  if (!isKnownButton(raw.button)) return { ok: false, error: `${path}.button must be a known button` };
+  if (
+    typeof raw.thresholdPercent !== 'number' ||
+    !Number.isInteger(raw.thresholdPercent) ||
+    raw.thresholdPercent < 1 ||
+    raw.thresholdPercent > 100
+  ) {
+    return { ok: false, error: `${path}.thresholdPercent must be an integer 1-100` };
+  }
+  if (
+    typeof raw.angleOffsetDeg !== 'number' ||
+    !Number.isInteger(raw.angleOffsetDeg) ||
+    raw.angleOffsetDeg < 0 ||
+    raw.angleOffsetDeg > 359
+  ) {
+    return { ok: false, error: `${path}.angleOffsetDeg must be an integer 0-359` };
+  }
+  if (
+    !Array.isArray(raw.sectors) ||
+    raw.sectors.length < MIN_WHEEL_SECTORS ||
+    raw.sectors.length > MAX_WHEEL_SECTORS
+  ) {
+    return { ok: false, error: `${path}.sectors must have ${MIN_WHEEL_SECTORS}-${MAX_WHEEL_SECTORS} entries` };
+  }
+  for (let index = 0; index < raw.sectors.length; index += 1) {
+    const entry = raw.sectors[index];
+    if (entry === null) continue;
+    if (typeof entry !== 'string' || !stateNames.has(entry)) {
+      return { ok: false, error: `${path}.sectors[${index}] must be null or name an existing state` };
+    }
+  }
+  return {
+    ok: true,
+    wheel: {
+      button: raw.button,
+      thresholdPercent: raw.thresholdPercent,
+      angleOffsetDeg: raw.angleOffsetDeg,
+      sectors: [...(raw.sectors as (string | null)[])]
+    }
+  };
 }
 
 type MetaResult = { ok: true; meta: TriggerProfileMeta } | { ok: false; error: string };

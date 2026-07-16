@@ -2,9 +2,27 @@ import type { ControllerInputState } from './trigger-modifier-eval';
 import {
   defaultStateIndex,
   profileStateList,
+  type StickWheelConfig,
   type TriggerProfile,
   type TriggerStateDef
 } from './trigger-profiles';
+
+const STICK_CENTER = 128;
+
+/**
+ * Maps a raw left-stick sample to a wheel sector index, or null when the
+ * stick is inside the threshold dead zone. Angle 0 is 12 o'clock, clockwise,
+ * with `angleOffsetDeg` subtracted before sector division.
+ */
+export function stickWheelSector(wheel: StickWheelConfig, lx: number, ly: number): number | null {
+  const dx = lx - STICK_CENTER;
+  const dy = ly - STICK_CENTER;
+  const magnitudePercent = (Math.sqrt(dx * dx + dy * dy) / STICK_CENTER) * 100;
+  if (magnitudePercent < wheel.thresholdPercent) return null;
+  const angle = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+  const relative = (angle - wheel.angleOffsetDeg + 360) % 360;
+  return Math.min(Math.floor(relative / (360 / wheel.sectors.length)), wheel.sectors.length - 1);
+}
 
 export interface StateSwitchResult {
   index: number;
@@ -25,8 +43,12 @@ export class StateSwitcher {
   private menuSuspended = false;
   private menuOpenedAtMs = 0;
   private previousButtons: ReadonlySet<string> = new Set();
+  private wheelArmed = false;
+  private wheelPickedState: string | null = null;
 
   setProfile(profile: TriggerProfile | null): void {
+    this.wheelArmed = false;
+    this.wheelPickedState = null;
     this.profile = profile;
     this.states = profile ? profileStateList(profile) : [];
     this.index = profile ? defaultStateIndex(profile) : 0;
@@ -81,7 +103,29 @@ export class StateSwitcher {
     }
 
     const startIndex = this.index;
+    const wheel = switching.stickWheel;
+    if (wheel) {
+      const held = state.buttons.has(wheel.button);
+      if (held) {
+        this.wheelArmed = true;
+        const sector = stickWheelSector(wheel, state.lx, state.ly);
+        if (sector !== null && wheel.sectors[sector] !== null) {
+          this.wheelPickedState = wheel.sectors[sector];
+        }
+      } else if (this.wheelArmed) {
+        // The wheel gesture is its own guard: commit bypasses menuSuspended,
+        // matching the manual re-anchor semantics of select().
+        if (this.wheelPickedState !== null) {
+          const target = this.states.findIndex((candidate) => candidate.name === this.wheelPickedState);
+          if (target >= 0) this.index = target;
+        }
+        this.wheelArmed = false;
+        this.wheelPickedState = null;
+      }
+    }
     for (const button of pressed) {
+      // The wheel owns its chord button; ordinary rules on it never fire.
+      if (wheel && button === wheel.button) continue;
       if (switching.menuButtons?.includes(button)) {
         this.menuSuspended = !this.menuSuspended;
         if (this.menuSuspended) this.menuOpenedAtMs = state.timestampMs;
