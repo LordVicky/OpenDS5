@@ -164,6 +164,22 @@ describe('renderer behavior guards', () => {
     expect(handler).toContain('setAudioHapticsOpen');
   });
 
+  it('audio haptics panel view resyncs when the controller profile is swapped underneath it', () => {
+    // Game settings scope (and game auto-apply) swap the selected controller profile,
+    // which flips audioReactiveHapticsEnabled without going through the header switch.
+    // The panel-open state must follow, or the heading shows "HD Haptics" while the
+    // Audio Haptics switch is on (and vice versa).
+    const effectStart = appSource.indexOf('setAudioHapticsOpen(audioReactiveHapticsEnabledRef.current)');
+    expect(effectStart).toBeGreaterThanOrEqual(0);
+    const depsEnd = appSource.indexOf(']);', effectStart);
+    const effectSource = appSource.slice(appSource.lastIndexOf('useEffect', effectStart), depsEnd);
+    // Resync is keyed on profile identity (scope switches, auto-apply) and on the
+    // first snapshot after launch — not on every enabled change, so the in-panel
+    // enable button can still turn the feature off without collapsing the panel.
+    expect(effectSource).toContain('selectedControllerProfileId');
+    expect(effectSource).not.toContain('audioReactiveHapticsEnabled]');
+  });
+
   it('dims primary feature toggles when the controller is unavailable', () => {
     expect(appSource).toContain('const controllerControlsAvailable = connected && controllerConnected;');
     expect(appSource).toContain("controllerControlsAvailable ? '' : 'controller-unavailable'");

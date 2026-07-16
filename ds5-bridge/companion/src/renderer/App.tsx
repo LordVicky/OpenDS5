@@ -3925,6 +3925,18 @@ export function App() {
   const overviewHostPersonaMode = personaTransition?.to ?? snapshot?.settings.hostPersonaMode ?? 'dualsense';
   const hapticsEnabled = Boolean(snapshot?.settings.hapticsEnabled);
   const audioReactiveHapticsEnabled = Boolean(snapshot?.settings.audioReactiveHapticsEnabled);
+  const snapshotLoaded = snapshot !== null;
+  const audioReactiveHapticsEnabledRef = useRef(audioReactiveHapticsEnabled);
+  audioReactiveHapticsEnabledRef.current = audioReactiveHapticsEnabled;
+  // Game settings scope (and game auto-apply) swap the selected controller profile,
+  // flipping audioReactiveHapticsEnabled without going through the header switch. Resync
+  // the panel view on profile identity changes and on the first snapshot — but not on
+  // every enabled change, so the in-panel enable button can still turn the feature off
+  // without collapsing the panel.
+  useEffect(() => {
+    if (!snapshotLoaded) return;
+    setAudioHapticsOpen(audioReactiveHapticsEnabledRef.current);
+  }, [snapshotLoaded, selectedControllerProfileId]);
   const audioHapticsSessionByKey = useMemo(() => {
     const sessions = new Map<string, AudioHapticsSession>();
     for (const session of audioHapticsSessions) {
