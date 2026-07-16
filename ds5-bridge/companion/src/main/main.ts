@@ -27,6 +27,9 @@ import { EvdevInputReader } from './evdev-input-reader';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
 import { GameSettingsCoordinator, type GameSettingsStatus } from './game-settings-coordinator';
 import { GameArtworkStore } from './game-artwork';
+import { GamingShortcutsCoordinator } from './gaming-shortcuts/coordinator';
+import { detectProviderCapabilities } from './gaming-shortcuts/providers/detect-environment';
+import { normalizeGamingShortcutsSettings } from '../shared/gaming-shortcuts';
 import {
   InstalledGamesScanner,
   defaultScannerRoots,
@@ -78,6 +81,8 @@ let tray: Tray | null = null;
 let trayDefaultIcon: Electron.NativeImage | null = null;
 let bridgeService: BridgeService | null = null;
 let triggerProfileEngine: TriggerProfileEngine | null = null;
+let gamingShortcutsCoordinator: GamingShortcutsCoordinator | null = null;
+let gamingShortcutsReader: EvdevInputReader | null = null;
 let isQuitting = false;
 let shutdownComplete = false;
 // One-time DS5 Bridge -> OpenDS5 rebrand migration: carry legacy userData
@@ -1088,12 +1093,29 @@ function fileToDataUrl(filePath: string): string | null {
 
 function registerIpc(
   service: BridgeService,
+  settingsStore: SettingsStore,
+  gamingShortcuts: GamingShortcutsCoordinator | null,
   triggerProfileStore: TriggerProfileStore,
   triggerProfileEngine: TriggerProfileEngine,
   profileLibrary: ProfileLibrary,
   gameSettingsCoordinator: GameSettingsCoordinator,
   gameArtworkStore: GameArtworkStore
 ): void {
+  ipcMain.handle('bridge:getGamingShortcutsSettings', () => settingsStore.get().gamingShortcuts);
+  ipcMain.handle('bridge:saveGamingShortcutsSettings', (_event, value: unknown) => {
+    const next = normalizeGamingShortcutsSettings(value);
+    const saved = settingsStore.update({ gamingShortcuts: next });
+    gamingShortcuts?.reload();
+    if (next.enabled) {
+      gamingShortcuts?.start();
+      gamingShortcutsReader?.start();
+    } else {
+      gamingShortcuts?.stop();
+      gamingShortcutsReader?.stop();
+    }
+    return saved.gamingShortcuts;
+  });
+  ipcMain.handle('bridge:getGamingShortcutProviders', () => detectProviderCapabilities());
   ipcMain.handle('bridge:listTriggerProfiles', () => triggerProfileStore.list());
   ipcMain.handle('bridge:saveTriggerProfile', (_event, profile: TriggerProfile) => {
     const saved = triggerProfileStore.save(profile);
@@ -1673,6 +1695,24 @@ app.whenReady().then(async () => {
     watcher: new GameWatcher({}),
     reader: new EvdevInputReader()
   });
+  if (process.platform === 'linux') {
+    const shortcutReader = new EvdevInputReader();
+    gamingShortcutsReader = shortcutReader;
+    shortcutReader.on('error', (error) => {
+      console.error('[gaming-shortcuts] input reader error', error);
+    });
+    gamingShortcutsCoordinator = new GamingShortcutsCoordinator({
+      input: shortcutReader,
+      settingsStore
+    });
+    gamingShortcutsCoordinator.on('error', (error) => {
+      console.error('[gaming-shortcuts] action error', error);
+    });
+    if (settingsStore.get().gamingShortcuts.enabled) {
+      gamingShortcutsCoordinator.start();
+      shortcutReader.start();
+    }
+  }
   triggerProfileEngine.refreshProfiles();
   // Game Profile: rides the trigger engine's detection to swap the whole settings set
   // (controller profile + button remapping) per game. Recovery and subscription happen
@@ -1710,6 +1750,8 @@ app.whenReady().then(async () => {
   });
   registerIpc(
     bridgeService,
+    settingsStore,
+    gamingShortcutsCoordinator,
     triggerProfileStore,
     triggerProfileEngine,
     profileLibrary,
@@ -1785,11 +1827,17 @@ app.on('before-quit', (event) => {
   isQuitting = true;
   const service = bridgeService;
   const engine = triggerProfileEngine;
+  const shortcuts = gamingShortcutsCoordinator;
+  const shortcutReader = gamingShortcutsReader;
   bridgeService = null;
   triggerProfileEngine = null;
+  gamingShortcutsCoordinator = null;
+  gamingShortcutsReader = null;
   void (async () => {
     try {
       await engine?.setEnabled(false);
+      shortcuts?.stop();
+      shortcutReader?.stop();
       await service?.stop();
     } finally {
       shutdownComplete = true;

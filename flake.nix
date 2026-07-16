@@ -1,6 +1,15 @@
 {
   description = "OpenDS5 — DualSense companion application and virtual DualSense stack";
 
+  nixConfig = {
+    extra-substituters = [
+      "https://opends5.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "opends5.cachix.org-1:IzUxvZYBhuASyX7O7c1AkqNT3NiLtbF5X0eAwFCM95g="
+    ];
+  };
+
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs = {
