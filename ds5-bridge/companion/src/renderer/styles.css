@@ -7983,7 +7983,30 @@ button.trigger-lab-chip {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 6px 0;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--surface-divider);
+}
+
+.trigger-profiles-sentence-rule:last-child {
+  border-bottom: 0;
+}
+
+.trigger-profiles-sentence-rule .custom-select-button {
+  height: 32px;
+  font-size: 12px;
+  padding: 0 8px 0 12px;
+}
+
+.trigger-profiles-sentence-rule .trigger-profiles-modifier-remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.trigger-profiles-sentence-rule .trigger-profiles-modifier-remove:hover {
+  color: var(--text-control);
+  background: var(--surface-card-hover);
 }
 
 .sentence-word {
@@ -7995,13 +8018,13 @@ button.trigger-lab-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 32px;
-  padding: 0 12px;
+  min-height: 30px;
+  padding: 0 11px;
   border: 1px solid var(--surface-border-strong);
-  border-radius: var(--control-radius);
-  background: var(--surface-control);
+  border-radius: 8px;
+  background: var(--surface-panel);
   color: var(--text-control);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 750;
   cursor: pointer;
 }

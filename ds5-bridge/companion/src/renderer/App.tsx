@@ -387,9 +387,16 @@ const STATE_SWITCH_MENU_OPTIONS: Array<[string, string]> = [
   ...STATE_SWITCH_BUTTON_OPTIONS
 ];
 const STATE_SWITCH_ACTION_OPTIONS: Array<[string, StateSwitchAction]> = [
-  ['Cycle to next state', 'cycle'],
-  ['Select a state', 'select']
+  ['cycle to next state', 'cycle'],
+  ['switch to…', 'select']
 ];
+// Compact glyphs for the rule capture chips, matching the DualSense faces.
+const STATE_SWITCH_BUTTON_GLYPHS: Record<string, string> = {
+  cross: '✕', circle: '○', triangle: '△', square: '□',
+  l1: 'L1', r1: 'R1', l3: 'L3', r3: 'R3',
+  create: 'Create', options: 'Options', ps: 'PS',
+  'dpad-up': '↑', 'dpad-down': '↓', 'dpad-left': '←', 'dpad-right': '→'
+};
 const MUTE_BUTTON_MODE_OPTIONS: Array<[string, MuteButtonMode]> = [
   ['Normal', 'normal'],
   ['Keyboard Key', 'keyboard'],
@@ -9172,11 +9179,15 @@ export function App() {
                                   <>
                                     {rule.while && (
                                       <>
-                                        <span className="rule-chip-glyph">{STATE_SWITCH_BUTTON_LABELS[rule.while] ?? rule.while}</span>
+                                        <span className="rule-chip-glyph" title={STATE_SWITCH_BUTTON_LABELS[rule.while] ?? rule.while}>
+                                          {STATE_SWITCH_BUTTON_GLYPHS[rule.while] ?? rule.while}
+                                        </span>
                                         <span className="rule-chip-plus">+</span>
                                       </>
                                     )}
-                                    <span className="rule-chip-glyph accent">{STATE_SWITCH_BUTTON_LABELS[rule.button] ?? rule.button}</span>
+                                    <span className="rule-chip-glyph accent" title={STATE_SWITCH_BUTTON_LABELS[rule.button] ?? rule.button}>
+                                      {STATE_SWITCH_BUTTON_GLYPHS[rule.button] ?? rule.button}
+                                    </span>
                                   </>
                                 )}
                             </button>
