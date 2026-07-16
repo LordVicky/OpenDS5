@@ -107,7 +107,9 @@ export class EvdevInputReader extends EventEmitter {
   private r2 = 0;
   private lx = 128;
   private ly = 128;
-  private buttons = new Set<string>();
+  private dpadX = 0;
+  private dpadY = 0;
+  private buttons = new Set<ControllerButton>();
 
   constructor(options: ReaderOptions = {}) {
     super();
@@ -143,6 +145,8 @@ export class EvdevInputReader extends EventEmitter {
     this.buttons.clear();
     this.l2 = 0;
     this.r2 = 0;
+    this.dpadX = 0;
+    this.dpadY = 0;
   }
 
   private consume(chunk: Buffer): void {
@@ -154,23 +158,24 @@ export class EvdevInputReader extends EventEmitter {
     }
   }
 
-  // The d-pad is a hat axis, not key events; -1/0/1 per axis becomes a pair of
-  // synthetic button names so the switch/modifier layers see one vocabulary.
-  private setHatButtons(negative: string, positive: string, value: number): void {
-    this.buttons.delete(negative);
-    this.buttons.delete(positive);
-    if (value < 0) this.buttons.add(negative);
-    if (value > 0) this.buttons.add(positive);
-  }
-
   private handleEvent(type: number, code: number, value: number): void {
     if (type === EV_ABS) {
       if (code === ABS_X) this.lx = value;
       if (code === ABS_Y) this.ly = value;
       if (code === ABS_Z) this.l2 = value;
       if (code === ABS_RZ) this.r2 = value;
-      if (code === ABS_HAT0X) this.setHatButtons('dpad-left', 'dpad-right', value);
-      if (code === ABS_HAT0Y) this.setHatButtons('dpad-up', 'dpad-down', value);
+      if (code === ABS_HAT0X || code === ABS_HAT0Y) {
+        if (code === ABS_HAT0X) this.dpadX = Math.max(-1, Math.min(1, value));
+        else this.dpadY = Math.max(-1, Math.min(1, value));
+        this.buttons.delete('dpad-left');
+        this.buttons.delete('dpad-right');
+        this.buttons.delete('dpad-up');
+        this.buttons.delete('dpad-down');
+        if (this.dpadX < 0) this.buttons.add('dpad-left');
+        if (this.dpadX > 0) this.buttons.add('dpad-right');
+        if (this.dpadY < 0) this.buttons.add('dpad-up');
+        if (this.dpadY > 0) this.buttons.add('dpad-down');
+      }
       return;
     }
     if (type === EV_KEY) {

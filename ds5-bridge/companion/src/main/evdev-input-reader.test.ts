@@ -18,6 +18,8 @@ const EV_SYN = 0;
 const EV_KEY = 1;
 const EV_ABS = 3;
 const ABS_RZ = 5;
+const ABS_HAT0X = 16;
+const ABS_HAT0Y = 17;
 const BTN_TL = 0x136;
 const NEW_CODES = [0x13a, 0x13b, 0x13c, 0x14a, 248, 0x220, 0x221, 0x222, 0x223];
 
@@ -81,6 +83,22 @@ describe('EvdevInputReader', () => {
     const [state] = await pending;
     expect(state.lx).toBe(128);
     expect(state.ly).toBe(128);
+  });
+
+  it('normalizes the DualSense hat axes into held D-pad buttons', async () => {
+    const stream = new PassThrough();
+    const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
+    reader.start();
+    const pending = collect(reader, 3);
+    stream.write(Buffer.concat([
+      event(EV_ABS, ABS_HAT0Y, -1), event(EV_SYN, 0, 0),
+      event(EV_ABS, ABS_HAT0Y, 0), event(EV_ABS, ABS_HAT0X, 1), event(EV_SYN, 0, 0),
+      event(EV_ABS, ABS_HAT0X, 0), event(EV_SYN, 0, 0)
+    ]));
+    const [up, right, released] = await pending;
+    expect(up.buttons).toEqual(new Set(['dpad-up']));
+    expect(right.buttons).toEqual(new Set(['dpad-right']));
+    expect(released.buttons).toEqual(new Set());
   });
 
   it('handles packets split across chunk boundaries', async () => {
