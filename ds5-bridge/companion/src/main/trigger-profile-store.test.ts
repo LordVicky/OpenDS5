@@ -119,6 +119,25 @@ describe('TriggerProfileStore importProfile', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('strips meta.game so an import never lands as a game profile', () => {
+    const result = store.importProfile({ ...profile, meta: { game: 'Cyberpunk 2077', author: 'me' } }, 'import');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.profile.meta?.game).toBeUndefined();
+      expect(result.profile.meta?.author).toBe('me');
+    }
+  });
+
+  it('strips meta.game on library installs too', () => {
+    const result = store.importProfile(
+      { ...profile, meta: { game: 'Cyberpunk 2077' } },
+      'library',
+      'generic-shooter.json'
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.profile.meta?.game).toBeUndefined();
+  });
+
   it('records the library file a library install came from', () => {
     const result = store.importProfile(profile, 'library', 'generic-shooter.json');
     expect(result.ok).toBe(true);
@@ -167,6 +186,24 @@ describe('TriggerProfileStore resetToLibrary', () => {
     }
     // Crucially, no "Generic Shooter (2)".
     expect(store.list().filter((p) => p.id !== 'default')).toHaveLength(1);
+  });
+
+  it('keeps a locally attached game binding instead of taking meta.game from the fetched copy', () => {
+    const original = install();
+    // The user attached the installed profile to a local game.
+    store.save({ ...original, meta: { ...original.meta, game: 'My Local Game' } });
+
+    const result = store.resetToLibrary(original.id, { ...installed, meta: { game: 'Publisher Game' } });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.profile.meta?.game).toBe('My Local Game');
+  });
+
+  it('does not adopt a game binding from the fetched copy when none exists locally', () => {
+    const original = install();
+    const result = store.resetToLibrary(original.id, { ...installed, meta: { game: 'Publisher Game' } });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.profile.meta?.game).toBeUndefined();
   });
 
   it('keeps the libraryFile so the profile can be reset again', () => {

@@ -125,11 +125,16 @@ export class TriggerProfileStore {
     const existingNames = new Set(existing.map((entry) => entry.name));
     const name = this.uniqueName(result.profile.name, existingNames);
     const id = uniqueTriggerProfileId(name, existingIds);
+    // Imported files can claim a game via meta.game, but the game was never
+    // located on this machine — keeping it would mint a pathless game profile
+    // that duplicates any real one. Imports always land as plain trigger
+    // profiles; the user attaches a game locally.
+    const { game: _droppedGame, ...incomingMeta } = result.profile.meta ?? {};
     const copy: TriggerProfile = {
       ...result.profile,
       id,
       name,
-      meta: { ...result.profile.meta, source, ...(libraryFile ? { libraryFile } : {}) }
+      meta: { ...incomingMeta, source, ...(libraryFile ? { libraryFile } : {}) }
     };
     return { ok: true, profile: this.save(copy) };
   }
@@ -145,13 +150,17 @@ export class TriggerProfileStore {
     if (!current) return { ok: false, error: `No profile with id ${id}` };
     const result = validateTriggerProfile(parsed);
     if (!result.ok) return { ok: false, error: result.error };
+    // A game binding is local state (attached on this machine), never part of
+    // the published profile — keep ours, ignore any meta.game in the fetch.
+    const { game: _fetchedGame, ...fetchedMeta } = result.profile.meta ?? {};
     const restored: TriggerProfile = {
       ...result.profile,
       id: current.id,
       name: current.name,
       meta: {
-        ...result.profile.meta,
+        ...fetchedMeta,
         source: 'library',
+        ...(current.meta?.game ? { game: current.meta.game } : {}),
         ...(current.meta?.libraryFile ? { libraryFile: current.meta.libraryFile } : {})
       }
     };
