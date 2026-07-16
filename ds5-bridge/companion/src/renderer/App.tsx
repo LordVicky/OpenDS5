@@ -158,6 +158,7 @@ import type {
   StateSwitchAction,
   StateSwitchRule,
   StateSwitching,
+  StickWheelConfig,
   TriggerEffectSpec,
   TriggerModifier,
   TriggerProfile,
@@ -6354,19 +6355,61 @@ export function App() {
     });
   }
 
-  // Moves a state to a new position in the state list (cycle order, chips,
-  // editor strip). Rules, defaultState, and wheel sectors reference states by
-  // name, so reordering never breaks them; only the states[0] triggers mirror
-  // needs refreshing.
+  // Moves a state to a new position by swapping with the occupant. Position
+  // and wheel sector are kept matching in both directions: the two states'
+  // wheel-sector entries swap along with their positions.
   function moveTriggerProfileState(from: number, to: number) {
     setTriggerProfileDraft((draft) => {
       if (!draft?.states || from === to || !draft.states[from] || to < 0 || to >= draft.states.length) return draft;
       const states = [...draft.states];
-      const [moved] = states.splice(from, 1);
-      states.splice(to, 0, moved);
-      return { ...draft, states, triggers: states[0].triggers };
+      [states[from], states[to]] = [states[to], states[from]];
+      let switching = draft.switching;
+      const wheel = switching?.stickWheel;
+      if (switching && wheel) {
+        const sectors = [...wheel.sectors];
+        const movedIndex = sectors.indexOf(states[to].name);
+        const target = to < sectors.length ? to : -1;
+        if (movedIndex >= 0 && target >= 0 && movedIndex !== target) {
+          [sectors[movedIndex], sectors[target]] = [sectors[target], sectors[movedIndex]];
+        }
+        switching = { ...switching, stickWheel: { ...wheel, sectors } };
+      }
+      return { ...draft, states, triggers: states[0].triggers, ...(switching ? { switching } : {}) };
     });
     setTriggerProfileEditingState(to);
+  }
+
+  // Applies a stickWheel change from the wheel configurator and keeps state
+  // positions matching sector numbers: any state that newly landed in sector i
+  // swaps its list position to i (clamped to the state count).
+  function updateStickWheelSynced(next: StickWheelConfig) {
+    let editorFollow: number | null = null;
+    setTriggerProfileDraft((draft) => {
+      if (!draft?.states || draft.states.length === 0 || !draft.switching) return draft;
+      const editingName = draft.states[triggerProfileEditingState]?.name;
+      const previousSectors = draft.switching.stickWheel?.sectors ?? [];
+      let states = draft.states;
+      next.sectors.forEach((name, sector) => {
+        if (name === null || previousSectors[sector] === name) return;
+        const from = states.findIndex((state) => state.name === name);
+        const to = Math.min(sector, states.length - 1);
+        if (from >= 0 && from !== to) {
+          states = [...states];
+          [states[from], states[to]] = [states[to], states[from]];
+        }
+      });
+      if (editingName) {
+        const follow = states.findIndex((state) => state.name === editingName);
+        if (follow >= 0 && follow !== triggerProfileEditingState) editorFollow = follow;
+      }
+      return {
+        ...draft,
+        states,
+        triggers: states[0].triggers,
+        switching: { ...draft.switching, stickWheel: next }
+      };
+    });
+    if (editorFollow !== null) setTriggerProfileEditingState(editorFollow);
   }
 
   // Puts a state into a wheel slot from the state editor. If the target slot
@@ -9329,10 +9372,7 @@ export function App() {
                             stateNames={(triggerProfileDraft.states ?? []).map((state) => state.name)}
                             buttonOptions={STATE_SWITCH_BUTTON_OPTIONS}
                             liveSample={stickSample}
-                            onChange={(stickWheel) => updateTriggerProfileSwitching((switching) => ({
-                              ...switching,
-                              stickWheel
-                            }))}
+                            onChange={updateStickWheelSynced}
                             renderSelect={({ value, options, ariaLabel, onChange }) => (
                               <CustomSelect
                                 value={value}
