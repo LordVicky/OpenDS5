@@ -213,6 +213,20 @@ describe('StateSwitcher stick wheel', () => {
     expect(switcher.activeStateName).toBe('Sniper');
   });
 
+  it('maps the stick through unequal sector spans when sectorSpansDeg is set', () => {
+    const switcher = new StateSwitcher();
+    // Pistol owns the whole top/right half plus more (0-200deg), Shotgun
+    // 200-300, Sniper 300-360: straight down (180deg) is now Pistol, and
+    // left (270deg) is Shotgun instead of Sniper.
+    switcher.setProfile(wheelProfile({ sectorSpansDeg: [200, 100, 60] }));
+    switcher.update(input(['triangle'], 0, DOWN));
+    switcher.update(input([], 1, CENTER));
+    expect(switcher.activeStateName).toBe('Pistol');
+    switcher.update(input(['triangle'], 2, LEFT));
+    switcher.update(input([], 3, CENTER));
+    expect(switcher.activeStateName).toBe('Shotgun');
+  });
+
   it('does not fire ordinary rules bound to the wheel button', () => {
     const switcher = new StateSwitcher();
     const profile = wheelProfile();

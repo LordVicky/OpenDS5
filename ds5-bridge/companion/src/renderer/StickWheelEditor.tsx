@@ -4,8 +4,8 @@ import {
   MIN_WHEEL_SECTORS,
   type StickWheelConfig
 } from '../shared/trigger-profiles';
-import { stickWheelSector } from '../shared/trigger-state-switcher';
-import { fitSectorLabel, sectorLabelPoint, sectorPath } from './stick-wheel-geometry';
+import { stickWheelSector, wheelSectorSpans } from '../shared/trigger-state-switcher';
+import { fitSectorLabel, resizeWheelSector, sectorLabelPointAt, sectorPathAt } from './stick-wheel-geometry';
 
 const SIZE = 260;
 const CENTER = SIZE / 2;
@@ -50,6 +50,11 @@ export function StickWheelEditor({
 }: StickWheelEditorProps) {
   const [selectedSector, setSelectedSector] = useState(0);
   const count = wheel.sectors.length;
+  const spans = wheelSectorSpans(wheel);
+  const sectorStarts = spans.reduce<number[]>((starts, _, index) => {
+    starts.push(index === 0 ? wheel.angleOffsetDeg : starts[index - 1] + spans[index - 1]);
+    return starts;
+  }, []);
   const innerRadius = Math.max(MIN_INNER_RADIUS, (OUTER_RADIUS * wheel.thresholdPercent) / 100);
   const liveSector = liveSample ? stickWheelSector(wheel, liveSample.lx, liveSample.ly) : null;
   const livePoint = liveSample
@@ -61,8 +66,14 @@ export function StickWheelEditor({
 
   function setSectorCount(next: number): void {
     const sectors = Array.from({ length: next }, (_, index) => wheel.sectors[index] ?? null);
-    onChange({ ...wheel, sectors });
+    // Custom widths were tuned for the old slot count; fall back to equal slices.
+    const { sectorSpansDeg: _spans, ...rest } = wheel;
+    onChange({ ...rest, sectors });
     setSelectedSector((current) => Math.min(current, next - 1));
+  }
+
+  function setSectorSpan(spanDeg: number): void {
+    onChange({ ...wheel, sectorSpansDeg: resizeWheelSector(spans.map(Math.round), selectedSector, spanDeg) });
   }
 
   function assignSector(state: string | null): void {
@@ -81,7 +92,7 @@ export function StickWheelEditor({
         {wheel.sectors.map((state, index) => (
           <path
             key={index}
-            d={sectorPath(CENTER, CENTER, OUTER_RADIUS, innerRadius, index, count, wheel.angleOffsetDeg)}
+            d={sectorPathAt(CENTER, CENTER, OUTER_RADIUS, innerRadius, sectorStarts[index], spans[index])}
             className={[
               'stick-wheel-sector',
               state === null ? 'unassigned' : '',
@@ -98,11 +109,11 @@ export function StickWheelEditor({
           />
         ))}
         {wheel.sectors.map((state, index) => {
-          const point = sectorLabelPoint(CENTER, CENTER, OUTER_RADIUS, innerRadius, index, count, wheel.angleOffsetDeg);
+          const point = sectorLabelPointAt(CENTER, CENTER, OUTER_RADIUS, innerRadius, sectorStarts[index], spans[index]);
           // Character budget from the chord width at the label radius, so
-          // labels shrink with the slot count instead of spilling over.
+          // labels shrink with the sector width instead of spilling over.
           const labelRadius = (OUTER_RADIUS + innerRadius) / 2;
-          const chord = 2 * labelRadius * Math.sin(Math.PI / count);
+          const chord = 2 * labelRadius * Math.sin((spans[index] * Math.PI) / 360);
           const maxChars = Math.max(4, Math.min(16, Math.floor(chord / 6)));
           const lines = fitSectorLabel(state ?? '—', maxChars);
           return (
@@ -157,6 +168,17 @@ export function StickWheelEditor({
             ariaLabel: `Sector ${selectedSector + 1} state`,
             onChange: (value) => assignSector(value === '' ? null : value)
           })}
+        </label>
+        <label className="trigger-profiles-modifier-param">
+          <span>{`Sector ${selectedSector + 1} width ${Math.round(spans[selectedSector])}°`}</span>
+          <input
+            type="range"
+            min={10}
+            max={360 - 10 * (count - 1)}
+            value={Math.round(spans[selectedSector])}
+            aria-label={`Sector ${selectedSector + 1} width degrees`}
+            onChange={(event) => setSectorSpan(Number(event.target.value))}
+          />
         </label>
         <label className="trigger-profiles-modifier-param">
           <span>{`Threshold ${wheel.thresholdPercent}%`}</span>

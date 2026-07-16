@@ -14,6 +14,11 @@ const STICK_CENTER = 128;
  * stick is inside the threshold dead zone. Angle 0 is 12 o'clock, clockwise,
  * with `angleOffsetDeg` subtracted before sector division.
  */
+/** Angular width of each sector: declared spans, or equal slices. */
+export function wheelSectorSpans(wheel: StickWheelConfig): number[] {
+  return wheel.sectorSpansDeg ?? wheel.sectors.map(() => 360 / wheel.sectors.length);
+}
+
 export function stickWheelSector(wheel: StickWheelConfig, lx: number, ly: number): number | null {
   const dx = lx - STICK_CENTER;
   const dy = ly - STICK_CENTER;
@@ -21,7 +26,13 @@ export function stickWheelSector(wheel: StickWheelConfig, lx: number, ly: number
   if (magnitudePercent < wheel.thresholdPercent) return null;
   const angle = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
   const relative = (angle - wheel.angleOffsetDeg + 360) % 360;
-  return Math.min(Math.floor(relative / (360 / wheel.sectors.length)), wheel.sectors.length - 1);
+  const spans = wheelSectorSpans(wheel);
+  let boundary = 0;
+  for (let index = 0; index < spans.length; index += 1) {
+    boundary += spans[index];
+    if (relative < boundary) return index;
+  }
+  return spans.length - 1;
 }
 
 export interface StateSwitchResult {

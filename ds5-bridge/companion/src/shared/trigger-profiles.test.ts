@@ -347,6 +347,29 @@ describe('validateTriggerProfile stickWheel', () => {
     expect(result).toEqual({ ok: false, error: expect.stringContaining('existing state') });
   });
 
+  it('accepts sectorSpansDeg matching the sectors and summing to 360', () => {
+    const result = validateTriggerProfile(profileWith({ ...wheel, sectorSpansDeg: [220, 140] }));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.profile.switching?.stickWheel?.sectorSpansDeg).toEqual([220, 140]);
+  });
+
+  it('rejects sectorSpansDeg whose length differs from sectors', () => {
+    const result = validateTriggerProfile(profileWith({ ...wheel, sectorSpansDeg: [120, 120, 120] }));
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('sectorSpansDeg') });
+  });
+
+  it('rejects sectorSpansDeg that does not sum to 360', () => {
+    const result = validateTriggerProfile(profileWith({ ...wheel, sectorSpansDeg: [200, 100] }));
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('360') });
+  });
+
+  it('rejects sectorSpansDeg entries below 10 degrees or non-integer', () => {
+    for (const sectorSpansDeg of [[5, 355], [180.5, 179.5]]) {
+      const result = validateTriggerProfile(profileWith({ ...wheel, sectorSpansDeg }));
+      expect(result).toEqual({ ok: false, error: expect.stringContaining('sectorSpansDeg') });
+    }
+  });
+
   it('rejects a wheel button that is also a menu button', () => {
     const result = validateTriggerProfile(profileWith(wheel, { menuButtons: ['triangle'] }));
     expect(result).toEqual({ ok: false, error: expect.stringContaining('menuButtons') });

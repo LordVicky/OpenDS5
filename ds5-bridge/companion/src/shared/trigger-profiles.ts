@@ -57,7 +57,13 @@ export interface StickWheelConfig {
   thresholdPercent: number;
   angleOffsetDeg: number;
   sectors: (string | null)[];
+  // Per-sector angular widths in degrees, matching `sectors` by index and
+  // summing to 360. Absent = equal slices. Games draw wheels with unequal
+  // slots, so the mapping must be able to match them.
+  sectorSpansDeg?: number[];
 }
+
+export const MIN_WHEEL_SECTOR_SPAN_DEG = 10;
 
 export interface StateSwitching {
   defaultState?: string;
@@ -471,7 +477,7 @@ function validateStickWheel(raw: unknown, stateNames: ReadonlySet<string>): Stic
   const path = 'switching.stickWheel';
   if (!isRecord(raw)) return { ok: false, error: `${path} must be an object` };
   for (const key of Object.keys(raw)) {
-    if (!['button', 'thresholdPercent', 'angleOffsetDeg', 'sectors'].includes(key)) {
+    if (!['button', 'thresholdPercent', 'angleOffsetDeg', 'sectors', 'sectorSpansDeg'].includes(key)) {
       return { ok: false, error: `${path}.${key} is not an allowed stickWheel field` };
     }
   }
@@ -506,13 +512,34 @@ function validateStickWheel(raw: unknown, stateNames: ReadonlySet<string>): Stic
       return { ok: false, error: `${path}.sectors[${index}] must be null or name an existing state` };
     }
   }
+  let sectorSpansDeg: number[] | undefined;
+  if (raw.sectorSpansDeg !== undefined) {
+    if (
+      !Array.isArray(raw.sectorSpansDeg) ||
+      raw.sectorSpansDeg.length !== raw.sectors.length ||
+      !raw.sectorSpansDeg.every(
+        (entry) => typeof entry === 'number' && Number.isInteger(entry) && entry >= MIN_WHEEL_SECTOR_SPAN_DEG
+      )
+    ) {
+      return {
+        ok: false,
+        error: `${path}.sectorSpansDeg must match sectors in length with integer entries of at least ${MIN_WHEEL_SECTOR_SPAN_DEG} degrees`
+      };
+    }
+    const total = (raw.sectorSpansDeg as number[]).reduce((sum, entry) => sum + entry, 0);
+    if (total !== 360) {
+      return { ok: false, error: `${path}.sectorSpansDeg must sum to 360 degrees` };
+    }
+    sectorSpansDeg = [...(raw.sectorSpansDeg as number[])];
+  }
   return {
     ok: true,
     wheel: {
       button: raw.button,
       thresholdPercent: raw.thresholdPercent,
       angleOffsetDeg: raw.angleOffsetDeg,
-      sectors: [...(raw.sectors as (string | null)[])]
+      sectors: [...(raw.sectors as (string | null)[])],
+      ...(sectorSpansDeg ? { sectorSpansDeg } : {})
     }
   };
 }

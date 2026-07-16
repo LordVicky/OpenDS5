@@ -1,5 +1,42 @@
 import { describe, expect, it } from 'vitest';
-import { wheelPoint, sectorPath, sectorLabelPoint, fitSectorLabel } from './stick-wheel-geometry';
+import {
+  wheelPoint,
+  sectorPath,
+  sectorPathAt,
+  sectorLabelPoint,
+  sectorLabelPointAt,
+  fitSectorLabel,
+  resizeWheelSector
+} from './stick-wheel-geometry';
+
+describe('resizeWheelSector', () => {
+  it('grows one sector and shrinks the rest proportionally, keeping the sum at 360', () => {
+    const spans = resizeWheelSector([90, 90, 90, 90], 0, 180);
+    expect(spans[0]).toBe(180);
+    expect(spans.reduce((sum, entry) => sum + entry, 0)).toBe(360);
+    expect(spans.slice(1).every((entry) => entry === 60)).toBe(true);
+  });
+
+  it('returns integer spans that always sum to 360', () => {
+    const spans = resizeWheelSector([120, 120, 120], 1, 145);
+    expect(spans.every((entry) => Number.isInteger(entry))).toBe(true);
+    expect(spans.reduce((sum, entry) => sum + entry, 0)).toBe(360);
+    expect(spans[1]).toBe(145);
+  });
+
+  it('never shrinks other sectors below the 10-degree minimum', () => {
+    const spans = resizeWheelSector([340, 10, 10], 0, 355);
+    expect(spans.reduce((sum, entry) => sum + entry, 0)).toBe(360);
+    expect(spans[1]).toBeGreaterThanOrEqual(10);
+    expect(spans[2]).toBeGreaterThanOrEqual(10);
+  });
+
+  it('clamps the requested span so every sector keeps its minimum', () => {
+    const spans = resizeWheelSector([90, 90, 90, 90], 2, 400);
+    expect(spans[2]).toBe(330);
+    expect(spans.reduce((sum, entry) => sum + entry, 0)).toBe(360);
+  });
+});
 
 describe('fitSectorLabel', () => {
   it('keeps a short name on one line', () => {
@@ -53,6 +90,20 @@ describe('sectorPath', () => {
     const path = sectorPath(100, 100, 80, 30, 1, 6, 0);
     expect(path.match(/A /g)?.length).toBe(2);
     expect(path.endsWith('Z')).toBe(true);
+  });
+});
+
+describe('span-based variants', () => {
+  it('sectorPathAt starts at the given angle', () => {
+    const path = sectorPathAt(100, 100, 80, 30, 90, 45);
+    expect(path.startsWith('M 180 100')).toBe(true);
+  });
+
+  it('sectorLabelPointAt centers the label within the span', () => {
+    // Start 0, span 90: mid-angle 45deg at mid-radius 55.
+    const point = sectorLabelPointAt(100, 100, 80, 30, 0, 90);
+    expect(point.x).toBeCloseTo(100 + 55 * Math.SQRT1_2);
+    expect(point.y).toBeCloseTo(100 - 55 * Math.SQRT1_2);
   });
 });
 
