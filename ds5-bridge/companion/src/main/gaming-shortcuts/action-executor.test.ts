@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ActionExecutor } from './action-executor';
+import { LinuxActionProvider } from './providers/linux-actions';
 
 describe('ActionExecutor', () => {
   it('runs explicit executable arguments', async () => {
@@ -31,9 +32,16 @@ describe('ActionExecutor', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it('executes volume actions through the fixed Linux provider command', async () => {
+    const run = vi.fn().mockResolvedValue({ code: 0, signal: null, timedOut: false });
+    const executor = new ActionExecutor({ runner: { run }, linuxProvider: new LinuxActionProvider({ hasExecutable: () => true }) });
+    await expect(executor.execute({ type: 'volume', direction: 'up' })).resolves.toEqual({ ok: true });
+    expect(run).toHaveBeenCalledWith('wpctl', ['set-volume', '-l', '1.5', '@DEFAULT_AUDIO_SINK@', '5%+']);
+  });
+
   it('does not invoke a runner for unavailable provider actions', async () => {
     const run = vi.fn();
-    const executor = new ActionExecutor({ runner: { run } });
+    const executor = new ActionExecutor({ runner: { run }, linuxProvider: new LinuxActionProvider({ hasExecutable: () => false }) });
     await expect(executor.execute({ type: 'volume', direction: 'up' })).resolves.toEqual({ ok: false, reason: 'unavailable' });
     expect(run).not.toHaveBeenCalled();
   });
