@@ -6331,19 +6331,38 @@ export function App() {
 
   // Puts a state into a wheel slot from the state editor. If the target slot
   // is occupied, the occupant moves to this state's old slot (a swap), so no
-  // assignment can silently orphan another state.
+  // assignment can silently orphan another state. The state's list position
+  // auto-syncs to the slot number (clamped to the state count), swapping with
+  // whichever state held that position.
   function assignStateToWheelSlot(stateName: string, slot: number | null) {
-    updateTriggerProfileSwitching((switching) => {
-      if (!switching.stickWheel) return switching;
-      const sectors = [...switching.stickWheel.sectors];
+    let editorFollow: number | null = null;
+    setTriggerProfileDraft((draft) => {
+      if (!draft?.states || !draft.switching?.stickWheel) return draft;
+      const sectors = [...draft.switching.stickWheel.sectors];
       const previousSlot = sectors.indexOf(stateName);
       if (previousSlot >= 0) sectors[previousSlot] = null;
       if (slot !== null && slot >= 0 && slot < sectors.length) {
         if (sectors[slot] !== null && previousSlot >= 0) sectors[previousSlot] = sectors[slot];
         sectors[slot] = stateName;
       }
-      return { ...switching, stickWheel: { ...switching.stickWheel, sectors } };
+      let states = draft.states;
+      if (slot !== null) {
+        const from = states.findIndex((state) => state.name === stateName);
+        const to = Math.min(slot, states.length - 1);
+        if (from >= 0 && from !== to) {
+          states = [...states];
+          [states[from], states[to]] = [states[to], states[from]];
+        }
+        editorFollow = to;
+      }
+      return {
+        ...draft,
+        states,
+        triggers: states[0].triggers,
+        switching: { ...draft.switching, stickWheel: { ...draft.switching.stickWheel, sectors } }
+      };
     });
+    if (editorFollow !== null) setTriggerProfileEditingState(editorFollow);
   }
 
   function updateTriggerProfileSwitchRule(index: number, patch: Partial<StateSwitchRule>) {
