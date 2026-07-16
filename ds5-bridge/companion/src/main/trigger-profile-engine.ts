@@ -6,8 +6,10 @@ import {
   type EngineStatus,
   type TriggerEffectSpec,
   type TriggerProfile,
-  type TriggerSlotConfig
+  type TriggerSlotConfig,
+  type TriggerSlotPair
 } from '../shared/trigger-profiles';
+import { StateSwitcher } from '../shared/trigger-state-switcher';
 import type { TriggerTestTarget } from '../shared/protocol';
 import type { ActiveProfileChange, GameWatcher } from './game-watcher';
 import type { EvdevInputReader } from './evdev-input-reader';
@@ -80,6 +82,7 @@ export class TriggerProfileEngine extends EventEmitter {
   private readonly reader: EvdevInputReader;
   private readonly evaluator = new ModifierEvaluator();
   private readonly draftEvaluator = new ModifierEvaluator();
+  private readonly stateSwitcher = new StateSwitcher();
   private draftPreview: TriggerProfile | null = null;
   private enabled = false;
   private suspended = false;
@@ -120,6 +123,7 @@ export class TriggerProfileEngine extends EventEmitter {
       this.reader.stop();
       this.activeProfile = null;
       this.evaluator.setProfile(null);
+      this.stateSwitcher.setProfile(null);
       this.draftPreview = null;
       this.draftEvaluator.setProfile(null);
       await this.enqueue(() => this.resetIfNeeded(true));
@@ -213,14 +217,52 @@ export class TriggerProfileEngine extends EventEmitter {
       suspended: this.suspended,
       activeProfileId: active.profileId,
       matchedBy: active.matchedBy,
-      matchedName: active.matchedName
+      matchedName: active.matchedName,
+      activeStateName: this.stateSwitcher.activeStateName
     };
+  }
+
+  /**
+   * Manually selects the active profile's named state (UI/IPC path). The
+   * correction mechanism when open-loop switching drifts, so it works even
+   * while the menu guard is up; a no-op for unknown names and profiles
+   * without states.
+   */
+  async selectState(name: string): Promise<EngineStatus> {
+    const result = this.stateSwitcher.select(name);
+    if (result.changed) {
+      this.evaluator.setProfile(this.activeProfileView());
+      if (this.enabled && !this.suspended) {
+        await this.enqueue(() => this.applyBasesJob());
+      }
+      this.emitStatus();
+    }
+    return this.getStatus();
+  }
+
+  /** The active state's slots when the profile has states; the profile's own otherwise. */
+  private activeEffectiveTriggers(): TriggerSlotPair | null {
+    if (!this.activeProfile) return null;
+    if (this.activeProfile.states && this.activeProfile.states.length > 0) {
+      return this.stateSwitcher.activeTriggers ?? this.activeProfile.triggers;
+    }
+    return this.activeProfile.triggers;
+  }
+
+  /** The active profile with its triggers replaced by the active state's, for the evaluator. */
+  private activeProfileView(): TriggerProfile | null {
+    const profile = this.activeProfile;
+    if (!profile) return null;
+    const triggers = this.activeEffectiveTriggers();
+    if (!triggers || triggers === profile.triggers) return profile;
+    return { ...profile, triggers };
   }
 
   private async onActiveProfileChange(change: ActiveProfileChange): Promise<void> {
     if (!this.enabled) return;
     this.activeProfile = this.store.get(change.profileId);
-    this.evaluator.setProfile(this.activeProfile);
+    this.stateSwitcher.setProfile(this.activeProfile);
+    this.evaluator.setProfile(this.activeProfileView());
     if (!this.suspended) {
       await this.enqueue(() => this.applyBasesJob());
     }
@@ -244,19 +286,41 @@ export class TriggerProfileEngine extends EventEmitter {
 
   private async applyBasesJob(): Promise<void> {
     if (!this.enabled || this.suspended) return;
-    const profile = this.draftPreview ?? this.activeProfile;
-    const l2 = profile?.triggers.l2.base ?? null;
-    const r2 = profile?.triggers.r2.base ?? null;
+    const triggers = this.draftPreview ? this.draftPreview.triggers : this.activeEffectiveTriggers();
+    const l2 = triggers?.l2.base ?? null;
+    const r2 = triggers?.r2.base ?? null;
     await this.writeDesired({ l2, r2 });
   }
 
+  private static readonly STICK_SAMPLE_INTERVAL_MS = 33;
+  private lastStickSampleAtMs = 0;
+
   private onInput(state: ControllerInputState): void {
+    // Emitted before the profile guards: the wheel configurator's live preview
+    // needs stick positions even when no profile is active.
+    const now = Date.now();
+    if (now - this.lastStickSampleAtMs >= TriggerProfileEngine.STICK_SAMPLE_INTERVAL_MS) {
+      this.lastStickSampleAtMs = now;
+      this.emit('stickSample', { lx: state.lx, ly: state.ly, buttons: [...state.buttons] });
+    }
     if (!this.enabled || this.suspended) return;
     const profile = this.draftPreview ?? this.activeProfile;
     if (!profile) return;
+    // A draft preview freezes state switching: the editor is previewing one
+    // state's feel, and rule presses while editing shouldn't move the state.
+    if (!this.draftPreview && this.stateSwitcher.hasRules()) {
+      const result = this.stateSwitcher.update(state);
+      if (result.changed) {
+        this.evaluator.setProfile(this.activeProfileView());
+        void this.enqueue(() => this.applyBasesJob());
+        this.emitStatus();
+      }
+    }
+    const triggers = this.draftPreview ? this.draftPreview.triggers : this.activeEffectiveTriggers();
+    if (!triggers) return;
     const hasModifiers =
-      profile.triggers.l2.modifiers.length > 0 ||
-      profile.triggers.r2.modifiers.length > 0;
+      triggers.l2.modifiers.length > 0 ||
+      triggers.r2.modifiers.length > 0;
     if (!hasModifiers) return;
     const evaluator = this.draftPreview ? this.draftEvaluator : this.evaluator;
     const resolved = evaluator.update(state);

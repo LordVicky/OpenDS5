@@ -4,6 +4,9 @@ export interface ControllerInputState {
   timestampMs: number;
   l2: number;
   r2: number;
+  // Left stick, raw evdev range 0-255 centered at 128.
+  lx: number;
+  ly: number;
   buttons: ReadonlySet<string>;
 }
 

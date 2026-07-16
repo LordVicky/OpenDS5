@@ -79,4 +79,40 @@ describe('describeCapabilities', () => {
       expect(describeCapabilities(profile(slot(effect), slot(null)))).toBe(`L2 ${label}`);
     }
   });
+
+  it('describes multi-state profiles by their state machinery', () => {
+    const feel = slot({ mode: 'feedback', startPercent: 30, forcePercent: 60 });
+    const p = profile(feel, slot(null));
+    p.states = [
+      { name: 'Pistol', triggers: { l2: feel, r2: slot(null) } },
+      {
+        name: 'Shotgun',
+        triggers: {
+          l2: feel,
+          r2: slot({ mode: 'weapon', startPercent: 20, wallPercent: 60, forcePercent: 90 }, [
+            {
+              when: { source: 'input', condition: 'trigger-full-pull' },
+              effect: { mode: 'vibration', startPercent: 0, forcePercent: 60 }
+            }
+          ])
+        }
+      }
+    ];
+    p.switching = {
+      rules: [{ button: 'triangle', action: 'cycle' }],
+      stickWheel: { button: 'triangle', thresholdPercent: 50, angleOffsetDeg: 0, sectors: ['Pistol', 'Shotgun'] }
+    };
+    expect(describeCapabilities(p)).toBe('2 states · analog wheel · 1 switch rule · 1 modifier');
+  });
+
+  it('describes a multi-state profile without a wheel or modifiers minimally', () => {
+    const feel = slot({ mode: 'feedback', startPercent: 30, forcePercent: 60 });
+    const p = profile(feel, slot(null));
+    p.states = [
+      { name: 'A', triggers: { l2: feel, r2: slot(null) } },
+      { name: 'B', triggers: { l2: feel, r2: slot(null) } }
+    ];
+    p.switching = { rules: [] };
+    expect(describeCapabilities(p)).toBe('2 states');
+  });
 });

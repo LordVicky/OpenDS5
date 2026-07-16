@@ -20,7 +20,7 @@ function makeProfile(r2Modifiers: TriggerProfile['triggers']['r2']['modifiers'])
 }
 
 function state(overrides: Partial<ControllerInputState>): ControllerInputState {
-  return { timestampMs: 0, l2: 0, r2: 0, buttons: new Set(), ...overrides };
+  return { timestampMs: 0, l2: 0, r2: 0, lx: 128, ly: 128, buttons: new Set(), ...overrides };
 }
 
 describe('ModifierEvaluator', () => {

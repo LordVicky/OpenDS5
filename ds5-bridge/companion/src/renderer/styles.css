@@ -7911,6 +7911,319 @@ button.trigger-lab-chip {
   display: none;
 }
 
+.trigger-profiles-states-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.trigger-profiles-states-label {
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-control);
+}
+
+.trigger-profiles-states-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.trigger-profiles-state-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.trigger-profiles-state-name-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.trigger-profiles-state-name-field input {
+  width: 180px;
+}
+
+.trigger-profiles-switching-hint {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.trigger-profiles-switch-rules {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.trigger-profiles-switch-rules:empty {
+  display: none;
+}
+
+.trigger-profiles-switch-rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.trigger-profiles-sentence-rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--surface-divider);
+}
+
+.trigger-profiles-sentence-rule:last-child {
+  border-bottom: 0;
+}
+
+.trigger-profiles-sentence-rule .custom-select-button {
+  height: 32px;
+  font-size: 12px;
+  padding: 0 8px 0 12px;
+}
+
+/* Fixed column widths so every row's chip, action, and state line up
+   regardless of whether the chip carries a chord or the rule has a target. */
+.trigger-profiles-sentence-rule .rule-capture-chip {
+  min-width: 138px;
+  justify-content: center;
+}
+
+.trigger-profiles-sentence-rule .custom-select {
+  width: 190px;
+  flex: 0 0 auto;
+}
+
+.trigger-profiles-sentence-rule .trigger-profiles-modifier-remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.trigger-profiles-sentence-rule .trigger-profiles-modifier-remove:hover {
+  color: var(--text-control);
+  background: var(--surface-card-hover);
+}
+
+.sentence-word {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* Prototype-style capture chip: dashed accent outline around boxed glyph
+   badges, [CR] + [→], the trigger button on the accent treatment. */
+.rule-capture-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text-control);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.rule-capture-chip:hover {
+  border-color: var(--accent);
+}
+
+.rule-capture-chip.listening {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.rule-chip-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border-strong);
+  background: var(--surface-card);
+  color: var(--text-control);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.rule-chip-glyph.accent {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.rule-chip-plus {
+  color: var(--text-dim);
+  font-weight: 750;
+}
+
+.rule-add-listening {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.trigger-profiles-switch-settings {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.stick-wheel-toggle {
+  grid-column: 1 / -1;
+  margin-top: 12px;
+}
+
+.stick-wheel-editor {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.stick-wheel-svg {
+  width: 260px;
+  height: 260px;
+  flex: 0 0 auto;
+}
+
+.stick-wheel-sector {
+  fill: var(--surface-card);
+  stroke: var(--surface-divider);
+  stroke-width: 1;
+  cursor: pointer;
+  outline: none;
+  transition: fill 160ms ease, filter 160ms ease;
+}
+
+.stick-wheel-sector:hover {
+  fill: var(--surface-card-hover);
+}
+
+.stick-wheel-sector.unassigned {
+  fill: transparent;
+  stroke-dasharray: 3 3;
+}
+
+.stick-wheel-sector.selected,
+.stick-wheel-sector:focus-visible {
+  fill: color-mix(in srgb, var(--accent) 22%, var(--surface-card));
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 65%, transparent));
+}
+
+.stick-wheel-sector.live {
+  fill: color-mix(in srgb, var(--accent) 38%, var(--surface-card));
+}
+
+.stick-wheel-label {
+  fill: var(--text-secondary);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+
+.stick-wheel-deadzone {
+  fill: rgba(0, 0, 0, 0.28);
+  stroke: var(--surface-divider);
+  pointer-events: none;
+}
+
+.stick-wheel-stick-dot {
+  fill: var(--accent);
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 1.5;
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 80%, transparent));
+}
+
+.stick-wheel-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 240px;
+  flex: 1 1 240px;
+}
+
+/* Headers left, control right — one row per setting. */
+.stick-wheel-slider {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stick-wheel-slider > span {
+  flex: 0 0 auto;
+}
+
+.stick-wheel-slider input[type='range'] {
+  width: 140px;
+  flex: 0 0 auto;
+}
+
+.stick-wheel-controls .trigger-profiles-modifier-param > span,
+.trigger-profiles-switch-settings .trigger-profiles-modifier-param > span {
+  color: var(--text-control);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+/* Match the number field to the selects beside it. */
+.trigger-profiles-switch-settings input[type='number'] {
+  height: 38px;
+  width: 84px;
+  padding: 0 12px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-control);
+  color: var(--text-control);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.trigger-profiles-live-states {
+  min-width: 0;
+}
+
+.game-hero-states {
+  margin-top: 8px;
+}
+
+.trigger-profiles-live-state-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .trigger-profiles-save-button {
   min-height: 34px;
   padding: 0 18px;
