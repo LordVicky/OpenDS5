@@ -9,6 +9,7 @@ import {
   decideRebuild,
   installedModuleVersion,
   isCheckDue,
+  isNixOS,
   type UpdateState,
 } from './update-service';
 import type { SetupService } from './setup-service';
@@ -31,6 +32,16 @@ describe('isCheckDue', () => {
 
   it('checks when the stored timestamp is in the future (clock moved back)', () => {
     expect(isCheckDue(now + 5000, now)).toBe(true);
+  });
+});
+
+describe('isNixOS', () => {
+  it('recognizes an os-release file with ID=nixos', () => {
+    expect(isNixOS(() => 'NAME="NixOS"\nID=nixos\n')).toBe(true);
+  });
+
+  it('does not treat another Linux distribution as NixOS', () => {
+    expect(isNixOS(() => 'NAME="Debian GNU/Linux"\nID=debian\n')).toBe(false);
   });
 });
 
@@ -133,6 +144,7 @@ describe('UpdateService.start', () => {
     const svc = new UpdateService('1.7.0', setup, (s) => states.push(s), {
       appImagePath: () => target,
       canSelfReplace: () => true,
+      isNixOS: () => false,
       fetchLatestRelease: vi.fn(),
       fetchText: vi.fn().mockResolvedValue(`${digest}  x.AppImage`),
       downloadTo: vi.fn(async ({ tempPath }: { tempPath: string }) => {
@@ -235,6 +247,7 @@ describe('UpdateService.cleanStaleDownload', () => {
     return new UpdateService('1.7.0', setup, () => {}, {
       appImagePath: appImagePathImpl,
       canSelfReplace: () => true,
+      isNixOS: () => false,
       fetchLatestRelease: vi.fn(),
     });
   }
@@ -285,6 +298,7 @@ describe('UpdateService.check', () => {
     const svc = new UpdateService('1.7.0', setup, () => {}, {
       appImagePath: () => '/x/OpenDS5.AppImage',
       canSelfReplace: () => true,
+      isNixOS: () => false,
       fetchLatestRelease: vi.fn().mockResolvedValue(release),
       ...overrides,
     });
@@ -309,6 +323,15 @@ describe('UpdateService.check', () => {
     const svc = service({ canSelfReplace: () => false });
     await expect(svc.check([])).resolves.toEqual({
       phase: 'readonly',
+      version: '1.8.0',
+      url: 'https://x/a',
+    });
+  });
+
+  it('only notifies about updates on NixOS', async () => {
+    const svc = service({ appImagePath: () => null, isNixOS: () => true });
+    await expect(svc.check([])).resolves.toEqual({
+      phase: 'notify',
       version: '1.8.0',
       url: 'https://x/a',
     });
@@ -345,6 +368,7 @@ describe('UpdateService.rebuildIfNeeded', () => {
     const svc = new UpdateService('1.8.0', setup, (s) => states.push(s), {
       appImagePath: () => '/x/OpenDS5.AppImage',
       canSelfReplace: () => true,
+      isNixOS: () => false,
       fetchLatestRelease: vi.fn(),
       moduleSourceHash: () => 'bbb',
       installedModuleVersion: () => '1.7.0',
@@ -368,6 +392,23 @@ describe('UpdateService.rebuildIfNeeded', () => {
   it('does nothing at all when the sources are unchanged', async () => {
     const { svc, setup } = service(0);
     await expect(svc.rebuildIfNeeded('bbb')).resolves.toBeNull();
+    expect(setup.install).not.toHaveBeenCalled();
+  });
+
+  it('does not inspect sources or run the installer on NixOS', async () => {
+    const { setup } = service(0);
+    const moduleSourceHash = vi.fn().mockReturnValue('bbb');
+    const installedModuleVersion = vi.fn().mockReturnValue('1.7.0');
+    const nixosService = new UpdateService('1.8.0', setup, () => {}, {
+      appImagePath: () => '/x/OpenDS5.AppImage',
+      isNixOS: () => true,
+      moduleSourceHash,
+      installedModuleVersion,
+    });
+
+    await expect(nixosService.rebuildIfNeeded('aaa')).resolves.toBeNull();
+    expect(moduleSourceHash).not.toHaveBeenCalled();
+    expect(installedModuleVersion).not.toHaveBeenCalled();
     expect(setup.install).not.toHaveBeenCalled();
   });
 });

@@ -1,28 +1,48 @@
-# NixOS module for OpenDS5: kernel module + userspace daemon + udev rules
-# + wireplumber config. The declarative equivalent of everything
-# installer/opends5-install does on other distributions.
-self:
-{ config, lib, pkgs, ... }:
-
-let
-  cfg = config.services.opends5;
-in
 {
+  self,
+  version,
+}: {
+  config,
+  lib,
+  pkgs,
+  ...
+}: let
+  cfg = config.services.opends5;
+
+  system = pkgs.stdenv.hostPlatform.system;
+  vdsUsers = cfg.users;
+in {
   options.services.opends5 = {
-    enable = lib.mkEnableOption "OpenDS5 virtual DualSense stack";
+    enable =
+      lib.mkEnableOption "OpenDS5 DualSense companion and virtual DualSense stack";
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = self.packages.${pkgs.stdenv.hostPlatform.system}.vds;
-      defaultText = lib.literalExpression "opends5.packages.<system>.vds";
-      description = "The vds userspace package (vdsd, vdsctl, rules).";
+      default = self.packages.${system}.opends5;
+      defaultText =
+        lib.literalExpression "opends5.packages.\${pkgs.system}.opends5";
+      description = "The OpenDS5 companion application package.";
+    };
+
+    vdsPackage = lib.mkOption {
+      type = lib.types.package;
+      default = self.packages.${system}.vds;
+      defaultText =
+        lib.literalExpression "opends5.packages.\${pkgs.system}.vds";
+      description = "The vDS userspace package containing vdsd and vdsctl.";
+    };
+
+    maxPorts = lib.mkOption {
+      type = lib.types.ints.between 1 4;
+      default = 4;
+      description = "Number of virtual DualSense ports to create.";
     };
 
     users = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
       example = [ "alice" ];
-      description = "Users added to the vds group (access to /dev/vds*).";
+      description = "Users granted access to the vDS socket through the vds group.";
     };
 
     disableBluetoothInputPlugin = lib.mkOption {
@@ -44,10 +64,18 @@ in
     boot.extraModulePackages = [
       (pkgs.callPackage ./vds-module.nix {
         kernel = config.boot.kernelPackages.kernel;
-        version = self.opends5Version;
+        inherit version;
       })
     ];
-    boot.kernelModules = [ "vds_hcd" ];
+
+    boot.kernelModules = [
+      "vds_hcd"
+    ];
+
+    users.groups.vds = { };
+    users.users = lib.genAttrs vdsUsers (_: {
+      extraGroups = [ "vds" ];
+    });
 
     # Bluetooth is the transport this whole stack exists for.
     hardware.bluetooth.enable = lib.mkDefault true;
@@ -58,28 +86,42 @@ in
         "${config.hardware.bluetooth.package}/libexec/bluetooth/bluetoothd -f /etc/bluetooth/main.conf --noplugin=input"
       ]);
 
-    users.groups.vds = { };
-    users.users = lib.genAttrs cfg.users (_: {
-      extraGroups = [ "vds" ];
-    });
+    boot.extraModprobeConfig = ''
+      options vds_hcd max_port=${toString cfg.maxPorts}
+    '';
 
-    services.udev.packages = [ cfg.package ];
+    environment.systemPackages = [
+      cfg.package
+      cfg.vdsPackage
+    ];
 
-    environment.systemPackages = [ cfg.package ];
+    services.udev.packages = [
+      cfg.vdsPackage
+    ];
 
-    # Session-manager config for the controller's audio path; the system-wide
-    # conf.d is merged by wireplumber alongside any per-user config.
-    environment.etc."wireplumber/wireplumber.conf.d/99-vds-dualsense.conf".source =
-      "${cfg.package}/share/wireplumber/wireplumber.conf.d/99-vds-dualsense.conf";
+    environment.etc."wireplumber/wireplumber.conf.d/99-vds-dualsense.conf".source = "${cfg.vdsPackage}/share/wireplumber/wireplumber.conf.d/99-vds-dualsense.conf";
 
     systemd.services.vdsd = {
       description = "vDS userspace daemon (OpenDS5)";
-      after = [ "bluetooth.service" ];
-      wants = [ "bluetooth.service" ];
-      wantedBy = [ "multi-user.target" ];
+
+      after = [
+        "bluetooth.service"
+        "systemd-modules-load.service"
+      ];
+
+      wants = [
+        "bluetooth.service"
+      ];
+
+      wantedBy = [
+        "multi-user.target"
+      ];
+
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${cfg.package}/bin/vdsd";
+
+        ExecStart = "${cfg.vdsPackage}/bin/vdsd";
+
         Restart = "on-failure";
         RestartSec = "1s";
       };

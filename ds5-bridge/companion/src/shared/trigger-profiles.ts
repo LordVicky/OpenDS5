@@ -25,6 +25,85 @@ export interface TriggerSlotConfig {
   modifiers: TriggerModifier[];
 }
 
+export interface TriggerSlotPair {
+  l2: TriggerSlotConfig;
+  r2: TriggerSlotConfig;
+}
+
+// A named per-trigger effect set. When a profile carries states, the active
+// state's triggers replace the profile-level `triggers` at runtime.
+export interface TriggerStateDef {
+  name: string;
+  triggers: TriggerSlotPair;
+}
+
+export type StateSwitchAction = 'cycle' | 'select';
+
+// Maps a controller button press to a state change. `while` names a second
+// button that must be held for the rule to fire (chord-style rules).
+export interface StateSwitchRule {
+  button: string;
+  action: StateSwitchAction;
+  state?: string;
+  while?: string;
+}
+
+// Mirrors an in-game analog weapon wheel: while `button` is held, the left
+// stick's sector is tracked; releasing the button commits that sector's state.
+// `sectors` runs clockwise from 12 o'clock after `angleOffsetDeg` rotation;
+// null entries are unassigned slots.
+export interface StickWheelConfig {
+  button: string;
+  thresholdPercent: number;
+  angleOffsetDeg: number;
+  sectors: (string | null)[];
+  // Per-sector angular widths in degrees, matching `sectors` by index and
+  // summing to 360. Absent = equal slices. Games draw wheels with unequal
+  // slots, so the mapping must be able to match them.
+  sectorSpansDeg?: number[];
+}
+
+export const MIN_WHEEL_SECTOR_SPAN_DEG = 10;
+
+export interface StateSwitching {
+  defaultState?: string;
+  rules: StateSwitchRule[];
+  stickWheel?: StickWheelConfig;
+  // Buttons that toggle the menu guard: while the guard is up, switch rules
+  // are ignored so menu navigation can't corrupt the tracked state.
+  menuButtons?: string[];
+  // Releases the menu guard this long after it was raised; games close menus
+  // in ways we can't observe, so the guard must never wedge shut. 0/absent = never.
+  menuTimeoutMs?: number;
+}
+
+// The buttons the evdev reader reports. Switch rules validate against this
+// list (so the rule editor can be a dropdown); the button-held modifier keeps
+// accepting free text.
+export const KNOWN_BUTTONS = [
+  'cross',
+  'circle',
+  'triangle',
+  'square',
+  'l1',
+  'r1',
+  'l3',
+  'r3',
+  'create',
+  'options',
+  'ps',
+  'dpad-up',
+  'dpad-down',
+  'dpad-left',
+  'dpad-right'
+] as const;
+
+export const MAX_STATES_PER_PROFILE = 12;
+export const MIN_WHEEL_SECTORS = 2;
+export const MAX_WHEEL_SECTORS = 12;
+export const MAX_SWITCH_RULES = 16;
+export const MAX_STATE_NAME_LENGTH = 32;
+
 export interface ProfileMatch {
   processNames: string[];
   windowTitles: string[];
@@ -59,7 +138,11 @@ export interface TriggerProfile {
   id: string;
   name: string;
   match: ProfileMatch;
-  triggers: { l2: TriggerSlotConfig; r2: TriggerSlotConfig };
+  // Mirrors states[0].triggers whenever states exist (editor-maintained), so
+  // consumers that predate states keep seeing the profile's default feel.
+  triggers: TriggerSlotPair;
+  states?: TriggerStateDef[];
+  switching?: StateSwitching;
   updatedAtMs: number;
   meta?: TriggerProfileMeta;
 }
@@ -70,11 +153,13 @@ export interface EngineStatus {
   activeProfileId: string;
   matchedBy: 'pin' | 'process' | 'default';
   matchedName: string | null;
+  // Name of the profile's active state; null when the profile has no states.
+  activeStateName: string | null;
 }
 
 export const DEFAULT_PROFILE_ID = 'default';
 
-const PROFILE_KEYS = ['version', 'id', 'name', 'match', 'triggers', 'updatedAtMs', 'meta'];
+const PROFILE_KEYS = ['version', 'id', 'name', 'match', 'triggers', 'states', 'switching', 'updatedAtMs', 'meta'];
 const META_STRING_KEYS = ['game', 'author', 'description'] as const;
 const META_MAX_LENGTH = 500;
 // Mirrors the library's own file-name rule; meta.libraryFile becomes part of a fetch URL.
@@ -263,6 +348,202 @@ function validateSlot(raw: unknown, path: string): SlotResult {
   return { ok: true, slot: { base, modifiers } };
 }
 
+type SlotPairResult = { ok: true; triggers: TriggerSlotPair } | { ok: false; error: string };
+
+function validateSlotPair(raw: unknown, path: string): SlotPairResult {
+  if (!isRecord(raw)) return { ok: false, error: `${path} must be an object` };
+  for (const key of Object.keys(raw)) {
+    if (key !== 'l2' && key !== 'r2') return { ok: false, error: `${path}.${key} is not a trigger slot` };
+  }
+  const pair: TriggerSlotPair = {
+    l2: { base: null, modifiers: [] },
+    r2: { base: null, modifiers: [] }
+  };
+  for (const slot of ['l2', 'r2'] as const) {
+    const result = validateSlot(raw[slot], `${path}.${slot}`);
+    if (!result.ok) return result;
+    pair[slot] = result.slot;
+  }
+  return { ok: true, triggers: pair };
+}
+
+type StatesResult = { ok: true; states: TriggerStateDef[] } | { ok: false; error: string };
+
+function validateStates(raw: unknown): StatesResult {
+  if (!Array.isArray(raw)) return { ok: false, error: 'states must be an array' };
+  if (raw.length === 0) return { ok: false, error: 'states must not be empty' };
+  if (raw.length > MAX_STATES_PER_PROFILE) {
+    return { ok: false, error: `states must have at most ${MAX_STATES_PER_PROFILE} entries` };
+  }
+  const states: TriggerStateDef[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < raw.length; index += 1) {
+    const path = `states[${index}]`;
+    const entry = raw[index];
+    if (!isRecord(entry)) return { ok: false, error: `${path} must be an object` };
+    for (const key of Object.keys(entry)) {
+      if (key !== 'name' && key !== 'triggers') return { ok: false, error: `${path}.${key} is not an allowed state field` };
+    }
+    if (typeof entry.name !== 'string' || entry.name.length === 0 || entry.name.length > MAX_STATE_NAME_LENGTH) {
+      return { ok: false, error: `${path}.name must be a string of 1-${MAX_STATE_NAME_LENGTH} characters` };
+    }
+    if (seen.has(entry.name)) return { ok: false, error: `${path}.name duplicates state name: ${entry.name}` };
+    seen.add(entry.name);
+    const triggers = validateSlotPair(entry.triggers, `${path}.triggers`);
+    if (!triggers.ok) return triggers;
+    states.push({ name: entry.name, triggers: triggers.triggers });
+  }
+  return { ok: true, states };
+}
+
+type SwitchingResult = { ok: true; switching: StateSwitching } | { ok: false; error: string };
+
+function isKnownButton(value: unknown): value is string {
+  return typeof value === 'string' && (KNOWN_BUTTONS as readonly string[]).includes(value);
+}
+
+function validateSwitching(raw: unknown, stateNames: ReadonlySet<string>): SwitchingResult {
+  if (!isRecord(raw)) return { ok: false, error: 'switching must be an object' };
+  for (const key of Object.keys(raw)) {
+    if (!['defaultState', 'rules', 'menuButtons', 'menuTimeoutMs', 'stickWheel'].includes(key)) {
+      return { ok: false, error: `switching.${key} is not an allowed switching field` };
+    }
+  }
+  const switching: StateSwitching = { rules: [] };
+  if (raw.defaultState !== undefined) {
+    if (typeof raw.defaultState !== 'string' || !stateNames.has(raw.defaultState)) {
+      return { ok: false, error: 'switching.defaultState must name an existing state' };
+    }
+    switching.defaultState = raw.defaultState;
+  }
+  if (!Array.isArray(raw.rules)) return { ok: false, error: 'switching.rules must be an array' };
+  if (raw.rules.length > MAX_SWITCH_RULES) {
+    return { ok: false, error: `switching.rules must have at most ${MAX_SWITCH_RULES} entries` };
+  }
+  for (let index = 0; index < raw.rules.length; index += 1) {
+    const path = `switching.rules[${index}]`;
+    const entry = raw.rules[index];
+    if (!isRecord(entry)) return { ok: false, error: `${path} must be an object` };
+    for (const key of Object.keys(entry)) {
+      if (!['button', 'action', 'state', 'while'].includes(key)) {
+        return { ok: false, error: `${path}.${key} is not an allowed rule field` };
+      }
+    }
+    if (!isKnownButton(entry.button)) return { ok: false, error: `${path}.button must be a known button` };
+    if (entry.action !== 'cycle' && entry.action !== 'select') {
+      return { ok: false, error: `${path}.action must be 'cycle' or 'select'` };
+    }
+    const rule: StateSwitchRule = { button: entry.button, action: entry.action };
+    if (entry.action === 'select') {
+      if (typeof entry.state !== 'string' || !stateNames.has(entry.state)) {
+        return { ok: false, error: `${path}.state must name an existing state` };
+      }
+      rule.state = entry.state;
+    } else if (entry.state !== undefined) {
+      return { ok: false, error: `${path}.state is only allowed for select rules` };
+    }
+    if (entry.while !== undefined) {
+      if (!isKnownButton(entry.while)) return { ok: false, error: `${path}.while must be a known button` };
+      rule.while = entry.while;
+    }
+    switching.rules.push(rule);
+  }
+  if (raw.menuButtons !== undefined) {
+    if (!Array.isArray(raw.menuButtons) || !raw.menuButtons.every((entry) => isKnownButton(entry))) {
+      return { ok: false, error: 'switching.menuButtons must be an array of known buttons' };
+    }
+    switching.menuButtons = [...(raw.menuButtons as string[])];
+  }
+  if (raw.menuTimeoutMs !== undefined) {
+    if (typeof raw.menuTimeoutMs !== 'number' || !Number.isInteger(raw.menuTimeoutMs) || raw.menuTimeoutMs < 0) {
+      return { ok: false, error: 'switching.menuTimeoutMs must be a non-negative integer' };
+    }
+    switching.menuTimeoutMs = raw.menuTimeoutMs;
+  }
+  if (raw.stickWheel !== undefined) {
+    const wheelResult = validateStickWheel(raw.stickWheel, stateNames);
+    if (!wheelResult.ok) return wheelResult;
+    if (switching.menuButtons?.includes(wheelResult.wheel.button)) {
+      return { ok: false, error: 'switching.stickWheel.button must not also appear in menuButtons' };
+    }
+    switching.stickWheel = wheelResult.wheel;
+  }
+  return { ok: true, switching };
+}
+
+type StickWheelResult = { ok: true; wheel: StickWheelConfig } | { ok: false; error: string };
+
+function validateStickWheel(raw: unknown, stateNames: ReadonlySet<string>): StickWheelResult {
+  const path = 'switching.stickWheel';
+  if (!isRecord(raw)) return { ok: false, error: `${path} must be an object` };
+  for (const key of Object.keys(raw)) {
+    if (!['button', 'thresholdPercent', 'angleOffsetDeg', 'sectors', 'sectorSpansDeg'].includes(key)) {
+      return { ok: false, error: `${path}.${key} is not an allowed stickWheel field` };
+    }
+  }
+  if (!isKnownButton(raw.button)) return { ok: false, error: `${path}.button must be a known button` };
+  if (
+    typeof raw.thresholdPercent !== 'number' ||
+    !Number.isInteger(raw.thresholdPercent) ||
+    raw.thresholdPercent < 1 ||
+    raw.thresholdPercent > 100
+  ) {
+    return { ok: false, error: `${path}.thresholdPercent must be an integer 1-100` };
+  }
+  if (
+    typeof raw.angleOffsetDeg !== 'number' ||
+    !Number.isInteger(raw.angleOffsetDeg) ||
+    raw.angleOffsetDeg < 0 ||
+    raw.angleOffsetDeg > 359
+  ) {
+    return { ok: false, error: `${path}.angleOffsetDeg must be an integer 0-359` };
+  }
+  if (
+    !Array.isArray(raw.sectors) ||
+    raw.sectors.length < MIN_WHEEL_SECTORS ||
+    raw.sectors.length > MAX_WHEEL_SECTORS
+  ) {
+    return { ok: false, error: `${path}.sectors must have ${MIN_WHEEL_SECTORS}-${MAX_WHEEL_SECTORS} entries` };
+  }
+  for (let index = 0; index < raw.sectors.length; index += 1) {
+    const entry = raw.sectors[index];
+    if (entry === null) continue;
+    if (typeof entry !== 'string' || !stateNames.has(entry)) {
+      return { ok: false, error: `${path}.sectors[${index}] must be null or name an existing state` };
+    }
+  }
+  let sectorSpansDeg: number[] | undefined;
+  if (raw.sectorSpansDeg !== undefined) {
+    if (
+      !Array.isArray(raw.sectorSpansDeg) ||
+      raw.sectorSpansDeg.length !== raw.sectors.length ||
+      !raw.sectorSpansDeg.every(
+        (entry) => typeof entry === 'number' && Number.isInteger(entry) && entry >= MIN_WHEEL_SECTOR_SPAN_DEG
+      )
+    ) {
+      return {
+        ok: false,
+        error: `${path}.sectorSpansDeg must match sectors in length with integer entries of at least ${MIN_WHEEL_SECTOR_SPAN_DEG} degrees`
+      };
+    }
+    const total = (raw.sectorSpansDeg as number[]).reduce((sum, entry) => sum + entry, 0);
+    if (total !== 360) {
+      return { ok: false, error: `${path}.sectorSpansDeg must sum to 360 degrees` };
+    }
+    sectorSpansDeg = [...(raw.sectorSpansDeg as number[])];
+  }
+  return {
+    ok: true,
+    wheel: {
+      button: raw.button,
+      thresholdPercent: raw.thresholdPercent,
+      angleOffsetDeg: raw.angleOffsetDeg,
+      sectors: [...(raw.sectors as (string | null)[])],
+      ...(sectorSpansDeg ? { sectorSpansDeg } : {})
+    }
+  };
+}
+
 type MetaResult = { ok: true; meta: TriggerProfileMeta } | { ok: false; error: string };
 
 function validateMeta(raw: unknown): MetaResult {
@@ -361,6 +642,19 @@ export function validateTriggerProfile(raw: unknown): ValidationResult {
     if (!result.ok) return fail(result.error);
     slots[slot] = result.slot;
   }
+  let states: TriggerStateDef[] | undefined;
+  if (raw.states !== undefined) {
+    const statesResult = validateStates(raw.states);
+    if (!statesResult.ok) return fail(statesResult.error);
+    states = statesResult.states;
+  }
+  let switching: StateSwitching | undefined;
+  if (raw.switching !== undefined) {
+    if (!states) return fail('switching requires states');
+    const switchingResult = validateSwitching(raw.switching, new Set(states.map((state) => state.name)));
+    if (!switchingResult.ok) return fail(switchingResult.error);
+    switching = switchingResult.switching;
+  }
   if (typeof raw.updatedAtMs !== 'number') return fail('updatedAtMs must be a number');
   let meta: TriggerProfileMeta | undefined;
   if (raw.meta !== undefined) {
@@ -379,10 +673,28 @@ export function validateTriggerProfile(raw: unknown): ValidationResult {
         windowTitles: [...raw.match.windowTitles]
       },
       triggers: slots,
+      ...(states ? { states } : {}),
+      ...(switching ? { switching } : {}),
       updatedAtMs: raw.updatedAtMs,
       ...(meta ? { meta } : {})
     }
   };
+}
+
+/**
+ * The profile's runtime state list: the declared states, or the profile-level
+ * triggers as a single anonymous state for profiles that predate states.
+ */
+export function profileStateList(profile: TriggerProfile): TriggerStateDef[] {
+  if (profile.states && profile.states.length > 0) return profile.states;
+  return [{ name: '', triggers: profile.triggers }];
+}
+
+export function defaultStateIndex(profile: TriggerProfile): number {
+  const name = profile.switching?.defaultState;
+  if (!name || !profile.states) return 0;
+  const index = profile.states.findIndex((state) => state.name === name);
+  return index >= 0 ? index : 0;
 }
 
 export function effectSpecEquals(a: TriggerEffectSpec | null, b: TriggerEffectSpec | null): boolean {

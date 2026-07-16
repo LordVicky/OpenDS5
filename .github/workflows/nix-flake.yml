@@ -7,6 +7,7 @@ on:
       - 'flake.lock'
       - 'nix/**'
       - 'vds/**'
+      - 'ds5-bridge/companion/**'
       - '.github/workflows/nix-flake.yml'
   push:
     branches: [dev, main]
@@ -15,18 +16,30 @@ on:
       - 'flake.lock'
       - 'nix/**'
       - 'vds/**'
+      - 'ds5-bridge/companion/**'
       - '.github/workflows/nix-flake.yml'
   workflow_dispatch:
 
 jobs:
   flake:
     runs-on: ubuntu-latest
+    env:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      CACHIX_CACHE_NAME: ${{ vars.CACHIX_CACHE_NAME || 'opends5' }}
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v27
+      - name: configure Cachix publishing
+        if: github.event_name != 'pull_request' && env.CACHIX_AUTH_TOKEN != ''
+        uses: cachix/cachix-action@v16
+        with:
+          name: ${{ env.CACHIX_CACHE_NAME }}
+          authToken: ${{ env.CACHIX_AUTH_TOKEN }}
       - name: flake evaluates
         run: nix flake check --no-build
       - name: build userspace (vdsd, vdsctl)
         run: nix build .#vds --print-build-logs
       - name: build kernel module
         run: nix build .#vds-module --print-build-logs
+      - name: build companion package
+        run: nix build .#opends5 --print-build-logs

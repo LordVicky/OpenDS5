@@ -47,6 +47,32 @@ describe('EvdevInputReader', () => {
     expect(state.buttons.has('l1')).toBe(true);
   });
 
+  it('decodes left-stick ABS_X/ABS_Y into lx/ly', async () => {
+    const stream = new PassThrough();
+    const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
+    reader.start();
+    const pending = collect(reader, 1);
+    stream.write(Buffer.concat([
+      event(EV_ABS, 0, 255),
+      event(EV_ABS, 1, 10),
+      event(EV_SYN, 0, 0)
+    ]));
+    const [state] = await pending;
+    expect(state.lx).toBe(255);
+    expect(state.ly).toBe(10);
+  });
+
+  it('reports the stick centered (128) before any stick event arrives', async () => {
+    const stream = new PassThrough();
+    const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
+    reader.start();
+    const pending = collect(reader, 1);
+    stream.write(Buffer.concat([event(EV_ABS, ABS_RZ, 55), event(EV_SYN, 0, 0)]));
+    const [state] = await pending;
+    expect(state.lx).toBe(128);
+    expect(state.ly).toBe(128);
+  });
+
   it('handles packets split across chunk boundaries', async () => {
     const stream = new PassThrough();
     const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
@@ -69,6 +95,43 @@ describe('EvdevInputReader', () => {
     const [first, second] = await pending;
     expect(first.buttons.has('l1')).toBe(true);
     expect(second.buttons.has('l1')).toBe(false);
+  });
+
+  it('reports create, options, and ps buttons', async () => {
+    const stream = new PassThrough();
+    const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
+    reader.start();
+    const pending = collect(reader, 1);
+    stream.write(Buffer.concat([
+      event(EV_KEY, 0x13a, 1),
+      event(EV_KEY, 0x13b, 1),
+      event(EV_KEY, 0x13c, 1),
+      event(EV_SYN, 0, 0)
+    ]));
+    const [state] = await pending;
+    expect(state.buttons.has('create')).toBe(true);
+    expect(state.buttons.has('options')).toBe(true);
+    expect(state.buttons.has('ps')).toBe(true);
+  });
+
+  it('synthesizes d-pad buttons from the hat axes and clears them on center', async () => {
+    const ABS_HAT0X = 16;
+    const ABS_HAT0Y = 17;
+    const stream = new PassThrough();
+    const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
+    reader.start();
+    const pending = collect(reader, 3);
+    stream.write(Buffer.concat([event(EV_ABS, ABS_HAT0X, 1), event(EV_ABS, ABS_HAT0Y, -1), event(EV_SYN, 0, 0)]));
+    stream.write(Buffer.concat([event(EV_ABS, ABS_HAT0X, -1), event(EV_SYN, 0, 0)]));
+    stream.write(Buffer.concat([event(EV_ABS, ABS_HAT0X, 0), event(EV_ABS, ABS_HAT0Y, 0), event(EV_SYN, 0, 0)]));
+    const [first, second, third] = await pending;
+    expect(first.buttons.has('dpad-right')).toBe(true);
+    expect(first.buttons.has('dpad-up')).toBe(true);
+    expect(second.buttons.has('dpad-left')).toBe(true);
+    expect(second.buttons.has('dpad-right')).toBe(false);
+    expect(second.buttons.has('dpad-up')).toBe(true);
+    expect(third.buttons.has('dpad-left')).toBe(false);
+    expect(third.buttons.has('dpad-up')).toBe(false);
   });
 
   it('resolves the device path lazily on each start() rather than once at construction', () => {

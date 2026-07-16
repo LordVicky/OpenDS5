@@ -144,6 +144,9 @@ import {
   createDefaultProfile,
   DEFAULT_PROFILE_ID,
   defaultEffectForMode,
+  KNOWN_BUTTONS,
+  MAX_STATE_NAME_LENGTH,
+  MAX_STATES_PER_PROFILE,
   slugifyTriggerProfileName,
   uniqueTriggerProfileId
 } from '../shared/trigger-profiles';
@@ -152,9 +155,15 @@ export { slugifyTriggerProfileName, uniqueTriggerProfileId };
 import type {
   EngineStatus,
   InputConditionType,
+  StateSwitchAction,
+  StateSwitchRule,
+  StateSwitching,
+  StickWheelConfig,
   TriggerEffectSpec,
   TriggerModifier,
-  TriggerProfile
+  TriggerProfile,
+  TriggerSlotPair,
+  TriggerStateDef
 } from '../shared/trigger-profiles';
 import type { GameProcessCandidate } from '../main/game-watcher';
 import type { GameSettingsStatus } from '../main/game-settings-coordinator';
@@ -165,6 +174,7 @@ import { profileVariantLabel } from './library-entry';
 import { filterLibrary } from './library-search';
 import { matchGameInLibrary, nativeGameFeatureMap, nativeGameFeatures } from './game-library-match';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
+import { StickWheelEditor, type StickSample } from './StickWheelEditor';
 
 type ControlTab = 'game-profile' | 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
 type StartupTutorialStep = 'feature-toggle' | 'done';
@@ -363,6 +373,31 @@ const TRIGGER_PROFILE_CONDITION_OPTIONS: Array<[string, InputConditionType]> = [
   ['Button Held', 'button-held'],
   ['Rapid Fire', 'rapid-fire']
 ];
+const STATE_SWITCH_BUTTON_LABELS: Record<string, string> = {
+  cross: 'Cross', circle: 'Circle', triangle: 'Triangle', square: 'Square',
+  l1: 'L1', r1: 'R1', l3: 'L3', r3: 'R3',
+  create: 'Create', options: 'Options', ps: 'PS',
+  'dpad-up': 'D-Pad Up', 'dpad-down': 'D-Pad Down',
+  'dpad-left': 'D-Pad Left', 'dpad-right': 'D-Pad Right'
+};
+const STATE_SWITCH_BUTTON_OPTIONS: Array<[string, string]> = KNOWN_BUTTONS.map(
+  (button) => [STATE_SWITCH_BUTTON_LABELS[button] ?? button, button]
+);
+const STATE_SWITCH_MENU_OPTIONS: Array<[string, string]> = [
+  ['No menu guard', ''],
+  ...STATE_SWITCH_BUTTON_OPTIONS
+];
+const STATE_SWITCH_ACTION_OPTIONS: Array<[string, StateSwitchAction]> = [
+  ['cycle to next state', 'cycle'],
+  ['switch to…', 'select']
+];
+// Compact glyphs for the rule capture chips, matching the DualSense faces.
+const STATE_SWITCH_BUTTON_GLYPHS: Record<string, string> = {
+  cross: '✕', circle: '○', triangle: '△', square: '□',
+  l1: 'L1', r1: 'R1', l3: 'L3', r3: 'R3',
+  create: 'CR', options: 'OP', ps: 'PS',
+  'dpad-up': '↑', 'dpad-down': '↓', 'dpad-left': '←', 'dpad-right': '→'
+};
 const MUTE_BUTTON_MODE_OPTIONS: Array<[string, MuteButtonMode]> = [
   ['Normal', 'normal'],
   ['Keyboard Key', 'keyboard'],
@@ -909,10 +944,13 @@ export function mergeDetectedProcessName(processNamesInput: string, candidateNam
 }
 
 export function formatEngineStatusLine(status: EngineStatus, activeProfileName: string): string {
-  if (status.suspended) return `Active: ${activeProfileName} (suspended)`;
-  if (status.matchedBy === 'pin') return `Active: ${activeProfileName} (pinned)`;
-  if (status.matchedBy === 'process') return `Active: ${activeProfileName} (matched: ${status.matchedName})`;
-  return `Active: ${activeProfileName} (default)`;
+  const name = status.activeStateName
+    ? `${activeProfileName} — ${status.activeStateName}`
+    : activeProfileName;
+  if (status.suspended) return `Active: ${name} (suspended)`;
+  if (status.matchedBy === 'pin') return `Active: ${name} (pinned)`;
+  if (status.matchedBy === 'process') return `Active: ${name} (matched: ${status.matchedName})`;
+  return `Active: ${name} (default)`;
 }
 
 /**
@@ -947,6 +985,76 @@ export function triggerProfileHasEffects(profile: TriggerProfile): boolean {
   return (['l2', 'r2'] as const).some((slot) => (
     profile.triggers[slot].base !== null || profile.triggers[slot].modifiers.length > 0
   ));
+}
+
+function emptyTriggerSlotPair(): TriggerSlotPair {
+  return {
+    l2: { base: null, modifiers: [] },
+    r2: { base: null, modifiers: [] }
+  };
+}
+
+/** The slot pair the editor is currently working on: the selected state's, or the profile's own. */
+export function editingStateTriggers(profile: TriggerProfile, stateIndex: number): TriggerSlotPair {
+  if (profile.states && profile.states.length > 0) {
+    return profile.states[Math.min(stateIndex, profile.states.length - 1)].triggers;
+  }
+  return profile.triggers;
+}
+
+export function uniqueStateName(base: string, taken: readonly string[]): string {
+  const names = new Set(taken);
+  if (!names.has(base)) return base;
+  let suffix = 2;
+  while (names.has(`${base} ${suffix}`)) suffix += 1;
+  return `${base} ${suffix}`;
+}
+
+/**
+ * Normalizes a drafted multi-state profile for save: state names are trimmed,
+ * empty names become "State N", duplicates get a numeric suffix, switching
+ * rules and defaultState are re-pointed at the normalized names, and the
+ * profile-level triggers mirror states[0] so pre-states consumers keep seeing
+ * the profile's default feel.
+ */
+export function sanitizeDraftStates(profile: TriggerProfile): TriggerProfile {
+  if (!profile.states || profile.states.length === 0) {
+    const { states: _states, switching: _switching, ...rest } = profile;
+    return rest;
+  }
+  const renames = new Map<string, string>();
+  const names: string[] = [];
+  const states: TriggerStateDef[] = profile.states.map((state, index) => {
+    const trimmed = state.name.trim().slice(0, MAX_STATE_NAME_LENGTH);
+    const fallback = trimmed.length > 0 ? trimmed : `State ${index + 1}`;
+    const name = uniqueStateName(fallback, names);
+    names.push(name);
+    if (state.name !== name) renames.set(state.name, name);
+    return { ...state, name };
+  });
+  let switching = profile.switching;
+  if (switching) {
+    const stateNames = new Set(names);
+    const rules = switching.rules
+      .map((rule) => {
+        if (rule.action !== 'select') return rule;
+        const target = renames.get(rule.state ?? '') ?? rule.state;
+        return { ...rule, state: target };
+      })
+      .filter((rule) => rule.action !== 'select' || (rule.state !== undefined && stateNames.has(rule.state)));
+    const defaultState = renames.get(switching.defaultState ?? '') ?? switching.defaultState;
+    switching = {
+      ...switching,
+      rules,
+      ...(defaultState !== undefined && stateNames.has(defaultState)
+        ? { defaultState }
+        : {})
+    };
+    if (defaultState !== undefined && !stateNames.has(defaultState)) {
+      delete switching.defaultState;
+    }
+  }
+  return { ...profile, states, ...(switching ? { switching } : {}), triggers: states[0].triggers };
 }
 
 /**
@@ -2729,6 +2837,56 @@ export function App() {
   const [gameDeleteConfirm, setGameDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [selectedTriggerProfileId, setSelectedTriggerProfileId] = useState<string | null>(null);
   const [triggerProfileDraft, setTriggerProfileDraft] = useState<TriggerProfile | null>(null);
+  const [stickSample, setStickSample] = useState<StickSample | null>(null);
+  const stickWheelActive = triggerProfileDraft?.switching?.stickWheel !== undefined;
+  // Which switch rule is listening for a controller press: a rule index, 'new'
+  // for the Add-rule flow, or null when idle.
+  const [ruleCapture, setRuleCapture] = useState<number | 'new' | null>(null);
+  const ruleCaptureRef = useRef<number | 'new' | null>(null);
+  ruleCaptureRef.current = ruleCapture;
+  const prevSampleButtonsRef = useRef<string[]>([]);
+  // Live input for the wheel configurator and rule capture; only subscribed
+  // while needed so the 30Hz sample stream doesn't re-render the app the rest
+  // of the time.
+  useEffect(() => {
+    if (!stickWheelActive && ruleCapture === null) {
+      setStickSample(null);
+      prevSampleButtonsRef.current = [];
+      return;
+    }
+    return window.bridge.onStickSample((sample) => {
+      setStickSample(sample);
+      const capture = ruleCaptureRef.current;
+      const previous = prevSampleButtonsRef.current;
+      prevSampleButtonsRef.current = sample.buttons;
+      if (capture === null) return;
+      const pressed = sample.buttons.find((button) => !previous.includes(button));
+      if (!pressed) return;
+      const chord = sample.buttons.find((button) => button !== pressed) ?? null;
+      setRuleCapture(null);
+      updateTriggerProfileSwitching((switching) => {
+        const rule: StateSwitchRule = {
+          button: pressed,
+          action: 'cycle',
+          ...(chord ? { while: chord } : {})
+        };
+        if (capture === 'new') {
+          return { ...switching, rules: [...switching.rules, rule] };
+        }
+        return {
+          ...switching,
+          rules: switching.rules.map((existing, at) => {
+            if (at !== capture) return existing;
+            const next: StateSwitchRule = { ...existing, button: pressed };
+            if (chord) next.while = chord;
+            else delete next.while;
+            return next;
+          })
+        };
+      });
+    });
+  }, [stickWheelActive, ruleCapture !== null]);
+  const [triggerProfileEditingState, setTriggerProfileEditingState] = useState(0);
   const [triggerProfileProcessNamesInput, setTriggerProfileProcessNamesInput] = useState('');
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
   const [triggerProfileResetConfirm, setTriggerProfileResetConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
@@ -3366,12 +3524,12 @@ export function App() {
   useEffect(() => {
     if (!triggerProfilePreviewArmedRef.current) return;
     if (activeControlTab !== 'trigger-profiles' || !triggerProfileDraft) return;
-    const triggers = triggerProfileDraft.triggers;
+    const triggers = editingStateTriggers(triggerProfileDraft, triggerProfileEditingState);
     const handle = setTimeout(() => {
       void window.bridge.previewTriggerProfileDraft({ l2: triggers.l2, r2: triggers.r2 });
     }, 150);
     return () => clearTimeout(handle);
-  }, [triggerProfileDraft, activeControlTab]);
+  }, [triggerProfileDraft, triggerProfileEditingState, activeControlTab]);
 
   // Clear any live draft preview when leaving the Trigger Profiles tab.
   useEffect(() => {
@@ -5584,6 +5742,7 @@ export function App() {
     clearTriggerProfileDraftPreview();
     setSelectedTriggerProfileId(profile.id);
     setTriggerProfileDraft(profile);
+    setTriggerProfileEditingState(0);
     setTriggerProfileProcessNamesInput(profile.match.processNames.join(', '));
     setTriggerProfileModifiersOpen({ l2: false, r2: false });
   }
@@ -5713,12 +5872,12 @@ export function App() {
           triggerProfiles.filter((profile) => profile.id !== previousId).map((profile) => profile.id)
         )
       : previousId;
-    const profile: TriggerProfile = {
+    const profile: TriggerProfile = sanitizeDraftStates({
       ...triggerProfileDraft,
       id,
       match: { ...triggerProfileDraft.match, processNames },
       updatedAtMs: Date.now()
-    };
+    });
     const saved = await window.bridge.saveTriggerProfile(profile);
     await refreshTriggerProfiles(saved.id, isProvisional ? previousId : undefined);
   }
@@ -6085,6 +6244,187 @@ export function App() {
     setTriggerProfileEngineStatus(status);
   }
 
+  async function selectEngineTriggerState(name: string) {
+    const status = await window.bridge.selectTriggerProfileState(name);
+    setTriggerProfileEngineStatus(status);
+  }
+
+  function addTriggerProfileState() {
+    if (!triggerProfileDraft) return;
+    const existing = triggerProfileDraft.states ?? [];
+    if (existing.length >= MAX_STATES_PER_PROFILE) return;
+    // A states-less profile first absorbs its current feel as state one, so
+    // "Add state" always yields the old feel plus a fresh empty one.
+    const seeded: TriggerStateDef[] = existing.length > 0
+      ? [...existing]
+      : [{ name: 'Default', triggers: triggerProfileDraft.triggers }];
+    const name = uniqueStateName(`State ${seeded.length + 1}`, seeded.map((state) => state.name));
+    seeded.push({ name, triggers: emptyTriggerSlotPair() });
+    setTriggerProfileDraft({
+      ...triggerProfileDraft,
+      states: seeded,
+      switching: triggerProfileDraft.switching ?? { rules: [] },
+      triggers: seeded[0].triggers
+    });
+    setTriggerProfileEditingState(seeded.length - 1);
+  }
+
+  function renameTriggerProfileState(index: number, name: string) {
+    setTriggerProfileDraft((draft) => {
+      if (!draft?.states || !draft.states[index]) return draft;
+      const previous = draft.states[index].name;
+      const states = draft.states.map((state, at) => (at === index ? { ...state, name } : state));
+      // Keep rules and defaultState pointing at the renamed state.
+      const switching = draft.switching
+        ? {
+            ...draft.switching,
+            rules: draft.switching.rules.map((rule) => (
+              rule.action === 'select' && rule.state === previous ? { ...rule, state: name } : rule
+            )),
+            ...(draft.switching.stickWheel
+              ? {
+                  stickWheel: {
+                    ...draft.switching.stickWheel,
+                    sectors: draft.switching.stickWheel.sectors.map((entry) => (
+                      entry === previous ? name : entry
+                    ))
+                  }
+                }
+              : {}),
+            ...(draft.switching.defaultState === previous ? { defaultState: name } : {})
+          }
+        : draft.switching;
+      return { ...draft, states, ...(switching ? { switching } : {}) };
+    });
+  }
+
+  function duplicateTriggerProfileState(index: number) {
+    if (!triggerProfileDraft?.states) return;
+    const states = triggerProfileDraft.states;
+    if (!states[index] || states.length >= MAX_STATES_PER_PROFILE) return;
+    const source = states[index];
+    const name = uniqueStateName(source.name, states.map((state) => state.name));
+    const copy: TriggerStateDef = {
+      name,
+      triggers: {
+        l2: { base: source.triggers.l2.base, modifiers: [...source.triggers.l2.modifiers] },
+        r2: { base: source.triggers.r2.base, modifiers: [...source.triggers.r2.modifiers] }
+      }
+    };
+    const next = [...states.slice(0, index + 1), copy, ...states.slice(index + 1)];
+    setTriggerProfileDraft({ ...triggerProfileDraft, states: next, triggers: next[0].triggers });
+    setTriggerProfileEditingState(index + 1);
+  }
+
+  function removeTriggerProfileState(index: number) {
+    setTriggerProfileDraft((draft) => {
+      if (!draft?.states || !draft.states[index]) return draft;
+      const removed = draft.states[index].name;
+      const states = draft.states.filter((_, at) => at !== index);
+      if (states.length <= 1) {
+        // One state is no states: collapse back to a plain profile.
+        const { states: _states, switching: _switching, ...rest } = draft;
+        return { ...rest, triggers: states[0]?.triggers ?? draft.states[index].triggers };
+      }
+      const switching = draft.switching
+        ? {
+            ...draft.switching,
+            rules: draft.switching.rules.filter((rule) => rule.action !== 'select' || rule.state !== removed),
+            ...(draft.switching.stickWheel
+              ? {
+                  stickWheel: {
+                    ...draft.switching.stickWheel,
+                    sectors: draft.switching.stickWheel.sectors.map((entry) => (
+                      entry === removed ? null : entry
+                    ))
+                  }
+                }
+              : {})
+          }
+        : undefined;
+      if (switching && switching.defaultState === removed) delete switching.defaultState;
+      return { ...draft, states, ...(switching ? { switching } : {}), triggers: states[0].triggers };
+    });
+    setTriggerProfileEditingState(0);
+  }
+
+  function updateTriggerProfileSwitching(updater: (switching: StateSwitching) => StateSwitching) {
+    setTriggerProfileDraft((draft) => {
+      if (!draft?.states || draft.states.length === 0) return draft;
+      return { ...draft, switching: updater(draft.switching ?? { rules: [] }) };
+    });
+  }
+
+  // Moves a state to a new position by swapping with the occupant. Position
+  // and wheel sector are kept matching in both directions: the two states'
+  // wheel-sector entries swap along with their positions.
+  function moveTriggerProfileState(from: number, to: number) {
+    setTriggerProfileDraft((draft) => {
+      if (!draft?.states || from === to || !draft.states[from] || to < 0 || to >= draft.states.length) return draft;
+      const states = [...draft.states];
+      [states[from], states[to]] = [states[to], states[from]];
+      let switching = draft.switching;
+      const wheel = switching?.stickWheel;
+      if (switching && wheel) {
+        const sectors = [...wheel.sectors];
+        const movedIndex = sectors.indexOf(states[to].name);
+        const target = to < sectors.length ? to : -1;
+        if (movedIndex >= 0 && target >= 0 && movedIndex !== target) {
+          [sectors[movedIndex], sectors[target]] = [sectors[target], sectors[movedIndex]];
+        }
+        switching = { ...switching, stickWheel: { ...wheel, sectors } };
+      }
+      return { ...draft, states, triggers: states[0].triggers, ...(switching ? { switching } : {}) };
+    });
+    setTriggerProfileEditingState(to);
+  }
+
+  // Applies a stickWheel change from the wheel configurator and keeps state
+  // positions matching sector numbers: any state that newly landed in sector i
+  // swaps its list position to i (clamped to the state count).
+  function updateStickWheelSynced(next: StickWheelConfig) {
+    let editorFollow: number | null = null;
+    setTriggerProfileDraft((draft) => {
+      if (!draft?.states || draft.states.length === 0 || !draft.switching) return draft;
+      const editingName = draft.states[triggerProfileEditingState]?.name;
+      const previousSectors = draft.switching.stickWheel?.sectors ?? [];
+      let states = draft.states;
+      next.sectors.forEach((name, sector) => {
+        if (name === null || previousSectors[sector] === name) return;
+        const from = states.findIndex((state) => state.name === name);
+        const to = Math.min(sector, states.length - 1);
+        if (from >= 0 && from !== to) {
+          states = [...states];
+          [states[from], states[to]] = [states[to], states[from]];
+        }
+      });
+      if (editingName) {
+        const follow = states.findIndex((state) => state.name === editingName);
+        if (follow >= 0 && follow !== triggerProfileEditingState) editorFollow = follow;
+      }
+      return {
+        ...draft,
+        states,
+        triggers: states[0].triggers,
+        switching: { ...draft.switching, stickWheel: next }
+      };
+    });
+    if (editorFollow !== null) setTriggerProfileEditingState(editorFollow);
+  }
+
+  function updateTriggerProfileSwitchRule(index: number, patch: Partial<StateSwitchRule>) {
+    updateTriggerProfileSwitching((switching) => ({
+      ...switching,
+      rules: switching.rules.map((rule, at) => {
+        if (at !== index) return rule;
+        const next: StateSwitchRule = { ...rule, ...patch };
+        if (next.action === 'cycle') delete next.state;
+        if (next.while === '') delete next.while;
+        return next;
+      })
+    }));
+  }
+
   function updateTriggerProfileSlot(
     slot: TriggerProfileSlotKey,
     updater: (config: TriggerProfile['triggers']['l2']) => TriggerProfile['triggers']['l2'],
@@ -6093,9 +6433,16 @@ export function App() {
     triggerProfilePreviewArmedRef.current = true;
     setTriggerProfileDraft((draft) => {
       if (!draft) return draft;
-      let triggers = { ...draft.triggers, [slot]: updater(draft.triggers[slot]) };
+      const current = editingStateTriggers(draft, triggerProfileEditingState);
+      let triggers = { ...current, [slot]: updater(current[slot]) };
       if (options?.mirrorBase) {
         triggers = mirrorTriggerSlotBase(triggers, slot);
+      }
+      if (draft.states && draft.states.length > 0) {
+        const index = Math.min(triggerProfileEditingState, draft.states.length - 1);
+        const states = draft.states.map((state, at) => (at === index ? { ...state, triggers } : state));
+        // The profile-level triggers mirror states[0] (back-compat invariant).
+        return { ...draft, states, triggers: index === 0 ? triggers : draft.triggers };
       }
       return { ...draft, triggers };
     });
@@ -6601,6 +6948,30 @@ export function App() {
                             {gameSettingsStatus?.appliedProfileId === activeGameProfile.id ? 'Game Settings' : 'Global Settings'}
                           </span>
                         </div>
+                        {(() => {
+                          if (!triggerProfileEngineStatus?.enabled || !triggerProfileEngineStatus.activeStateName) return null;
+                          const activeStates = triggerProfiles.find(
+                            (profile) => profile.id === triggerProfileEngineStatus.activeProfileId
+                          )?.states;
+                          if (!activeStates || activeStates.length < 2) return null;
+                          return (
+                            <div className="trigger-profiles-live-state-chips game-hero-states">
+                              {activeStates.map((state) => (
+                                <button
+                                  key={state.name}
+                                  type="button"
+                                  className={`trigger-lab-chip compact ${
+                                    state.name === triggerProfileEngineStatus.activeStateName ? 'active' : ''
+                                  }`}
+                                  aria-pressed={state.name === triggerProfileEngineStatus.activeStateName}
+                                  onClick={() => void selectEngineTriggerState(state.name)}
+                                >
+                                  <span className="trigger-lab-chip-label">{state.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="game-hero-actions">
                         <button
@@ -8395,9 +8766,80 @@ export function App() {
                   </div>
 
                   <div className="trigger-profiles-editor-body">
+                  <div className="trigger-profiles-states-strip">
+                    <span className="trigger-profiles-states-label">States</span>
+                    {(triggerProfileDraft.states ?? []).map((state, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        className={`trigger-lab-chip compact ${index === triggerProfileEditingState ? 'active' : ''}`}
+                        aria-pressed={index === triggerProfileEditingState}
+                        onClick={() => setTriggerProfileEditingState(index)}
+                      >
+                        <span className="trigger-lab-chip-label">{state.name || `State ${index + 1}`}</span>
+                      </button>
+                    ))}
+                    {(triggerProfileDraft.states?.length ?? 0) < MAX_STATES_PER_PROFILE && (
+                      <button
+                        type="button"
+                        className="trigger-lab-chip compact trigger-profiles-state-add"
+                        onClick={() => addTriggerProfileState()}
+                      >
+                        <Plus size={13} />
+                        <span className="trigger-lab-chip-label">
+                          {triggerProfileDraft.states?.length ? 'Add state' : 'Add states'}
+                        </span>
+                      </button>
+                    )}
+                    {!triggerProfileDraft.states?.length && (
+                      <span className="trigger-profiles-states-hint">
+                        One feel for the whole game — add states for per-weapon or per-vehicle feels.
+                      </span>
+                    )}
+                  </div>
+                  {triggerProfileDraft.states && triggerProfileDraft.states[triggerProfileEditingState] && (
+                    <div className="trigger-profiles-state-row">
+                      <label className="trigger-profiles-state-name-field">
+                        <span>State name</span>
+                        <input
+                          value={triggerProfileDraft.states[triggerProfileEditingState].name}
+                          maxLength={MAX_STATE_NAME_LENGTH}
+                          onChange={(event) => renameTriggerProfileState(triggerProfileEditingState, event.target.value)}
+                        />
+                      </label>
+                      <label className="trigger-profiles-state-name-field trigger-profiles-state-position-field">
+                        <span>Position</span>
+                        <CustomSelect
+                          value={String(triggerProfileEditingState)}
+                          options={(triggerProfileDraft.states ?? []).map((_, index): [string, string] => [
+                            `${index + 1} of ${triggerProfileDraft.states?.length ?? 0}`,
+                            String(index)
+                          ])}
+                          ariaLabel={`Position of ${triggerProfileDraft.states[triggerProfileEditingState].name}`}
+                          onChange={(value) => moveTriggerProfileState(triggerProfileEditingState, Number(value))}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="secondary-action"
+                        disabled={(triggerProfileDraft.states?.length ?? 0) >= MAX_STATES_PER_PROFILE}
+                        onClick={() => duplicateTriggerProfileState(triggerProfileEditingState)}
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-action trigger-profiles-state-remove"
+                        onClick={() => removeTriggerProfileState(triggerProfileEditingState)}
+                      >
+                        <X size={14} />
+                        Remove state
+                      </button>
+                    </div>
+                  )}
                   <div className="trigger-profiles-slots">
                   {TRIGGER_PROFILE_SLOTS.map(([slot, label]) => {
-                    const slotConfig = triggerProfileDraft.triggers[slot];
+                    const slotConfig = editingStateTriggers(triggerProfileDraft, triggerProfileEditingState)[slot];
                     const sideLabel = slot === 'l2' ? 'Left Trigger' : 'Right Trigger';
                     const glyphUrl = slot === 'l2' ? l2GlyphUrl : r2GlyphUrl;
                     const baseActive = slotConfig.base !== null;
@@ -8697,6 +9139,201 @@ export function App() {
                       )}
                     </div>
                   </div>
+
+                  {triggerProfileDraft.states && triggerProfileDraft.states.length > 1 && (
+                    <div className="trigger-profiles-group">
+                      <h4 className="trigger-profiles-group-title">State Switching</h4>
+                      <p className="trigger-profiles-switching-hint">
+                        Bind the game's own controls: rules fire on button presses and change the
+                        active state. Switching is inferred from your inputs — use the state chips
+                        or a select rule to re-sync if it drifts.
+                      </p>
+                      <div className="trigger-profiles-switch-rules">
+                        {(triggerProfileDraft.switching?.rules ?? []).map((rule, ruleIndex) => (
+                          <div key={ruleIndex} className="trigger-profiles-sentence-rule">
+                            <span className="sentence-word">When I press</span>
+                            <button
+                              type="button"
+                              className={`rule-capture-chip ${ruleCapture === ruleIndex ? 'listening' : ''}`}
+                              aria-label={`Switch rule ${ruleIndex + 1} button — click, then press the controller button`}
+                              onClick={() => setRuleCapture(ruleCapture === ruleIndex ? null : ruleIndex)}
+                            >
+                              {ruleCapture === ruleIndex
+                                ? 'Press a button…'
+                                : (
+                                  <>
+                                    {rule.while && (
+                                      <>
+                                        <span className="rule-chip-glyph" title={STATE_SWITCH_BUTTON_LABELS[rule.while] ?? rule.while}>
+                                          {STATE_SWITCH_BUTTON_GLYPHS[rule.while] ?? rule.while}
+                                        </span>
+                                        <span className="rule-chip-plus">+</span>
+                                      </>
+                                    )}
+                                    <span className="rule-chip-glyph accent" title={STATE_SWITCH_BUTTON_LABELS[rule.button] ?? rule.button}>
+                                      {STATE_SWITCH_BUTTON_GLYPHS[rule.button] ?? rule.button}
+                                    </span>
+                                  </>
+                                )}
+                            </button>
+                            <span className="sentence-word">→</span>
+                            <CustomSelect
+                              value={rule.action}
+                              options={STATE_SWITCH_ACTION_OPTIONS}
+                              ariaLabel={`Switch rule ${ruleIndex + 1} action`}
+                              onChange={(action) => updateTriggerProfileSwitchRule(ruleIndex, {
+                                action,
+                                ...(action === 'select'
+                                  ? { state: rule.state ?? triggerProfileDraft.states?.[0]?.name }
+                                  : {})
+                              })}
+                            />
+                            {rule.action === 'select' && (
+                              <CustomSelect
+                                value={rule.state ?? ''}
+                                options={(triggerProfileDraft.states ?? []).map(
+                                  (state): [string, string] => [state.name, state.name]
+                                )}
+                                ariaLabel={`Switch rule ${ruleIndex + 1} target state`}
+                                onChange={(state) => updateTriggerProfileSwitchRule(ruleIndex, { state })}
+                              />
+                            )}
+                            <button
+                              type="button"
+                              className="icon-compact trigger-profiles-modifier-remove"
+                              aria-label={`Remove switch rule ${ruleIndex + 1}`}
+                              onClick={() => {
+                                if (ruleCapture === ruleIndex) setRuleCapture(null);
+                                updateTriggerProfileSwitching((switching) => ({
+                                  ...switching,
+                                  rules: switching.rules.filter((_, at) => at !== ruleIndex)
+                                }));
+                              }}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        className={`secondary-action trigger-profiles-modifier-add ${ruleCapture === 'new' ? 'rule-add-listening' : ''}`}
+                        disabled={(triggerProfileDraft.switching?.rules.length ?? 0) >= 16}
+                        onClick={() => setRuleCapture(ruleCapture === 'new' ? null : 'new')}
+                      >
+                        <Plus size={14} />
+                        {ruleCapture === 'new' ? 'Press the button you want to use… (click to cancel)' : 'Add rule'}
+                      </button>
+                      <div className="trigger-profiles-switch-settings">
+                        <label className="trigger-profiles-modifier-param">
+                          <span>Default state</span>
+                          <CustomSelect
+                            value={triggerProfileDraft.switching?.defaultState ?? triggerProfileDraft.states[0].name}
+                            options={triggerProfileDraft.states.map(
+                              (state): [string, string] => [state.name, state.name]
+                            )}
+                            ariaLabel="Default state"
+                            onChange={(name) => updateTriggerProfileSwitching((switching) => ({
+                              ...switching,
+                              defaultState: name
+                            }))}
+                          />
+                        </label>
+                        <label className="trigger-profiles-modifier-param">
+                          <span>Menu button</span>
+                          <CustomSelect
+                            value={triggerProfileDraft.switching?.menuButtons?.[0] ?? ''}
+                            options={STATE_SWITCH_MENU_OPTIONS}
+                            ariaLabel="Menu guard button"
+                            onChange={(button) => updateTriggerProfileSwitching((switching) => {
+                              const next = { ...switching };
+                              if (button === '') delete next.menuButtons;
+                              else next.menuButtons = [button];
+                              return next;
+                            })}
+                          />
+                        </label>
+                        <label className="trigger-profiles-modifier-param">
+                          <span>Menu timeout (s)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={Math.round((triggerProfileDraft.switching?.menuTimeoutMs ?? 0) / 1000)}
+                            onChange={(event) => {
+                              const raw = Number(event.target.value);
+                              if (Number.isNaN(raw)) return;
+                              const menuTimeoutMs = Math.max(0, Math.round(raw)) * 1000;
+                              updateTriggerProfileSwitching((switching) => {
+                                const next = { ...switching };
+                                if (menuTimeoutMs === 0) delete next.menuTimeoutMs;
+                                else next.menuTimeoutMs = menuTimeoutMs;
+                                return next;
+                              });
+                            }}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="inline-switch stick-wheel-toggle">
+                        <span>Analog wheel</span>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={triggerProfileDraft.switching?.stickWheel !== undefined}
+                          aria-label="Enable analog wheel state selection"
+                          className={`switch ${triggerProfileDraft.switching?.stickWheel ? 'on' : ''}`}
+                          onClick={() => updateTriggerProfileSwitching((switching) => {
+                            const next = { ...switching };
+                            if (next.stickWheel) {
+                              delete next.stickWheel;
+                            } else {
+                              next.stickWheel = {
+                                button: 'triangle',
+                                thresholdPercent: 50,
+                                angleOffsetDeg: 0,
+                                sectors: (triggerProfileDraft.states ?? [])
+                                  .slice(0, 12)
+                                  .map((state) => state.name)
+                              };
+                            }
+                            return next;
+                          })}
+                        >
+                          <span />
+                        </button>
+                      </div>
+                      {triggerProfileDraft.switching?.stickWheel && (
+                        <>
+                          <p className="trigger-profiles-switching-hint">
+                            Mirrors the game's weapon wheel: hold the wheel button, point the left
+                            stick at a slot, release to commit. Tune the threshold and rotation
+                            until the live dot lands on the same slot as the game's own wheel.
+                          </p>
+                          <StickWheelEditor
+                            wheel={triggerProfileDraft.switching.stickWheel}
+                            stateNames={(triggerProfileDraft.states ?? []).map((state) => state.name)}
+                            buttonOptions={STATE_SWITCH_BUTTON_OPTIONS}
+                            liveSample={stickSample}
+                            onChange={updateStickWheelSynced}
+                            onPickState={(stateName) => {
+                              const index = (triggerProfileDraft.states ?? []).findIndex(
+                                (state) => state.name === stateName
+                              );
+                              if (index >= 0) setTriggerProfileEditingState(index);
+                            }}
+                            renderSelect={({ value, options, ariaLabel, onChange }) => (
+                              <CustomSelect
+                                value={value}
+                                options={options}
+                                ariaLabel={ariaLabel}
+                                onChange={onChange}
+                              />
+                            )}
+                          />
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   </div>
                 </section>

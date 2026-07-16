@@ -53,7 +53,7 @@ describe('update toast layout', () => {
 /** The offer phase only — the block that renders the three choices. */
 const offer = toast.slice(
   toast.indexOf("state.phase === 'offer'"),
-  toast.indexOf("state.phase === 'downloading'"),
+  toast.indexOf("state.phase === 'notify'"),
 );
 
 describe('update toast behaviour', () => {

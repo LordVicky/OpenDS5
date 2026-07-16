@@ -18,9 +18,14 @@ lets you shape your controller's adaptive triggers, haptics, audio, lighting,
 and buttons from one app — while your games see a wired DualSense with all
 its native features unlocked, even though you're playing over Bluetooth.
 
+<p align="center">
+  <img src="docs/screenshots/overview.png" alt="OpenDS5 Overview — connection status, quick actions and quick controls" width="850">
+</p>
+
 ---
 
 - [Features](#-features)
+- [Screenshots](#-screenshots)
 - [Why the "wired" part matters](#-why-the-wired-part-matters)
 - [Supported distros](#-supported-distros)
 - [Getting started](#-getting-started)
@@ -55,6 +60,24 @@ its native features unlocked, even though you're playing over Bluetooth.
   the kernel module and background service for you (one password prompt),
   with Secure Boot handled. See [Supported distros](#-supported-distros).
 
+## 📸 Screenshots
+
+| | |
+| --- | --- |
+| **Game Profiles** — cover art, native-feature flags, per-game everything ![Game Profile tab](docs/screenshots/game-profile.png) | **Trigger Lab** — design adaptive trigger effects, feel them live ![Trigger Profiles editor](docs/screenshots/trigger-profiles.png) |
+| **Haptics** — HD haptics, rumble and audio-reactive feedback ![Haptics tab](docs/screenshots/haptics.png) | **Chords** — button combos that fire functions in any game ![Chords page](docs/screenshots/chords.png) |
+
+<details>
+<summary><b>More screenshots</b> — audio, triggers, lighting, remapping, system</summary>
+
+| | |
+| --- | --- |
+| **Audio** ![Audio tab](docs/screenshots/audio.png) | **Adaptive Triggers** ![Triggers tab](docs/screenshots/triggers.png) |
+| **Lighting** ![Lighting tab](docs/screenshots/lighting.png) | **Button Remapping** ![Button Remapping tab](docs/screenshots/button-remapping.png) |
+| **System** ![System tab](docs/screenshots/system.png) | **Bridge Settings** ![Bridge settings](docs/screenshots/bridge-settings.png) |
+
+</details>
+
 ## 🔌 Why the "wired" part matters
 
 Many games with native DualSense support (adaptive triggers, haptics,
@@ -81,7 +104,7 @@ platform:
 | **Debian / Ubuntu** | `apt` installs `dkms` + `linux-headers-$(uname -r)` |
 | **openSUSE** | `zypper` installs `dkms` + `kernel-default-devel` |
 | **Bazzite / Silverblue** | `rpm-ostree install dkms kernel-devel` layers the packages; one reboot, then re-run the wizard |
-| **NixOS** | No system changes — the wizard writes a ready-to-use Nix snippet (`opends5-vds.nix`) for `boot.extraModulePackages`; apply with `nixos-rebuild switch` |
+| **NixOS** | Declarative flake module — add `inputs.opends5.nixosModules.default`, enable `services.opends5`, then apply with `nixos-rebuild switch` |
 
 On every DKMS platform the installer then registers the module source under
 `/usr/src/`, builds it, and enables autoload — after that, kernel updates are
@@ -162,9 +185,12 @@ and can't do:
 - **Don't stack them on natively supported games.** If a game already drives
   the triggers itself, a custom profile will fight it. For those games, let
   the game do the work — OpenDS5's wired bridge is what makes that possible.
-- **One feel per game.** A profile is a fixed effect (per trigger) applied
-  while the game runs. There's no automatic switching between weapons or
-  vehicles.
+- **State switching is inferred, not game-truth.** A profile can hold several
+  named states ("Pistol", "Shotgun", "Driving") and switch between them when
+  you press the game's own swap buttons — but OpenDS5 only sees your inputs,
+  never the game. If the game blocks a swap (out of ammo, cutscene), the
+  tracked state can drift; the state chips in the app and select-style rules
+  re-sync it in one press.
 - **Reactive effects need input access.** Modifiers that respond to trigger
   position read the controller's input device, which usually requires your
   user to be in the `input` group. Without it, the profile's base effect
