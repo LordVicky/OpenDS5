@@ -7997,6 +7997,18 @@ button.trigger-lab-chip {
   padding: 0 8px 0 12px;
 }
 
+/* Fixed column widths so every row's chip, action, and state line up
+   regardless of whether the chip carries a chord or the rule has a target. */
+.trigger-profiles-sentence-rule .rule-capture-chip {
+  min-width: 138px;
+  justify-content: center;
+}
+
+.trigger-profiles-sentence-rule .custom-select {
+  width: 190px;
+  flex: 0 0 auto;
+}
+
 .trigger-profiles-sentence-rule .trigger-profiles-modifier-remove {
   border: 0;
   background: transparent;
