@@ -7911,6 +7911,93 @@ button.trigger-lab-chip {
   display: none;
 }
 
+.trigger-profiles-states-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.trigger-profiles-states-label {
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-control);
+}
+
+.trigger-profiles-states-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.trigger-profiles-state-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.trigger-profiles-state-name-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.trigger-profiles-state-name-field input {
+  width: 180px;
+}
+
+.trigger-profiles-switching-hint {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.trigger-profiles-switch-rules {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.trigger-profiles-switch-rules:empty {
+  display: none;
+}
+
+.trigger-profiles-switch-rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.trigger-profiles-switch-settings {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.trigger-profiles-live-states {
+  min-width: 0;
+}
+
+.trigger-profiles-live-state-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .trigger-profiles-save-button {
   min-height: 34px;
   padding: 0 18px;

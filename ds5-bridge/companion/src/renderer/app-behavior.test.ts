@@ -20,7 +20,10 @@ import {
   gameTileArtClass,
   gameTileMonogram,
   triggerProfileHasEffects,
-  visibleProfileOptions
+  visibleProfileOptions,
+  editingStateTriggers,
+  sanitizeDraftStates,
+  uniqueStateName
 } from './App';
 import type { TriggerProfile } from '../shared/trigger-profiles';
 
@@ -348,6 +351,81 @@ describe('trigger profiles panel helpers', () => {
       { enabled: true, suspended: false, activeProfileId: 'shooter', matchedBy: 'process', matchedName: 'game.exe', activeStateName: 'Shotgun' },
       'Generic Shooter'
     )).toBe('Active: Generic Shooter — Shotgun (matched: game.exe)');
+  });
+});
+
+describe('multi-state profile helpers', () => {
+  const emptySlots = { l2: { base: null, modifiers: [] }, r2: { base: null, modifiers: [] } };
+  const pistolSlots = {
+    l2: { base: null, modifiers: [] },
+    r2: { base: { mode: 'feedback' as const, startPercent: 10, forcePercent: 20 }, modifiers: [] }
+  };
+
+  function statefulProfile(): TriggerProfile {
+    return {
+      version: 1,
+      id: 'stateful',
+      name: 'Stateful',
+      match: { processNames: [], windowTitles: [] },
+      triggers: pistolSlots,
+      states: [
+        { name: 'Pistol', triggers: pistolSlots },
+        { name: 'Shotgun', triggers: emptySlots }
+      ],
+      switching: {
+        defaultState: 'Shotgun',
+        rules: [
+          { button: 'triangle', action: 'cycle' },
+          { button: 'dpad-right', action: 'select', state: 'Shotgun' }
+        ]
+      },
+      updatedAtMs: 0
+    };
+  }
+
+  it('editingStateTriggers picks the selected state or the profile triggers', () => {
+    const profile = statefulProfile();
+    expect(editingStateTriggers(profile, 1)).toBe(profile.states?.[1].triggers);
+    expect(editingStateTriggers(profile, 99)).toBe(profile.states?.[1].triggers);
+    const plain = { ...profile };
+    delete plain.states;
+    expect(editingStateTriggers(plain, 3)).toBe(plain.triggers);
+  });
+
+  it('uniqueStateName suffixes on collision', () => {
+    expect(uniqueStateName('Pistol', ['Shotgun'])).toBe('Pistol');
+    expect(uniqueStateName('Pistol', ['Pistol'])).toBe('Pistol 2');
+    expect(uniqueStateName('Pistol', ['Pistol', 'Pistol 2'])).toBe('Pistol 3');
+  });
+
+  it('sanitizeDraftStates fixes names, follows its renames in rules, and mirrors state 0 into triggers', () => {
+    const profile = statefulProfile();
+    profile.states![0].name = '  Rifle  ';
+    profile.states![1].name = '';
+    profile.switching!.rules[1].state = '';
+    profile.switching!.defaultState = '';
+    const clean = sanitizeDraftStates(profile);
+    expect(clean.states?.map((state) => state.name)).toEqual(['Rifle', 'State 2']);
+    // References to the empty-named state follow its normalization to 'State 2'.
+    expect(clean.switching?.rules[1]).toEqual({ button: 'dpad-right', action: 'select', state: 'State 2' });
+    expect(clean.switching?.defaultState).toBe('State 2');
+    expect(clean.triggers).toBe(clean.states?.[0].triggers);
+  });
+
+  it('sanitizeDraftStates drops select rules and defaults pointing at deleted states', () => {
+    const profile = statefulProfile();
+    profile.states = [profile.states![0]];
+    const clean = sanitizeDraftStates(profile);
+    expect(clean.switching?.rules).toEqual([{ button: 'triangle', action: 'cycle' }]);
+    expect(clean.switching?.defaultState).toBeUndefined();
+  });
+
+  it('sanitizeDraftStates strips empty states blocks entirely', () => {
+    const profile = statefulProfile();
+    profile.states = [];
+    const clean = sanitizeDraftStates(profile);
+    expect('states' in clean).toBe(false);
+    expect('switching' in clean).toBe(false);
   });
 });
 

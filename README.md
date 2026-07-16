@@ -185,9 +185,12 @@ and can't do:
 - **Don't stack them on natively supported games.** If a game already drives
   the triggers itself, a custom profile will fight it. For those games, let
   the game do the work — OpenDS5's wired bridge is what makes that possible.
-- **One feel per game.** A profile is a fixed effect (per trigger) applied
-  while the game runs. There's no automatic switching between weapons or
-  vehicles.
+- **State switching is inferred, not game-truth.** A profile can hold several
+  named states ("Pistol", "Shotgun", "Driving") and switch between them when
+  you press the game's own swap buttons — but OpenDS5 only sees your inputs,
+  never the game. If the game blocks a swap (out of ammo, cutscene), the
+  tracked state can drift; the state chips in the app and select-style rules
+  re-sync it in one press.
 - **Reactive effects need input access.** Modifiers that respond to trigger
   position read the controller's input device, which usually requires your
   user to be in the `input` group. Without it, the profile's base effect
