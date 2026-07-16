@@ -1,0 +1,175 @@
+import { useState, type ReactNode } from 'react';
+import {
+  MAX_WHEEL_SECTORS,
+  MIN_WHEEL_SECTORS,
+  type StickWheelConfig
+} from '../shared/trigger-profiles';
+import { stickWheelSector } from '../shared/trigger-state-switcher';
+import { sectorLabelPoint, sectorPath, wheelPoint } from './stick-wheel-geometry';
+
+const SIZE = 260;
+const CENTER = SIZE / 2;
+const OUTER_RADIUS = 118;
+const MIN_INNER_RADIUS = 14;
+const STICK_CENTER = 128;
+
+export interface StickSample {
+  lx: number;
+  ly: number;
+}
+
+type SelectRenderer = (args: {
+  value: string;
+  options: Array<[string, string]>;
+  ariaLabel: string;
+  onChange: (value: string) => void;
+}) => ReactNode;
+
+type StickWheelEditorProps = {
+  wheel: StickWheelConfig;
+  stateNames: string[];
+  buttonOptions: Array<[string, string]>;
+  liveSample: StickSample | null;
+  onChange: (wheel: StickWheelConfig) => void;
+  renderSelect: SelectRenderer;
+};
+
+/**
+ * Radial configurator for `switching.stickWheel`: sectors are clickable to
+ * assign states, the threshold renders as the dead-zone circle, and the live
+ * left-stick position is overlaid so the layout can be tuned against the
+ * game's own weapon wheel.
+ */
+export function StickWheelEditor({
+  wheel,
+  stateNames,
+  buttonOptions,
+  liveSample,
+  onChange,
+  renderSelect
+}: StickWheelEditorProps) {
+  const [selectedSector, setSelectedSector] = useState(0);
+  const count = wheel.sectors.length;
+  const innerRadius = Math.max(MIN_INNER_RADIUS, (OUTER_RADIUS * wheel.thresholdPercent) / 100);
+  const liveSector = liveSample ? stickWheelSector(wheel, liveSample.lx, liveSample.ly) : null;
+  const livePoint = liveSample
+    ? {
+        x: CENTER + ((liveSample.lx - STICK_CENTER) / STICK_CENTER) * OUTER_RADIUS,
+        y: CENTER + ((liveSample.ly - STICK_CENTER) / STICK_CENTER) * OUTER_RADIUS
+      }
+    : null;
+
+  function setSectorCount(next: number): void {
+    const sectors = Array.from({ length: next }, (_, index) => wheel.sectors[index] ?? null);
+    onChange({ ...wheel, sectors });
+    setSelectedSector((current) => Math.min(current, next - 1));
+  }
+
+  function assignSector(state: string | null): void {
+    const sectors = wheel.sectors.map((entry, index) => (index === selectedSector ? state : entry));
+    onChange({ ...wheel, sectors });
+  }
+
+  return (
+    <div className="stick-wheel-editor">
+      <svg
+        className="stick-wheel-svg"
+        viewBox={`0 0 ${SIZE} ${SIZE}`}
+        role="group"
+        aria-label="Stick wheel sector layout"
+      >
+        {wheel.sectors.map((state, index) => (
+          <path
+            key={index}
+            d={sectorPath(CENTER, CENTER, OUTER_RADIUS, innerRadius, index, count, wheel.angleOffsetDeg)}
+            className={[
+              'stick-wheel-sector',
+              state === null ? 'unassigned' : '',
+              index === selectedSector ? 'selected' : '',
+              index === liveSector ? 'live' : ''
+            ].filter(Boolean).join(' ')}
+            role="button"
+            aria-label={`Sector ${index + 1}: ${state ?? 'unassigned'}`}
+            tabIndex={0}
+            onClick={() => setSelectedSector(index)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') setSelectedSector(index);
+            }}
+          />
+        ))}
+        {wheel.sectors.map((state, index) => {
+          const point = sectorLabelPoint(CENTER, CENTER, OUTER_RADIUS, innerRadius, index, count, wheel.angleOffsetDeg);
+          return (
+            <text key={index} x={point.x} y={point.y} className="stick-wheel-label">
+              {state ?? '—'}
+            </text>
+          );
+        })}
+        <circle cx={CENTER} cy={CENTER} r={innerRadius} className="stick-wheel-deadzone" />
+        {(() => {
+          const marker = wheelPoint(CENTER, CENTER, OUTER_RADIUS + 4, wheel.angleOffsetDeg);
+          return <circle cx={marker.x} cy={marker.y} r={3} className="stick-wheel-offset-marker" />;
+        })()}
+        {livePoint && <circle cx={livePoint.x} cy={livePoint.y} r={5} className="stick-wheel-stick-dot" />}
+      </svg>
+
+      <div className="stick-wheel-controls">
+        <label className="trigger-profiles-modifier-param">
+          <span>Wheel button</span>
+          {renderSelect({
+            value: wheel.button,
+            options: buttonOptions,
+            ariaLabel: 'Stick wheel button',
+            onChange: (button) => onChange({ ...wheel, button })
+          })}
+        </label>
+        <label className="trigger-profiles-modifier-param">
+          <span>Slots</span>
+          {renderSelect({
+            value: String(count),
+            options: Array.from(
+              { length: MAX_WHEEL_SECTORS - MIN_WHEEL_SECTORS + 1 },
+              (_, index): [string, string] => [
+                String(MIN_WHEEL_SECTORS + index),
+                String(MIN_WHEEL_SECTORS + index)
+              ]
+            ),
+            ariaLabel: 'Stick wheel slot count',
+            onChange: (value) => setSectorCount(Number(value))
+          })}
+        </label>
+        <label className="trigger-profiles-modifier-param">
+          <span>{`Sector ${selectedSector + 1} state`}</span>
+          {renderSelect({
+            value: wheel.sectors[selectedSector] ?? '',
+            options: [['Unassigned', ''], ...stateNames.map((name): [string, string] => [name, name])],
+            ariaLabel: `Sector ${selectedSector + 1} state`,
+            onChange: (value) => assignSector(value === '' ? null : value)
+          })}
+        </label>
+        <label className="trigger-profiles-modifier-param">
+          <span>{`Threshold ${wheel.thresholdPercent}%`}</span>
+          <input
+            type="range"
+            min={1}
+            max={100}
+            value={wheel.thresholdPercent}
+            aria-label="Stick threshold percent"
+            onChange={(event) => onChange({ ...wheel, thresholdPercent: Number(event.target.value) })}
+          />
+        </label>
+        <label className="trigger-profiles-modifier-param">
+          <span>{`Rotation ${wheel.angleOffsetDeg}°`}</span>
+          <input
+            type="range"
+            min={0}
+            max={359}
+            value={wheel.angleOffsetDeg}
+            aria-label="Stick wheel rotation degrees"
+            onChange={(event) => onChange({ ...wheel, angleOffsetDeg: Number(event.target.value) })}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}

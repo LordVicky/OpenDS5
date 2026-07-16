@@ -292,7 +292,17 @@ export class TriggerProfileEngine extends EventEmitter {
     await this.writeDesired({ l2, r2 });
   }
 
+  private static readonly STICK_SAMPLE_INTERVAL_MS = 33;
+  private lastStickSampleAtMs = 0;
+
   private onInput(state: ControllerInputState): void {
+    // Emitted before the profile guards: the wheel configurator's live preview
+    // needs stick positions even when no profile is active.
+    const now = Date.now();
+    if (now - this.lastStickSampleAtMs >= TriggerProfileEngine.STICK_SAMPLE_INTERVAL_MS) {
+      this.lastStickSampleAtMs = now;
+      this.emit('stickSample', { lx: state.lx, ly: state.ly });
+    }
     if (!this.enabled || this.suspended) return;
     const profile = this.draftPreview ?? this.activeProfile;
     if (!profile) return;

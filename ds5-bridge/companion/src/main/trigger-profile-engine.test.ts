@@ -42,7 +42,7 @@ class FakeReader extends EventEmitter {
   }
   stop(): void {}
   feed(state: Partial<ControllerInputState>): void {
-    this.emit('input', { timestampMs: 0, l2: 0, r2: 0, buttons: new Set(), ...state });
+    this.emit('input', { timestampMs: 0, l2: 0, r2: 0, lx: 128, ly: 128, buttons: new Set(), ...state });
   }
   fail(error = new Error('no device')): void {
     this.emit('error', error);
@@ -514,6 +514,27 @@ describe('TriggerProfileEngine', () => {
       watcher.pinProfile('stateful');
       await flush();
       expect(engine.getStatus().activeStateName).toBe('Pistol');
+    });
+  });
+
+  describe('stick samples', () => {
+    it('forwards left-stick positions as throttled stickSample events', async () => {
+      vi.useFakeTimers();
+      try {
+        const samples: { lx: number; ly: number }[] = [];
+        engine.on('stickSample', (sample: { lx: number; ly: number }) => samples.push(sample));
+        reader.feed({ lx: 200, ly: 40 });
+        reader.feed({ lx: 201, ly: 41 });
+        expect(samples).toEqual([{ lx: 200, ly: 40 }]);
+        vi.advanceTimersByTime(50);
+        reader.feed({ lx: 10, ly: 250 });
+        expect(samples).toEqual([
+          { lx: 200, ly: 40 },
+          { lx: 10, ly: 250 }
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

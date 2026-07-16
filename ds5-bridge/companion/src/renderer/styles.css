@@ -7987,6 +7987,85 @@ button.trigger-lab-chip {
   margin-top: 10px;
 }
 
+.stick-wheel-toggle {
+  grid-column: 1 / -1;
+  margin-top: 12px;
+}
+
+.stick-wheel-editor {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.stick-wheel-svg {
+  width: 260px;
+  height: 260px;
+  flex: 0 0 auto;
+}
+
+.stick-wheel-sector {
+  fill: var(--surface-card);
+  stroke: var(--surface-border-strong);
+  stroke-width: 1;
+  cursor: pointer;
+  transition: fill 120ms ease;
+}
+
+.stick-wheel-sector:hover {
+  fill: var(--surface-card-hover);
+}
+
+.stick-wheel-sector.unassigned {
+  fill: transparent;
+  stroke-dasharray: 3 3;
+}
+
+.stick-wheel-sector.selected {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.stick-wheel-sector.live {
+  fill: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.stick-wheel-label {
+  fill: var(--text-secondary);
+  font-size: 11px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+
+.stick-wheel-deadzone {
+  fill: rgba(0, 0, 0, 0.25);
+  stroke: var(--surface-divider);
+  pointer-events: none;
+}
+
+.stick-wheel-offset-marker {
+  fill: var(--accent);
+}
+
+.stick-wheel-stick-dot {
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+.stick-wheel-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+
 .trigger-profiles-live-states {
   min-width: 0;
 }

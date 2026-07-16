@@ -173,6 +173,7 @@ import { profileVariantLabel } from './library-entry';
 import { filterLibrary } from './library-search';
 import { matchGameInLibrary, nativeGameFeatureMap, nativeGameFeatures } from './game-library-match';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
+import { StickWheelEditor, type StickSample } from './StickWheelEditor';
 
 type ControlTab = 'game-profile' | 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
 type StartupTutorialStep = 'feature-toggle' | 'done';
@@ -2832,6 +2833,18 @@ export function App() {
   const [gameDeleteConfirm, setGameDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [selectedTriggerProfileId, setSelectedTriggerProfileId] = useState<string | null>(null);
   const [triggerProfileDraft, setTriggerProfileDraft] = useState<TriggerProfile | null>(null);
+  const [stickSample, setStickSample] = useState<StickSample | null>(null);
+  const stickWheelActive = triggerProfileDraft?.switching?.stickWheel !== undefined;
+  // Live stick preview for the wheel configurator; only subscribed while a
+  // wheel is being edited so the 30Hz sample stream doesn't re-render the app
+  // the rest of the time.
+  useEffect(() => {
+    if (!stickWheelActive) {
+      setStickSample(null);
+      return;
+    }
+    return window.bridge.onStickSample(setStickSample);
+  }, [stickWheelActive]);
   const [triggerProfileEditingState, setTriggerProfileEditingState] = useState(0);
   const [triggerProfileProcessNamesInput, setTriggerProfileProcessNamesInput] = useState('');
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
@@ -6227,6 +6240,16 @@ export function App() {
             rules: draft.switching.rules.map((rule) => (
               rule.action === 'select' && rule.state === previous ? { ...rule, state: name } : rule
             )),
+            ...(draft.switching.stickWheel
+              ? {
+                  stickWheel: {
+                    ...draft.switching.stickWheel,
+                    sectors: draft.switching.stickWheel.sectors.map((entry) => (
+                      entry === previous ? name : entry
+                    ))
+                  }
+                }
+              : {}),
             ...(draft.switching.defaultState === previous ? { defaultState: name } : {})
           }
         : draft.switching;
@@ -6265,7 +6288,17 @@ export function App() {
       const switching = draft.switching
         ? {
             ...draft.switching,
-            rules: draft.switching.rules.filter((rule) => rule.action !== 'select' || rule.state !== removed)
+            rules: draft.switching.rules.filter((rule) => rule.action !== 'select' || rule.state !== removed),
+            ...(draft.switching.stickWheel
+              ? {
+                  stickWheel: {
+                    ...draft.switching.stickWheel,
+                    sectors: draft.switching.stickWheel.sectors.map((entry) => (
+                      entry === removed ? null : entry
+                    ))
+                  }
+                }
+              : {})
           }
         : undefined;
       if (switching && switching.defaultState === removed) delete switching.defaultState;
@@ -9119,6 +9152,62 @@ export function App() {
                           />
                         </label>
                       </div>
+
+                      <div className="inline-switch stick-wheel-toggle">
+                        <span>Analog wheel</span>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={triggerProfileDraft.switching?.stickWheel !== undefined}
+                          aria-label="Enable analog wheel state selection"
+                          className={`switch ${triggerProfileDraft.switching?.stickWheel ? 'on' : ''}`}
+                          onClick={() => updateTriggerProfileSwitching((switching) => {
+                            const next = { ...switching };
+                            if (next.stickWheel) {
+                              delete next.stickWheel;
+                            } else {
+                              next.stickWheel = {
+                                button: 'triangle',
+                                thresholdPercent: 50,
+                                angleOffsetDeg: 0,
+                                sectors: (triggerProfileDraft.states ?? [])
+                                  .slice(0, 12)
+                                  .map((state) => state.name)
+                              };
+                            }
+                            return next;
+                          })}
+                        >
+                          <span />
+                        </button>
+                      </div>
+                      {triggerProfileDraft.switching?.stickWheel && (
+                        <>
+                          <p className="trigger-profiles-switching-hint">
+                            Mirrors the game's weapon wheel: hold the wheel button, point the left
+                            stick at a slot, release to commit. Tune the threshold and rotation
+                            until the live dot lands on the same slot as the game's own wheel.
+                          </p>
+                          <StickWheelEditor
+                            wheel={triggerProfileDraft.switching.stickWheel}
+                            stateNames={(triggerProfileDraft.states ?? []).map((state) => state.name)}
+                            buttonOptions={STATE_SWITCH_BUTTON_OPTIONS}
+                            liveSample={stickSample}
+                            onChange={(stickWheel) => updateTriggerProfileSwitching((switching) => ({
+                              ...switching,
+                              stickWheel
+                            }))}
+                            renderSelect={({ value, options, ariaLabel, onChange }) => (
+                              <CustomSelect
+                                value={value}
+                                options={options}
+                                ariaLabel={ariaLabel}
+                                onChange={onChange}
+                              />
+                            )}
+                          />
+                        </>
+                      )}
                     </div>
                   )}
 

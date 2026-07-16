@@ -295,6 +295,11 @@ const api = {
   ): Promise<{ ok: true; entry: GameArtworkEntry } | { ok: false; error: string }> => (
     ipcRenderer.invoke('bridge:applyInstalledGameArtwork', profileId, sourceId)
   ),
+  onStickSample: (listener: (sample: { lx: number; ly: number }) => void): (() => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, sample: { lx: number; ly: number }) => listener(sample);
+    ipcRenderer.on('bridge:stickSample', wrapped);
+    return () => ipcRenderer.removeListener('bridge:stickSample', wrapped);
+  },
   onTriggerProfileEngineStatus: (listener: (status: EngineStatus) => void): (() => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, status: EngineStatus) => listener(status);
     ipcRenderer.on('bridge:triggerProfileEngineStatus', wrapped);
