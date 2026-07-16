@@ -301,7 +301,7 @@ export class TriggerProfileEngine extends EventEmitter {
     const now = Date.now();
     if (now - this.lastStickSampleAtMs >= TriggerProfileEngine.STICK_SAMPLE_INTERVAL_MS) {
       this.lastStickSampleAtMs = now;
-      this.emit('stickSample', { lx: state.lx, ly: state.ly });
+      this.emit('stickSample', { lx: state.lx, ly: state.ly, buttons: [...state.buttons] });
     }
     if (!this.enabled || this.suspended) return;
     const profile = this.draftPreview ?? this.activeProfile;

@@ -382,10 +382,6 @@ const STATE_SWITCH_BUTTON_LABELS: Record<string, string> = {
 const STATE_SWITCH_BUTTON_OPTIONS: Array<[string, string]> = KNOWN_BUTTONS.map(
   (button) => [STATE_SWITCH_BUTTON_LABELS[button] ?? button, button]
 );
-const STATE_SWITCH_WHILE_OPTIONS: Array<[string, string]> = [
-  ['No chord', ''],
-  ...STATE_SWITCH_BUTTON_OPTIONS
-];
 const STATE_SWITCH_MENU_OPTIONS: Array<[string, string]> = [
   ['No menu guard', ''],
   ...STATE_SWITCH_BUTTON_OPTIONS
@@ -2835,16 +2831,53 @@ export function App() {
   const [triggerProfileDraft, setTriggerProfileDraft] = useState<TriggerProfile | null>(null);
   const [stickSample, setStickSample] = useState<StickSample | null>(null);
   const stickWheelActive = triggerProfileDraft?.switching?.stickWheel !== undefined;
-  // Live stick preview for the wheel configurator; only subscribed while a
-  // wheel is being edited so the 30Hz sample stream doesn't re-render the app
-  // the rest of the time.
+  // Which switch rule is listening for a controller press: a rule index, 'new'
+  // for the Add-rule flow, or null when idle.
+  const [ruleCapture, setRuleCapture] = useState<number | 'new' | null>(null);
+  const ruleCaptureRef = useRef<number | 'new' | null>(null);
+  ruleCaptureRef.current = ruleCapture;
+  const prevSampleButtonsRef = useRef<string[]>([]);
+  // Live input for the wheel configurator and rule capture; only subscribed
+  // while needed so the 30Hz sample stream doesn't re-render the app the rest
+  // of the time.
   useEffect(() => {
-    if (!stickWheelActive) {
+    if (!stickWheelActive && ruleCapture === null) {
       setStickSample(null);
+      prevSampleButtonsRef.current = [];
       return;
     }
-    return window.bridge.onStickSample(setStickSample);
-  }, [stickWheelActive]);
+    return window.bridge.onStickSample((sample) => {
+      setStickSample(sample);
+      const capture = ruleCaptureRef.current;
+      const previous = prevSampleButtonsRef.current;
+      prevSampleButtonsRef.current = sample.buttons;
+      if (capture === null) return;
+      const pressed = sample.buttons.find((button) => !previous.includes(button));
+      if (!pressed) return;
+      const chord = sample.buttons.find((button) => button !== pressed) ?? null;
+      setRuleCapture(null);
+      updateTriggerProfileSwitching((switching) => {
+        const rule: StateSwitchRule = {
+          button: pressed,
+          action: 'cycle',
+          ...(chord ? { while: chord } : {})
+        };
+        if (capture === 'new') {
+          return { ...switching, rules: [...switching.rules, rule] };
+        }
+        return {
+          ...switching,
+          rules: switching.rules.map((existing, at) => {
+            if (at !== capture) return existing;
+            const next: StateSwitchRule = { ...existing, button: pressed };
+            if (chord) next.while = chord;
+            else delete next.while;
+            return next;
+          })
+        };
+      });
+    });
+  }, [stickWheelActive, ruleCapture !== null]);
   const [triggerProfileEditingState, setTriggerProfileEditingState] = useState(0);
   const [triggerProfileProcessNamesInput, setTriggerProfileProcessNamesInput] = useState('');
   const [triggerProfileDeleteConfirm, setTriggerProfileDeleteConfirm] = useState<TriggerProfileDeleteConfirmState | null>(null);
@@ -9125,13 +9158,29 @@ export function App() {
                       </p>
                       <div className="trigger-profiles-switch-rules">
                         {(triggerProfileDraft.switching?.rules ?? []).map((rule, ruleIndex) => (
-                          <div key={ruleIndex} className="trigger-profiles-switch-rule">
-                            <CustomSelect
-                              value={rule.button}
-                              options={STATE_SWITCH_BUTTON_OPTIONS}
-                              ariaLabel={`Switch rule ${ruleIndex + 1} button`}
-                              onChange={(button) => updateTriggerProfileSwitchRule(ruleIndex, { button })}
-                            />
+                          <div key={ruleIndex} className="trigger-profiles-sentence-rule">
+                            <span className="sentence-word">When I press</span>
+                            <button
+                              type="button"
+                              className={`rule-capture-chip ${ruleCapture === ruleIndex ? 'listening' : ''}`}
+                              aria-label={`Switch rule ${ruleIndex + 1} button — click, then press the controller button`}
+                              onClick={() => setRuleCapture(ruleCapture === ruleIndex ? null : ruleIndex)}
+                            >
+                              {ruleCapture === ruleIndex
+                                ? 'Press a button…'
+                                : (
+                                  <>
+                                    {rule.while && (
+                                      <>
+                                        <span className="rule-chip-glyph">{STATE_SWITCH_BUTTON_LABELS[rule.while] ?? rule.while}</span>
+                                        <span className="rule-chip-plus">+</span>
+                                      </>
+                                    )}
+                                    <span className="rule-chip-glyph accent">{STATE_SWITCH_BUTTON_LABELS[rule.button] ?? rule.button}</span>
+                                  </>
+                                )}
+                            </button>
+                            <span className="sentence-word">→</span>
                             <CustomSelect
                               value={rule.action}
                               options={STATE_SWITCH_ACTION_OPTIONS}
@@ -9153,20 +9202,17 @@ export function App() {
                                 onChange={(state) => updateTriggerProfileSwitchRule(ruleIndex, { state })}
                               />
                             )}
-                            <CustomSelect
-                              value={rule.while ?? ''}
-                              options={STATE_SWITCH_WHILE_OPTIONS}
-                              ariaLabel={`Switch rule ${ruleIndex + 1} chord button`}
-                              onChange={(chord) => updateTriggerProfileSwitchRule(ruleIndex, { while: chord })}
-                            />
                             <button
                               type="button"
                               className="icon-compact trigger-profiles-modifier-remove"
                               aria-label={`Remove switch rule ${ruleIndex + 1}`}
-                              onClick={() => updateTriggerProfileSwitching((switching) => ({
-                                ...switching,
-                                rules: switching.rules.filter((_, at) => at !== ruleIndex)
-                              }))}
+                              onClick={() => {
+                                if (ruleCapture === ruleIndex) setRuleCapture(null);
+                                updateTriggerProfileSwitching((switching) => ({
+                                  ...switching,
+                                  rules: switching.rules.filter((_, at) => at !== ruleIndex)
+                                }));
+                              }}
                             >
                               <X size={14} />
                             </button>
@@ -9175,15 +9221,12 @@ export function App() {
                       </div>
                       <button
                         type="button"
-                        className="secondary-action trigger-profiles-modifier-add"
+                        className={`secondary-action trigger-profiles-modifier-add ${ruleCapture === 'new' ? 'rule-add-listening' : ''}`}
                         disabled={(triggerProfileDraft.switching?.rules.length ?? 0) >= 16}
-                        onClick={() => updateTriggerProfileSwitching((switching) => ({
-                          ...switching,
-                          rules: [...switching.rules, { button: 'triangle', action: 'cycle' }]
-                        }))}
+                        onClick={() => setRuleCapture(ruleCapture === 'new' ? null : 'new')}
                       >
                         <Plus size={14} />
-                        Add Switch Rule
+                        {ruleCapture === 'new' ? 'Press the button you want to use… (click to cancel)' : 'Add rule'}
                       </button>
                       <div className="trigger-profiles-switch-settings">
                         <label className="trigger-profiles-modifier-param">

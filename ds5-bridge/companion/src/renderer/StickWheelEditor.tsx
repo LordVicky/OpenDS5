@@ -16,6 +16,7 @@ const STICK_CENTER = 128;
 export interface StickSample {
   lx: number;
   ly: number;
+  buttons: string[];
 }
 
 type SelectRenderer = (args: {

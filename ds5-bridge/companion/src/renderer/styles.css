@@ -7978,6 +7978,56 @@ button.trigger-lab-chip {
   flex-wrap: wrap;
 }
 
+.trigger-profiles-sentence-rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+}
+
+.sentence-word {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.rule-capture-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--control-radius);
+  background: var(--surface-control);
+  color: var(--text-control);
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.rule-capture-chip:hover {
+  border-color: var(--accent);
+}
+
+.rule-capture-chip.listening {
+  border: 1px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.rule-chip-glyph.accent {
+  color: var(--accent);
+}
+
+.rule-chip-plus {
+  color: var(--text-dim);
+}
+
+.rule-add-listening {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .trigger-profiles-switch-settings {
   grid-column: 1 / -1;
   display: flex;

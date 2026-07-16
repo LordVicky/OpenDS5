@@ -525,16 +525,23 @@ describe('TriggerProfileEngine', () => {
         engine.on('stickSample', (sample: { lx: number; ly: number }) => samples.push(sample));
         reader.feed({ lx: 200, ly: 40 });
         reader.feed({ lx: 201, ly: 41 });
-        expect(samples).toEqual([{ lx: 200, ly: 40 }]);
+        expect(samples).toEqual([{ lx: 200, ly: 40, buttons: [] }]);
         vi.advanceTimersByTime(50);
         reader.feed({ lx: 10, ly: 250 });
         expect(samples).toEqual([
-          { lx: 200, ly: 40 },
-          { lx: 10, ly: 250 }
+          { lx: 200, ly: 40, buttons: [] },
+          { lx: 10, ly: 250, buttons: [] }
         ]);
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('includes the held buttons in each sample', async () => {
+      const samples: { buttons: string[] }[] = [];
+      engine.on('stickSample', (sample: { buttons: string[] }) => samples.push(sample));
+      reader.feed({ buttons: new Set(['r1', 'triangle']) });
+      expect(samples[0].buttons.sort()).toEqual(['r1', 'triangle']);
     });
   });
 });
