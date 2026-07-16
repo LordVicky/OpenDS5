@@ -18,16 +18,15 @@ describe('detectDesktopEnvironment', () => {
 
 describe('detectProviderCapabilities', () => {
   it('reports only commands available through the injected probe', () => {
-    const available = new Set(['grim', 'wf-recorder', 'mangohud', 'wvkbd']);
+    const available = new Set(['grim', 'gpu-screen-recorder', 'mangohud']);
     expect(detectProviderCapabilities({
       env: { HYPRLAND_INSTANCE_SIGNATURE: '1', WAYLAND_DISPLAY: 'wayland-0' },
       hasExecutable: (name) => available.has(name)
     })).toEqual({
       environment: 'hyprland',
       screenshot: ['grim'],
-      recording: ['wf-recorder'],
-      hud: ['mangohud'],
-      keyboard: ['wvkbd']
+      recording: ['gpu-screen-recorder'],
+      hud: ['mangohud']
     });
   });
 });

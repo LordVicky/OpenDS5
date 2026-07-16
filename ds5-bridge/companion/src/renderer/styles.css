@@ -2530,7 +2530,18 @@ button {
 }
 
 .gaming-shortcuts-card > .feature-card-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   justify-content: space-between;
+}
+
+.gaming-shortcuts-card .feature-card-title .secondary-action {
+  width: auto;
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
 }
 
 .gaming-timing-grid {

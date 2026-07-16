@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { ControllerInputState } from '../../shared/trigger-modifier-eval';
-import type { GamingShortcutAction, GamingShortcutsSettings } from '../../shared/gaming-shortcuts';
+import { resolveGamingShortcutBindings, type GamingShortcutAction, type GamingShortcutsSettings } from '../../shared/gaming-shortcuts';
 import type { ControllerButton } from '../../shared/controller-input';
 import type { ActionExecutionResult } from './action-executor';
 import { ActionExecutor } from './action-executor';
@@ -26,6 +26,7 @@ export class GamingShortcutsCoordinator extends EventEmitter {
   private readonly input: InputSource;
   private readonly settingsStore: ShortcutSettingsSource;
   private readonly executor: ActionExecutor;
+  private readonly activeGameId: () => string | null;
   private readonly onInputBound: (state: ControllerInputState) => void;
   private gestureEngine: GestureEngine;
   private settings: GamingShortcutsSettings;
@@ -36,11 +37,13 @@ export class GamingShortcutsCoordinator extends EventEmitter {
     input: InputSource;
     settingsStore: ShortcutSettingsSource;
     executor?: ActionExecutor;
+    activeGameId?: () => string | null;
   }) {
     super();
     this.input = options.input;
     this.settingsStore = options.settingsStore;
     this.executor = options.executor ?? new ActionExecutor();
+    this.activeGameId = options.activeGameId ?? (() => null);
     this.settings = this.settingsStore.get().gamingShortcuts;
     this.gestureEngine = this.createGestureEngine(this.settings);
     this.onInputBound = (state) => this.gestureEngine.update(state.buttons, state.timestampMs);
@@ -92,12 +95,13 @@ export class GamingShortcutsCoordinator extends EventEmitter {
   }
 
   private actionFor(gesture: ControllerGesture): GamingShortcutAction | null {
+    const bindings = resolveGamingShortcutBindings(this.settings, this.activeGameId());
     switch (gesture.type) {
-      case 'single-press': return gesture.button === 'ps' ? this.settings.singlePress : null;
-      case 'double-press': return gesture.button === 'ps' ? this.settings.doublePress : null;
-      case 'long-press': return gesture.button === 'ps' ? this.settings.longPress : null;
+      case 'single-press': return gesture.button === 'ps' ? bindings.singlePress : null;
+      case 'double-press': return gesture.button === 'ps' ? bindings.doublePress : null;
+      case 'long-press': return gesture.button === 'ps' ? bindings.longPress : null;
       case 'chord': {
-        const binding = this.settings.chords.find((candidate) => candidate.button === gesture.button);
+        const binding = bindings.chords.find((candidate) => candidate.button === gesture.button);
         return binding?.action ?? null;
       }
     }

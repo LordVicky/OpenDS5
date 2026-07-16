@@ -1,6 +1,7 @@
 import type { ControllerButton } from './controller-input';
 
-export type CaptureProvider = 'auto' | 'portal' | 'grim' | 'gnome-screenshot' | 'spectacle' | 'scrot';
+export type CaptureProvider = 'auto' | 'portal' | 'grim' | 'hyprshot' | 'gnome-screenshot' | 'spectacle' | 'scrot';
+export type RecordingProvider = 'auto' | 'gpu-screen-recorder';
 export type HudProvider = 'auto' | 'gamescope' | 'mangohud';
 export type KeyboardProvider = 'auto' | 'portal' | 'wvkbd' | 'onboard' | 'matchbox-keyboard';
 
@@ -13,7 +14,7 @@ export type GamingShortcutAction =
   | { type: 'volume'; direction: 'up' | 'down' | 'mute' }
   | { type: 'microphone-mute-toggle' }
   | { type: 'screenshot'; provider: CaptureProvider }
-  | { type: 'recording-toggle'; provider: CaptureProvider }
+  | { type: 'recording-toggle'; provider: RecordingProvider }
   | { type: 'performance-hud-toggle'; provider: HudProvider }
   | { type: 'on-screen-keyboard'; provider: KeyboardProvider }
   | { type: 'switch-application'; direction: 'next' | 'previous' }
@@ -27,11 +28,14 @@ export interface GamingShortcutBindings {
   chords: Array<{ button: Exclude<ControllerButton, 'ps'>; action: GamingShortcutAction }>;
 }
 
+export type GamingShortcutOverride = Partial<GamingShortcutBindings>;
+
 export interface GamingShortcutsSettings extends GamingShortcutBindings {
   enabled: boolean;
   doublePressWindowMs: number;
   longPressThresholdMs: number;
   chordWindowMs: number;
+  perGameOverrides: Record<string, GamingShortcutOverride>;
 }
 
 export const DEFAULT_GAMING_SHORTCUTS_SETTINGS: GamingShortcutsSettings = {
@@ -42,10 +46,12 @@ export const DEFAULT_GAMING_SHORTCUTS_SETTINGS: GamingShortcutsSettings = {
   singlePress: { type: 'none' },
   doublePress: { type: 'none' },
   longPress: { type: 'none' },
-  chords: []
+  chords: [],
+  perGameOverrides: {}
 };
 
-const CAPTURE_PROVIDERS = new Set<CaptureProvider>(['auto', 'portal', 'grim', 'gnome-screenshot', 'spectacle', 'scrot']);
+const CAPTURE_PROVIDERS = new Set<CaptureProvider>(['auto', 'portal', 'grim', 'hyprshot', 'gnome-screenshot', 'spectacle', 'scrot']);
+const RECORDING_PROVIDERS = new Set<RecordingProvider>(['auto', 'gpu-screen-recorder']);
 const HUD_PROVIDERS = new Set<HudProvider>(['auto', 'gamescope', 'mangohud']);
 const KEYBOARD_PROVIDERS = new Set<KeyboardProvider>(['auto', 'portal', 'wvkbd', 'onboard', 'matchbox-keyboard']);
 
@@ -65,6 +71,21 @@ function member<T extends string>(set: ReadonlySet<T>, value: unknown): value is
   return typeof value === 'string' && set.has(value as T);
 }
 
+function normalizeBindings(value: unknown): GamingShortcutOverride {
+  if (!record(value)) return {};
+  const result: GamingShortcutOverride = {};
+  if ('singlePress' in value) result.singlePress = validateGamingShortcutAction(value.singlePress);
+  if ('doublePress' in value) result.doublePress = validateGamingShortcutAction(value.doublePress);
+  if ('longPress' in value) result.longPress = validateGamingShortcutAction(value.longPress);
+  if (Array.isArray(value.chords)) {
+    result.chords = value.chords.flatMap((entry) => {
+      if (!record(entry) || typeof entry.button !== 'string' || !SECONDARY_BUTTONS.has(entry.button as Exclude<ControllerButton, 'ps'>)) return [];
+      return [{ button: entry.button as Exclude<ControllerButton, 'ps'>, action: validateGamingShortcutAction(entry.action) }];
+    }).slice(0, 32);
+  }
+  return result;
+}
+
 /** Repairs malformed persisted data to a harmless action. */
 export function validateGamingShortcutAction(value: unknown): GamingShortcutAction {
   if (!record(value) || typeof value.type !== 'string') return { type: 'none' };
@@ -82,7 +103,7 @@ export function validateGamingShortcutAction(value: unknown): GamingShortcutActi
     case 'screenshot':
       return member(CAPTURE_PROVIDERS, value.provider) ? { type: 'screenshot', provider: value.provider } : { type: 'none' };
     case 'recording-toggle':
-      return member(CAPTURE_PROVIDERS, value.provider) ? { type: 'recording-toggle', provider: value.provider } : { type: 'none' };
+      return member(RECORDING_PROVIDERS, value.provider) ? { type: 'recording-toggle', provider: value.provider } : { type: 'none' };
     case 'performance-hud-toggle':
       return member(HUD_PROVIDERS, value.provider) ? { type: 'performance-hud-toggle', provider: value.provider } : { type: 'none' };
     case 'on-screen-keyboard':
@@ -115,6 +136,12 @@ export function normalizeGamingShortcutsSettings(value: unknown): GamingShortcut
         return [{ button: entry.button as Exclude<ControllerButton, 'ps'>, action: validateGamingShortcutAction(entry.action) }];
       }).slice(0, 32)
     : [];
+  const perGameOverrides: Record<string, GamingShortcutOverride> = {};
+  if (record(value.perGameOverrides)) {
+    for (const [gameId, override] of Object.entries(value.perGameOverrides)) {
+      if (gameId.length > 0 && gameId.length <= 256) perGameOverrides[gameId] = normalizeBindings(override);
+    }
+  }
   return {
     enabled: typeof value.enabled === 'boolean' ? value.enabled : DEFAULT_GAMING_SHORTCUTS_SETTINGS.enabled,
     doublePressWindowMs: timing(value.doublePressWindowMs, 300, 100, 1000),
@@ -123,6 +150,21 @@ export function normalizeGamingShortcutsSettings(value: unknown): GamingShortcut
     singlePress: validateGamingShortcutAction(value.singlePress),
     doublePress: validateGamingShortcutAction(value.doublePress),
     longPress: validateGamingShortcutAction(value.longPress),
-    chords
+    chords,
+    perGameOverrides
+  };
+}
+
+/** Resolves bindings without changing global timing or enablement settings. */
+export function resolveGamingShortcutBindings(
+  settings: GamingShortcutsSettings,
+  gameId: string | null
+): GamingShortcutBindings {
+  const override = gameId === null ? undefined : settings.perGameOverrides[gameId];
+  return {
+    singlePress: override?.singlePress ?? settings.singlePress,
+    doublePress: override?.doublePress ?? settings.doublePress,
+    longPress: override?.longPress ?? settings.longPress,
+    chords: override?.chords ?? settings.chords
   };
 }

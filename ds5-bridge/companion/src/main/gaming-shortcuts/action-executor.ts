@@ -2,6 +2,7 @@ import { validateGamingShortcutAction, type GamingShortcutAction } from '../../s
 import { createProcessRunner, type ProcessRunner } from './process-runner';
 import { LinuxActionProvider } from './providers/linux-actions';
 import { ScreenshotProvider } from './providers/screenshot';
+import { GpuScreenRecorderProvider } from './providers/recording';
 
 export type ActionExecutionResult =
   | { ok: true }
@@ -12,6 +13,7 @@ export interface ActionExecutorOptions {
   openOpenDS5?: () => Promise<void> | void;
   linuxProvider?: LinuxActionProvider;
   screenshotProvider?: ScreenshotProvider;
+  recordingProvider?: GpuScreenRecorderProvider;
 }
 
 /** Executes only validated actions; desktop-specific actions are provider work. */
@@ -20,12 +22,14 @@ export class ActionExecutor {
   private readonly openOpenDS5: (() => Promise<void> | void) | null;
   private readonly linuxProvider: LinuxActionProvider;
   private readonly screenshotProvider: ScreenshotProvider;
+  private readonly recordingProvider: GpuScreenRecorderProvider;
 
   constructor(options: ActionExecutorOptions = {}) {
     this.runner = options.runner ?? createProcessRunner();
     this.openOpenDS5 = options.openOpenDS5 ?? null;
     this.linuxProvider = options.linuxProvider ?? new LinuxActionProvider();
     this.screenshotProvider = options.screenshotProvider ?? new ScreenshotProvider();
+    this.recordingProvider = options.recordingProvider ?? new GpuScreenRecorderProvider();
   }
 
   async execute(rawAction: unknown): Promise<ActionExecutionResult> {
@@ -64,6 +68,8 @@ export class ActionExecutor {
             ? { ok: true }
             : { ok: false, reason: 'failed', error: result.timedOut ? 'Process timed out' : `Process exited with ${result.code ?? 'unknown'}` };
         }
+        case 'recording-toggle':
+          return this.recordingProvider.toggle(action.provider);
         default:
           return { ok: false, reason: 'unavailable' };
       }

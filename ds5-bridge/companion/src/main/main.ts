@@ -1703,7 +1703,8 @@ app.whenReady().then(async () => {
     });
     gamingShortcutsCoordinator = new GamingShortcutsCoordinator({
       input: shortcutReader,
-      settingsStore
+      settingsStore,
+      activeGameId: () => triggerProfileEngine?.getActiveGameId() ?? null
     });
     gamingShortcutsCoordinator.on('error', (error) => {
       console.error('[gaming-shortcuts] action error', error);

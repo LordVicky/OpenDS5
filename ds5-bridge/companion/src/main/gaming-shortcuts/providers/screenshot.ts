@@ -52,6 +52,11 @@ export class ScreenshotProvider {
     const selected = provider === 'auto' ? this.autoProvider() : provider;
     const outputPath = path.join(picturesDirectory(this.env), filename(this.now()));
     switch (selected) {
+      case 'hyprshot': return {
+        executable: 'hyprshot',
+        args: ['-m', 'window', '-m', 'active', '-o', path.dirname(outputPath), '-f', path.basename(outputPath)],
+        outputPath
+      };
       case 'grim': return { executable: 'grim', args: [outputPath], outputPath };
       case 'gnome-screenshot': return { executable: 'gnome-screenshot', args: ['-f', outputPath], outputPath };
       case 'spectacle': return { executable: 'spectacle', args: ['-b', '-n', '-o', outputPath], outputPath };
@@ -66,7 +71,9 @@ export class ScreenshotProvider {
 
   private autoProvider(): CaptureProvider | null {
     const wayland = Boolean(this.env.WAYLAND_DISPLAY || this.env.HYPRLAND_INSTANCE_SIGNATURE || this.env.SWAYSOCK);
-    const candidates = wayland
+    const candidates = this.env.HYPRLAND_INSTANCE_SIGNATURE
+      ? ['hyprshot', 'grim', 'gnome-screenshot', 'spectacle', 'scrot']
+      : wayland
       ? ['grim', 'gnome-screenshot', 'spectacle', 'scrot']
       : ['gnome-screenshot', 'spectacle', 'scrot', 'grim'];
     return candidates.find((candidate) => this.hasExecutable(candidate)) as CaptureProvider | undefined ?? null;

@@ -3,6 +3,7 @@ import type { AdaptiveTriggerEffectV2Targeted, AdaptiveTriggerPreviewEffect } fr
 import { ModifierEvaluator, type ControllerInputState } from '../shared/trigger-modifier-eval';
 import {
   effectSpecEquals,
+  DEFAULT_PROFILE_ID,
   type EngineStatus,
   type TriggerEffectSpec,
   type TriggerProfile,
@@ -129,6 +130,12 @@ export class TriggerProfileEngine extends EventEmitter {
       await this.enqueue(() => this.resetIfNeeded(true));
     }
     this.emitStatus();
+  }
+
+  /** Returns the watcher identity for consumers such as per-game shortcuts. */
+  getActiveGameId(): string | null {
+    const profileId = this.watcher.getActive().profileId;
+    return profileId === DEFAULT_PROFILE_ID ? null : profileId;
   }
 
   private scheduleReaderRetry(): void {

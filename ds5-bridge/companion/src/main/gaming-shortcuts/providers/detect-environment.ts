@@ -18,7 +18,6 @@ export interface ProviderCapabilities {
   screenshot: string[];
   recording: string[];
   hud: string[];
-  keyboard: string[];
 }
 
 function defaultHasExecutable(executable: string): boolean {
@@ -62,18 +61,10 @@ export function detectProviderCapabilities(options: EnvironmentProbe = {}): Prov
   if (hasExecutable('scrot')) screenshot.push('scrot');
 
   const recording: string[] = [];
-  if (hasExecutable('wf-recorder')) recording.push('wf-recorder');
-  if (hasExecutable('obs')) recording.push('obs');
+  if (hasExecutable('gpu-screen-recorder')) recording.push('gpu-screen-recorder');
 
   const hud: string[] = [];
-  if (environment === 'gamescope') hud.push('gamescope');
   if (hasExecutable('mangohud')) hud.push('mangohud');
-
-  const keyboard: string[] = [];
-  for (const executable of ['wvkbd', 'onboard', 'matchbox-keyboard']) {
-    if (hasExecutable(executable)) keyboard.push(executable);
-  }
-
-  return { environment, screenshot, recording, hud, keyboard };
+  return { environment, screenshot, recording, hud };
 }
 import { execFileSync } from 'node:child_process';

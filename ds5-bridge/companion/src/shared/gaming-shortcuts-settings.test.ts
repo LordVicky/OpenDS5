@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_GAMING_SHORTCUTS_SETTINGS, normalizeGamingShortcutsSettings } from './gaming-shortcuts';
+import { DEFAULT_GAMING_SHORTCUTS_SETTINGS, normalizeGamingShortcutsSettings, resolveGamingShortcutBindings } from './gaming-shortcuts';
 
 describe('normalizeGamingShortcutsSettings', () => {
   it('provides disabled, harmless defaults', () => {
@@ -18,5 +18,26 @@ describe('normalizeGamingShortcutsSettings', () => {
         { button: 'not-a-button', action: { type: 'custom-executable', executable: 'bad', args: [] } }
       ]
     })).toMatchObject({ enabled: true, doublePressWindowMs: 100, longPressThresholdMs: 2000, chordWindowMs: 151, chords: [{ button: 'create', action: { type: 'passthrough' } }] });
+  });
+
+  it('normalizes and resolves a per-game binding without changing global timing', () => {
+    const settings = normalizeGamingShortcutsSettings({
+      singlePress: { type: 'open-opends5' },
+      perGameOverrides: {
+        'steam:123': {
+          singlePress: { type: 'volume', direction: 'mute' },
+          chords: [{ button: 'create', action: { type: 'screenshot', provider: 'grim' } }]
+        },
+        broken: { singlePress: { type: 'custom-executable', executable: 'bad\0name', args: [] } }
+      }
+    });
+    expect(settings.perGameOverrides.broken).toEqual({ singlePress: { type: 'none' } });
+    expect(resolveGamingShortcutBindings(settings, 'steam:123')).toEqual({
+      singlePress: { type: 'volume', direction: 'mute' },
+      doublePress: { type: 'none' },
+      longPress: { type: 'none' },
+      chords: [{ button: 'create', action: { type: 'screenshot', provider: 'grim' } }]
+    });
+    expect(resolveGamingShortcutBindings(settings, null).singlePress).toEqual({ type: 'open-opends5' });
   });
 });

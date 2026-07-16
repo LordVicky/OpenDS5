@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ActionExecutor } from './action-executor';
 import { LinuxActionProvider } from './providers/linux-actions';
 import { ScreenshotProvider } from './providers/screenshot';
+import { GpuScreenRecorderProvider } from './providers/recording';
 
 describe('ActionExecutor', () => {
   it('runs explicit executable arguments', async () => {
@@ -54,6 +55,20 @@ describe('ActionExecutor', () => {
     expect(run).toHaveBeenCalledWith('grim', ['/tmp/OpenDS5-2026-07-16T12-34-56-789Z.png']);
   });
 
+  it('executes an explicit hyprshot screenshot provider', async () => {
+    const run = vi.fn().mockResolvedValue({ code: 0, signal: null, timedOut: false });
+    const executor = new ActionExecutor({
+      runner: { run },
+      screenshotProvider: new ScreenshotProvider({
+        env: { HOME: '/home/test', XDG_PICTURES_DIR: '/tmp' },
+        now: () => new Date('2026-07-16T12:34:56.789Z'),
+        hasExecutable: (name) => name === 'hyprshot'
+      })
+    });
+    await expect(executor.execute({ type: 'screenshot', provider: 'hyprshot' })).resolves.toEqual({ ok: true });
+    expect(run).toHaveBeenCalledWith('hyprshot', ['-m', 'window', '-m', 'active', '-o', '/tmp', '-f', 'OpenDS5-2026-07-16T12-34-56-789Z.png']);
+  });
+
   it('does not invoke a runner for unavailable provider actions', async () => {
     const run = vi.fn();
     const executor = new ActionExecutor({ runner: { run }, linuxProvider: new LinuxActionProvider({ hasExecutable: () => false }) });
@@ -69,5 +84,22 @@ describe('ActionExecutor', () => {
 
   it('reports OpenDS5 unavailable when no callback is configured', async () => {
     await expect(new ActionExecutor().execute({ type: 'open-opends5' })).resolves.toEqual({ ok: false, reason: 'unavailable' });
+  });
+
+  it('starts and stops only its owned GPU Screen Recorder process', async () => {
+    const kill = vi.fn();
+    const child = { kill, once: vi.fn((event: string, listener: () => void) => { if (event === 'exit') void listener; return child; }) } as never;
+    const spawn = vi.fn(() => child);
+    const recordingProvider = new GpuScreenRecorderProvider({
+      env: { HOME: '/tmp/opends5-gaming-shortcuts-test' },
+      now: () => new Date('2026-07-16T12:34:56.789Z'),
+      hasExecutable: (name) => name === 'gpu-screen-recorder',
+      spawn
+    });
+    const executor = new ActionExecutor({ recordingProvider });
+    await expect(executor.execute({ type: 'recording-toggle', provider: 'auto' })).resolves.toEqual({ ok: true });
+    expect(spawn).toHaveBeenCalledWith('gpu-screen-recorder', ['-w', 'portal', '-f', '60', '-o', '/tmp/opends5-gaming-shortcuts-test/Videos/OpenDS5-2026-07-16T12-34-56-789Z.mp4']);
+    await expect(executor.execute({ type: 'recording-toggle', provider: 'gpu-screen-recorder' })).resolves.toEqual({ ok: true });
+    expect(kill).toHaveBeenCalledWith('SIGINT');
   });
 });

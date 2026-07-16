@@ -6,6 +6,7 @@ import {
   type GamingShortcutsSettings
 } from '../shared/gaming-shortcuts';
 import type { ControllerButton } from '../shared/controller-input';
+import type { TriggerProfile } from '../shared/trigger-profiles';
 
 const BUTTONS: Array<{ value: Exclude<ControllerButton, 'ps'>; label: string }> = [
   { value: 'create', label: 'Create' }, { value: 'options', label: 'Options' }, { value: 'touchpad', label: 'Touchpad' }, { value: 'mute', label: 'Mute' },
@@ -20,7 +21,7 @@ const ACTIONS: Array<{ value: ActionKind; label: string }> = [
   { value: 'launch-app', label: 'Open or focus an application' }, { value: 'focus-app', label: 'Focus application by ID' },
   { value: 'screenshot', label: 'Take screenshot' }, { value: 'recording-toggle', label: 'Toggle recording' },
   { value: 'performance-hud-toggle', label: 'Toggle performance HUD' }, { value: 'volume', label: 'Volume' },
-  { value: 'microphone-mute-toggle', label: 'Toggle microphone mute' }, { value: 'on-screen-keyboard', label: 'Open on-screen keyboard' },
+  { value: 'microphone-mute-toggle', label: 'Toggle microphone mute' },
   { value: 'switch-application', label: 'Switch application' }, { value: 'quit-active-game', label: 'Quit active game (confirm)' },
   { value: 'custom-executable', label: 'Custom executable' }
 ];
@@ -33,7 +34,6 @@ function actionForKind(kind: ActionKind): GamingShortcutAction {
     case 'screenshot': return { type: 'screenshot', provider: 'auto' };
     case 'recording-toggle': return { type: 'recording-toggle', provider: 'auto' };
     case 'performance-hud-toggle': return { type: 'performance-hud-toggle', provider: 'auto' };
-    case 'on-screen-keyboard': return { type: 'on-screen-keyboard', provider: 'auto' };
     case 'switch-application': return { type: 'switch-application', direction: 'next' };
     case 'quit-active-game': return { type: 'quit-active-game', confirmation: true };
     case 'custom-executable': return { type: 'custom-executable', executable: '', args: [] };
@@ -46,7 +46,7 @@ function actionLabel(action: GamingShortcutAction): string {
 }
 
 function isProviderAction(action: GamingShortcutAction): action is Extract<GamingShortcutAction, { provider: string }> {
-  return action.type === 'screenshot' || action.type === 'recording-toggle' || action.type === 'performance-hud-toggle' || action.type === 'on-screen-keyboard';
+  return action.type === 'screenshot' || action.type === 'recording-toggle' || action.type === 'performance-hud-toggle';
 }
 
 function ActionEditor({ action, onChange, capabilities }: {
@@ -56,8 +56,7 @@ function ActionEditor({ action, onChange, capabilities }: {
 }) {
   const providerOptions = action.type === 'screenshot' ? capabilities?.screenshot ?? []
     : action.type === 'recording-toggle' ? capabilities?.recording ?? []
-      : action.type === 'performance-hud-toggle' ? capabilities?.hud ?? []
-        : capabilities?.keyboard ?? [];
+      : capabilities?.hud ?? [];
   return <div className="gaming-shortcut-action-editor">
     <select aria-label="Shortcut action" value={action.type} onChange={(event) => onChange(actionForKind(event.target.value as ActionKind))}>
       {ACTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
@@ -83,20 +82,38 @@ function ActionEditor({ action, onChange, capabilities }: {
   </div>;
 }
 
-export function GamingShortcuts({ active }: { active: boolean }) {
+export function GamingShortcuts({ active, profiles, activeProfileId }: { active: boolean; profiles: TriggerProfile[]; activeProfileId: string | null }) {
   const [settings, setSettings] = useState<GamingShortcutsSettings>(DEFAULT_GAMING_SHORTCUTS_SETTINGS);
   const [capabilities, setCapabilities] = useState<ProviderCapabilities | null>(null);
   const [status, setStatus] = useState('');
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const gameProfiles = profiles.filter((profile) => profile.id !== 'default');
   useEffect(() => {
     void window.bridge.getGamingShortcutsSettings().then(setSettings);
     void window.bridge.getGamingShortcutProviders().then(setCapabilities);
   }, []);
+  useEffect(() => {
+    if (selectedGameId && gameProfiles.some((profile) => profile.id === selectedGameId)) return;
+    setSelectedGameId(activeProfileId && gameProfiles.some((profile) => profile.id === activeProfileId) ? activeProfileId : gameProfiles[0]?.id ?? null);
+  }, [activeProfileId, profiles, selectedGameId]);
   const update = (next: GamingShortcutsSettings) => {
     setSettings(next);
     setStatus('Saving…');
     void window.bridge.saveGamingShortcutsSettings(next).then((saved) => { setSettings(saved); setStatus('Saved'); }).catch(() => setStatus('Could not save settings'));
   };
   const setBinding = (key: 'singlePress' | 'doublePress' | 'longPress', action: GamingShortcutAction) => update({ ...settings, [key]: action });
+  const selectedOverride = selectedGameId ? settings.perGameOverrides[selectedGameId] : undefined;
+  const setGameOverride = (next: NonNullable<typeof selectedOverride>) => {
+    if (!selectedGameId) return;
+    const perGameOverrides = { ...settings.perGameOverrides, [selectedGameId]: next };
+    update({ ...settings, perGameOverrides });
+  };
+  const clearGameOverride = () => {
+    if (!selectedGameId) return;
+    const perGameOverrides = { ...settings.perGameOverrides };
+    delete perGameOverrides[selectedGameId];
+    update({ ...settings, perGameOverrides });
+  };
   const defaultPreset = useMemo(() => ({ ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true,
     singlePress: { type: 'open-opends5' } as GamingShortcutAction,
     doublePress: { type: 'switch-application', direction: 'previous' } as GamingShortcutAction,
@@ -114,6 +131,17 @@ export function GamingShortcuts({ active }: { active: boolean }) {
       {settings.chords.length === 0 ? <p className="muted-copy">No chords configured.</p> : settings.chords.map((chord, index) => <div className="gaming-shortcut-row" key={`${chord.button}-${index}`}><select aria-label="Chord button" value={chord.button} onChange={(event) => { const chords = [...settings.chords]; chords[index] = { ...chord, button: event.target.value as Exclude<ControllerButton, 'ps'> }; update({ ...settings, chords }); }}>{BUTTONS.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select><ActionEditor action={chord.action} onChange={(action) => { const chords = [...settings.chords]; chords[index] = { ...chord, action }; update({ ...settings, chords }); }} capabilities={capabilities} /><button type="button" className="icon-action" aria-label="Remove chord" onClick={() => update({ ...settings, chords: settings.chords.filter((_, itemIndex) => itemIndex !== index) })}>×</button></div>)}
     </section>
     <section className="system-card gaming-shortcuts-card"><div className="feature-card-title system-card-heading"><strong>Timing</strong><button type="button" className="secondary-action" onClick={() => update(defaultPreset)}>Apply Linux Gaming preset</button></div><div className="gaming-timing-grid"><label>Double press window <input type="number" min="100" max="1000" step="10" value={settings.doublePressWindowMs} onChange={(event) => update({ ...settings, doublePressWindowMs: Number(event.target.value) })} /> ms</label><label>Hold threshold <input type="number" min="300" max="2000" step="10" value={settings.longPressThresholdMs} onChange={(event) => update({ ...settings, longPressThresholdMs: Number(event.target.value) })} /> ms</label><label>Chord window <input type="number" min="50" max="500" step="10" value={settings.chordWindowMs} onChange={(event) => update({ ...settings, chordWindowMs: Number(event.target.value) })} /> ms</label></div></section>
-    <section className="gaming-provider-status" aria-label="Environment and provider status"><strong>Environment: {capabilities?.environment ?? 'Detecting…'}</strong><span>Screenshot: {capabilities?.screenshot.join(', ') || 'Unavailable'}</span><span>Recording: {capabilities?.recording.join(', ') || 'Unavailable'}</span><span>HUD: {capabilities?.hud.join(', ') || 'Unavailable'}</span><span>Keyboard: {capabilities?.keyboard.join(', ') || 'Unavailable'}</span></section>
+    <section className="system-card gaming-shortcuts-card"><div className="feature-card-title system-card-heading"><strong>Per-game overrides</strong>{selectedOverride && <button type="button" className="secondary-action" onClick={clearGameOverride}>Use global settings</button>}</div>
+      {gameProfiles.length === 0 ? <p className="muted-copy">Create a Game Profile to customize shortcuts for a specific game.</p> : <>
+        <label className="gaming-shortcut-row"><span>Game profile</span><select aria-label="Game profile" value={selectedGameId ?? ''} onChange={(event) => setSelectedGameId(event.target.value || null)}>{gameProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select></label>
+        {selectedGameId && <>
+          <p className="gaming-shortcuts-help">Unset actions inherit the global Gaming Shortcuts binding.</p>
+          {([['singlePress', 'PS button · Press'], ['doublePress', 'PS button · Double press'], ['longPress', 'PS button · Hold']] as const).map(([key, label]) => <label className="gaming-shortcut-row" key={key}><span>{label}</span><ActionEditor action={selectedOverride?.[key] ?? settings[key]} onChange={(action) => setGameOverride({ ...selectedOverride, [key]: action })} capabilities={capabilities} /></label>)}
+          <div className="feature-card-title system-card-heading"><strong>PS chords</strong><button type="button" className="secondary-action" onClick={() => setGameOverride({ ...selectedOverride, chords: [...(selectedOverride?.chords ?? []), { button: 'triangle', action: { type: 'none' } }] })}>Add chord</button></div>
+          {(selectedOverride?.chords ?? []).map((chord, index) => <div className="gaming-shortcut-row" key={`${chord.button}-${index}`}><select aria-label="Game chord button" value={chord.button} onChange={(event) => { const chords = [...(selectedOverride?.chords ?? [])]; chords[index] = { ...chord, button: event.target.value as Exclude<ControllerButton, 'ps'> }; setGameOverride({ ...selectedOverride, chords }); }}>{BUTTONS.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select><ActionEditor action={chord.action} onChange={(action) => { const chords = [...(selectedOverride?.chords ?? [])]; chords[index] = { ...chord, action }; setGameOverride({ ...selectedOverride, chords }); }} capabilities={capabilities} /><button type="button" className="icon-action" aria-label="Remove game chord" onClick={() => setGameOverride({ ...selectedOverride, chords: (selectedOverride?.chords ?? []).filter((_, itemIndex) => itemIndex !== index) })}>×</button></div>)}
+        </>}
+      </>}
+    </section>
+    <section className="gaming-provider-status" aria-label="Environment and provider status"><strong>Environment: {capabilities?.environment ?? 'Detecting…'}</strong><span>Screenshot: {capabilities?.screenshot.join(', ') || 'Unavailable'}</span><span>Recording: {capabilities?.recording.join(', ') || 'Unavailable'}</span><span>HUD: {capabilities?.hud.join(', ') || 'Unavailable'}</span></section>
   </div>;
 }

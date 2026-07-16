@@ -10424,7 +10424,11 @@ export function App() {
               </div>
           </div>
 
-          <GamingShortcuts active={activeControlTab === 'gaming-shortcuts'} />
+          <GamingShortcuts
+            active={activeControlTab === 'gaming-shortcuts'}
+            profiles={triggerProfiles}
+            activeProfileId={triggerProfileEngineStatus?.activeProfileId ?? null}
+          />
 
           <div
             className={`control-page system-page ${activeControlTab === 'system' ? 'active' : ''}`}
