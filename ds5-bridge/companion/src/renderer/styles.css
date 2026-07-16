@@ -8070,6 +8070,10 @@ button.trigger-lab-chip {
   min-width: 0;
 }
 
+.game-hero-states {
+  margin-top: 8px;
+}
+
 .trigger-profiles-live-state-chips {
   display: flex;
   align-items: center;

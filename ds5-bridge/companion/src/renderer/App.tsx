@@ -6850,6 +6850,30 @@ export function App() {
                             {gameSettingsStatus?.appliedProfileId === activeGameProfile.id ? 'Game Settings' : 'Global Settings'}
                           </span>
                         </div>
+                        {(() => {
+                          if (!triggerProfileEngineStatus?.enabled || !triggerProfileEngineStatus.activeStateName) return null;
+                          const activeStates = triggerProfiles.find(
+                            (profile) => profile.id === triggerProfileEngineStatus.activeProfileId
+                          )?.states;
+                          if (!activeStates || activeStates.length < 2) return null;
+                          return (
+                            <div className="trigger-profiles-live-state-chips game-hero-states">
+                              {activeStates.map((state) => (
+                                <button
+                                  key={state.name}
+                                  type="button"
+                                  className={`trigger-lab-chip compact ${
+                                    state.name === triggerProfileEngineStatus.activeStateName ? 'active' : ''
+                                  }`}
+                                  aria-pressed={state.name === triggerProfileEngineStatus.activeStateName}
+                                  onClick={() => void selectEngineTriggerState(state.name)}
+                                >
+                                  <span className="trigger-lab-chip-label">{state.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="game-hero-actions">
                         <button
@@ -8565,33 +8589,6 @@ export function App() {
                     </strong>
                   </span>
                 </div>
-                {(() => {
-                  if (!triggerProfileEngineStatus?.enabled || !triggerProfileEngineStatus.activeStateName) return null;
-                  const activeStates = triggerProfiles.find(
-                    (profile) => profile.id === triggerProfileEngineStatus.activeProfileId
-                  )?.states;
-                  if (!activeStates || activeStates.length < 2) return null;
-                  return (
-                    <div className="trigger-profiles-status-group trigger-profiles-live-states">
-                      <span className="overview-status-heading">State</span>
-                      <div className="trigger-profiles-live-state-chips">
-                        {activeStates.map((state) => (
-                          <button
-                            key={state.name}
-                            type="button"
-                            className={`trigger-lab-chip compact ${
-                              state.name === triggerProfileEngineStatus.activeStateName ? 'active' : ''
-                            }`}
-                            aria-pressed={state.name === triggerProfileEngineStatus.activeStateName}
-                            onClick={() => void selectEngineTriggerState(state.name)}
-                          >
-                            <span className="trigger-lab-chip-label">{state.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
               </div>
               <div className="inline-switch">
                 <span>Game Trigger Profiles</span>
