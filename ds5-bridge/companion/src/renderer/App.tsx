@@ -175,8 +175,9 @@ import { filterLibrary } from './library-search';
 import { matchGameInLibrary, nativeGameFeatureMap, nativeGameFeatures } from './game-library-match';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
 import { StickWheelEditor, type StickSample } from './StickWheelEditor';
+import { GamingShortcuts } from './GamingShortcuts';
 
-type ControlTab = 'game-profile' | 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
+type ControlTab = 'game-profile' | 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'gaming-shortcuts' | 'system';
 type StartupTutorialStep = 'feature-toggle' | 'done';
 type ControllerType = BridgeStatusPayload['controllerType'];
 type KnownControllerType = Exclude<ControllerType, 'unknown'>;
@@ -742,6 +743,7 @@ const CONTROL_TABS: Array<{ id: ControlTab; label: string; Icon: TablerIcon }> =
   { id: 'trigger-profiles', label: 'Trigger Profiles', Icon: IconTargetArrow },
   { id: 'lighting', label: 'Lighting', Icon: IconBulb },
   { id: 'remapping', label: 'Button Remapping', Icon: IconDeviceGamepad3 },
+  { id: 'gaming-shortcuts', label: 'Gaming Shortcuts', Icon: Zap },
   { id: 'system', label: 'System', Icon: IconCpu }
 ];
 
@@ -10421,6 +10423,8 @@ export function App() {
                 </section>
               </div>
           </div>
+
+          <GamingShortcuts active={activeControlTab === 'gaming-shortcuts'} />
 
           <div
             className={`control-page system-page ${activeControlTab === 'system' ? 'active' : ''}`}
