@@ -130,20 +130,17 @@ function envelopeCoefficient(milliseconds) {
   return Math.exp(-1 / (SAMPLE_RATE * (milliseconds / 1000)));
 }
 
-// wpctl reports volume on the cubic user scale; PipeWire applies vol^3 to
-// samples. Compensate post-limiter so haptics strength is independent of
-// the listening volume; cap so a near-zero volume cannot amplify noise.
-export function volumeCompensation(cubicVolume) {
-  if (!Number.isFinite(cubicVolume) || cubicVolume <= 0) {
-    return 1;
-  }
-  const linear = cubicVolume ** 3;
-  return Math.min(32, Math.max(1 / 32, 1 / linear));
-}
-
-export function parseWpctlVolume(stdout) {
-  const match = /Volume:\s*([0-9.]+)/.exec(stdout ?? '');
-  return match ? Number(match[1]) : null;
+// The guard pins the haptic channels while the ear channels track the
+// knob, so compensation must be computed from the sink's real per-channel
+// volumes: desired scaling (ears when syncing, unity when not) over what
+// the sink actually applies to the haptic pair. Correct in all four
+// toggle states, guard running or not.
+export function channelCompensation(earsLinear, hapticLinear, volumeSync) {
+  const desired = volumeSync
+    ? (Number.isFinite(earsLinear) && earsLinear > 0 ? earsLinear : 1)
+    : 1;
+  const actual = Number.isFinite(hapticLinear) && hapticLinear > 0 ? hapticLinear : 1;
+  return Math.min(32, Math.max(1 / 32, desired / actual));
 }
 
 export class HapticsProcessor {
@@ -151,9 +148,10 @@ export class HapticsProcessor {
     this.envelope = 0;
     this.layout = { stride: 4, fl: 0, fr: 1, fc: -1, lfe: -1 };
     this.outputCompensation = 1;
-    // Volume Sync (default ON): haptics follow the listening volume, so the
-    // sink-volume compensation is neutralized to unity. OFF holds haptics
-    // strength independent of the listening volume via outputCompensation.
+    // Volume Sync (default ON): haptics follow the listening volume. This is
+    // an input to the per-channel compensation math (see channelCompensation),
+    // which the poll reads via processor.volumeSync; process() always applies
+    // the resulting outputCompensation.
     this.volumeSync = true;
     this.setConfig(config);
   }
@@ -201,7 +199,10 @@ export class HapticsProcessor {
       // noise floor so silence does not buzz the actuators.
       const gate = this.envelope < 0.003 ? 0 : 1;
       const drive = this.gain * this.responseGain * 4 * gate;
-      const comp = this.volumeSync ? 1 : this.outputCompensation;
+      // Compensation is always applied: the poll computes ears/haptic from
+      // the sink's real per-channel volumes (unity when no guard runs and
+      // sync ON, the ear volume when the guard pins the haptic pair).
+      const comp = this.outputCompensation;
       output[frame * 4 + 2] = Math.max(-1, Math.min(1, Math.tanh(left * drive) * comp));
       output[frame * 4 + 3] = Math.max(-1, Math.min(1, Math.tanh(right * drive) * comp));
     }
@@ -226,9 +227,6 @@ async function runRenderLoopbackHaptics(args) {
   const target = nodeProps(sink)['node.name'];
   const config = readHapticsConfig(args);
   const processor = new HapticsProcessor(config);
-  // Volume polling keeps running either way (cheap); this just decides
-  // whether the polled compensation is applied. Toggling OFF later via
-  // stdin then takes effect on the next processed block.
   processor.setVolumeSync(config.volumeSync);
 
   const appSource = {
@@ -252,19 +250,40 @@ async function runRenderLoopbackHaptics(args) {
   let stopping = false;
   let announcedRecording = false;
 
-  // Playback always goes to the bridge sink, whose cubic volume PipeWire
-  // applies to the haptic samples. Poll it and compensate so haptics
-  // strength stays independent of the user's listening volume.
-  const refreshVolumeCompensation = () => {
-    execFile('wpctl', ['get-volume', `${sink.id}`], (error, stdout) => {
-      if (error) {
-        return; // keep last compensation
+  // Playback always goes to the bridge sink. Its per-channel volumes
+  // (ears = channel 0, haptic = channel 2) drive the compensation: the
+  // volume guard may pin the haptic pair at unity while the ear channels
+  // track the knob, so a single scalar is not enough. Poll pw-dump, cache
+  // the channel volumes, and recompute so a live sync toggle applies at
+  // once instead of waiting for the next poll.
+  let lastChannelVolumes = null;
+  let lastCompError = null;
+  const applyCompensation = () => {
+    if (lastChannelVolumes) {
+      processor.setOutputCompensation(
+        channelCompensation(lastChannelVolumes[0], lastChannelVolumes[2], processor.volumeSync)
+      );
+    }
+  };
+  const refreshVolumeCompensation = async () => {
+    try {
+      const objects = await pwDump();
+      const found = objects.find((object) => object.id === sink.id)
+        ?? objects.filter(isBridgeSink).find((s) => (nodeProps(s)['node.name'] ?? '').startsWith('alsa_output'))
+        ?? objects.filter(isBridgeSink)[0]
+        ?? null;
+      const cv = found?.info?.params?.Props?.[0]?.channelVolumes;
+      if (Array.isArray(cv) && cv.length >= 3) {
+        lastChannelVolumes = cv;
+        applyCompensation();
       }
-      const volume = parseWpctlVolume(stdout);
-      if (volume !== null) {
-        processor.setOutputCompensation(volumeCompensation(volume));
+      // channelVolumes unavailable: keep the last compensation.
+    } catch (error) {
+      if (error.message !== lastCompError) {
+        lastCompError = error.message;
+        process.stderr.write(`volume compensation poll failed: ${error.message}\n`);
       }
-    });
+    }
   };
   refreshVolumeCompensation();
   volumeTimer = setInterval(refreshVolumeCompensation, 2000);
@@ -385,6 +404,8 @@ async function runRenderLoopbackHaptics(args) {
       });
       // 7th field is optional so 6-field lines keep working: absent → sync ON.
       processor.setVolumeSync(parts[6] === undefined ? true : parts[6] === '1');
+      // Recompute from the cached channel volumes so the toggle applies now.
+      applyCompensation();
     } else if (parts[0] === 'stop') {
       shutdown(0);
     }

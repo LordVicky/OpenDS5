@@ -3580,10 +3580,10 @@ export class BridgeService extends EventEmitter {
 
   // Pins the bridge sink's haptic channels at unity while HD Volume Sync is
   // off (Linux only). Reconciled from the poll loop when controller audio is
-  // ready; a future settings-toggle setter should also call this for an
-  // immediate reconcile (as setDuplexMicEnabled does for mic keepalive). The
-  // guard is gated on controller readiness so the helper never hard-fails on
-  // a missing sink at boot and respawn-loops.
+  // ready, and immediately by setHapticsVolumeSync on toggle (as
+  // setDuplexMicEnabled does for mic keepalive). The guard is gated on
+  // controller readiness so the helper never hard-fails on a missing sink at
+  // boot and respawn-loops.
   private async updateVolumeGuardEngine(controllerAudioReady: boolean): Promise<void> {
     try {
       const settings = this.settingsStore.get();

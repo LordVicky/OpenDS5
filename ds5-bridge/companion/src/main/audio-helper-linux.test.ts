@@ -117,46 +117,47 @@ describe('HapticsProcessor layouts', () => {
   });
 });
 
-import { appCaptureRecordArgs, matchAppStreamNode, parseWpctlVolume, readHapticsConfig, volumeCompensation } from '../../native/audio-helper-linux.mjs';
+import { appCaptureRecordArgs, channelCompensation, matchAppStreamNode, readHapticsConfig } from '../../native/audio-helper-linux.mjs';
 
-describe('volumeCompensation', () => {
-  it('is a no-op at unity volume', () => {
-    expect(volumeCompensation(1)).toBe(1);
+describe('channelCompensation', () => {
+  it('is unity when ears and haptic match and sync is ON', () => {
+    expect(channelCompensation(1, 1, true)).toBe(1);
   });
 
-  it('compensates for the cubic sink volume at a typical listening level', () => {
-    expect(volumeCompensation(0.55)).toBeCloseTo(1 / 0.55 ** 3, 2);
+  it('follows the knob when the guard pins the haptic pair and sync is ON', () => {
+    // ears track the volume (0.166), haptic pinned at unity by the guard.
+    expect(channelCompensation(0.166, 1, true)).toBeCloseTo(0.166, 6);
   });
 
-  it('caps the boost at 32 for near-silent sinks', () => {
-    expect(volumeCompensation(0.1)).toBe(32);
+  it('is unity with no guard when sync is ON (ears == haptic)', () => {
+    expect(channelCompensation(0.166, 0.166, true)).toBeCloseTo(1, 6);
   });
 
-  it('returns 1 for zero, negative, or non-finite inputs', () => {
-    expect(volumeCompensation(0)).toBe(1);
-    expect(volumeCompensation(-0.5)).toBe(1);
-    expect(volumeCompensation(NaN)).toBe(1);
+  it('boosts to 1/haptic with no guard when sync is OFF', () => {
+    // desired unity over haptic 0.166 -> ~6.02, holding strength constant.
+    expect(channelCompensation(0.166, 0.166, false)).toBeCloseTo(1 / 0.166, 4);
   });
 
-  it('compensates downward when volume exceeds unity, with a 1/32 floor', () => {
-    expect(volumeCompensation(1.26)).toBeCloseTo(1 / 1.26 ** 3, 2);
-    expect(volumeCompensation(1.26)).toBeGreaterThanOrEqual(1 / 32);
-  });
-});
-
-describe('parseWpctlVolume', () => {
-  it('parses a plain volume line', () => {
-    expect(parseWpctlVolume('Volume: 0.55\n')).toBe(0.55);
+  it('does not double-boost when the guard pins the pair and sync is OFF', () => {
+    // haptic pinned at unity, desired unity -> no compensation.
+    expect(channelCompensation(0.166, 1, false)).toBe(1);
   });
 
-  it('parses a muted volume line', () => {
-    expect(parseWpctlVolume('Volume: 1.00 [MUTED]\n')).toBe(1.00);
+  it('treats garbage, zero, or non-finite inputs as unity', () => {
+    expect(channelCompensation(0, 1, true)).toBe(1);
+    expect(channelCompensation(-0.5, 1, true)).toBe(1);
+    expect(channelCompensation(NaN, 1, true)).toBe(1);
+    // A garbage haptic denominator falls back to actual = 1.
+    expect(channelCompensation(0.5, 0, true)).toBeCloseTo(0.5, 6);
+    expect(channelCompensation(0.5, NaN, true)).toBeCloseTo(0.5, 6);
+    expect(channelCompensation(NaN, NaN, false)).toBe(1);
   });
 
-  it('returns null for garbage, empty, or missing input', () => {
-    expect(parseWpctlVolume('nonsense')).toBeNull();
-    expect(parseWpctlVolume('')).toBeNull();
-    expect(parseWpctlVolume(undefined)).toBeNull();
+  it('clamps at 32 and 1/32', () => {
+    expect(channelCompensation(1, 0.001, true)).toBe(32);
+    expect(channelCompensation(1, 0.001, false)).toBe(32);
+    expect(channelCompensation(0.1, 1, true)).toBeCloseTo(0.1, 6);
+    expect(channelCompensation(1, 100, false)).toBe(1 / 32);
   });
 });
 
@@ -176,7 +177,6 @@ describe('HapticsProcessor output compensation', () => {
     const input = loudInput(frames);
     const base = makeProcessor().process(input);
     const boosted = makeProcessor();
-    boosted.setVolumeSync(false);
     boosted.setOutputCompensation(2);
     const out = boosted.process(input);
     for (let i = 0; i < out.length; i += 1) {
@@ -193,7 +193,6 @@ describe('HapticsProcessor output compensation', () => {
     const frames = 256;
     const input = loudInput(frames);
     const clipped = makeProcessor();
-    clipped.setVolumeSync(false);
     clipped.setOutputCompensation(8);
     const out = clipped.process(input);
     const peak = Math.max(...Array.from(out).map((s) => Math.abs(s)));
@@ -224,7 +223,7 @@ describe('readHapticsConfig volume sync flag', () => {
   });
 });
 
-describe('HapticsProcessor volume sync gating', () => {
+describe('HapticsProcessor always-applied compensation', () => {
   function loudInput(frames: number) {
     const input = new Float32Array(frames * 4);
     for (let f = 0; f < frames; f += 1) {
@@ -235,36 +234,39 @@ describe('HapticsProcessor volume sync gating', () => {
     return input;
   }
 
-  it('applies compensation 1 when volume sync is ON regardless of polled compensation', () => {
+  it('always applies the output compensation regardless of the volumeSync flag', () => {
+    // With per-channel compensation the poll folds volumeSync into the
+    // computed scaling, so process() must apply it in every toggle state.
+    const frames = 256;
+    const input = loudInput(frames);
+    const syncOn = makeProcessor();
+    syncOn.setVolumeSync(true);
+    syncOn.setOutputCompensation(6);
+    const syncOff = makeProcessor();
+    syncOff.setVolumeSync(false);
+    syncOff.setOutputCompensation(6);
+    // Both apply comp 6 identically; the flag no longer gates process().
+    expect(Array.from(syncOn.process(input))).toEqual(Array.from(syncOff.process(input)));
+  });
+
+  it('is byte-identical to a fresh processor when compensation is unity (sync ON, no guard)', () => {
     const frames = 256;
     const input = loudInput(frames);
     const synced = makeProcessor();
-    synced.setOutputCompensation(6);
     synced.setVolumeSync(true);
-    const reference = makeProcessor();
-    reference.setOutputCompensation(1);
-    expect(Array.from(synced.process(input))).toEqual(Array.from(reference.process(input)));
+    synced.setOutputCompensation(channelCompensation(0.166, 0.166, true)); // ~1
+    expect(Array.from(synced.process(input))).toEqual(Array.from(makeProcessor().process(input)));
   });
 
-  it('restores the compensated (clamped) output when volume sync is OFF', () => {
+  it('applies the compensated (clamped) output for a nonzero compensation', () => {
     const frames = 256;
     const input = loudInput(frames);
-    const off = makeProcessor();
-    off.setVolumeSync(false);
-    off.setOutputCompensation(6);
-    const compensated = makeProcessor();
-    compensated.setVolumeSync(false);
-    compensated.setOutputCompensation(6);
-    expect(Array.from(off.process(input))).toEqual(Array.from(compensated.process(input)));
-
     const base = makeProcessor();
-    base.setVolumeSync(false);
     base.setOutputCompensation(1);
     const baseOut = base.process(input);
-    const offOut = makeProcessor();
-    offOut.setVolumeSync(false);
-    offOut.setOutputCompensation(6);
-    const out = offOut.process(input);
+    const boosted = makeProcessor();
+    boosted.setOutputCompensation(6);
+    const out = boosted.process(input);
     let sawNonzero = false;
     for (let i = 0; i < out.length; i += 1) {
       if (baseOut[i] === 0) {
@@ -275,17 +277,6 @@ describe('HapticsProcessor volume sync gating', () => {
       }
     }
     expect(sawNonzero).toBe(true);
-  });
-
-  it('defaults volume sync ON so compensation has no effect on a fresh processor', () => {
-    const frames = 256;
-    const input = loudInput(frames);
-    const fresh = makeProcessor();
-    fresh.setOutputCompensation(6);
-    const reference = makeProcessor();
-    reference.setVolumeSync(false);
-    reference.setOutputCompensation(1);
-    expect(Array.from(fresh.process(input))).toEqual(Array.from(reference.process(input)));
   });
 });
 
