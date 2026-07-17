@@ -116,3 +116,41 @@ describe('HapticsProcessor layouts', () => {
     expect(Array.from(p1.process(noisyRears))).toEqual(Array.from(p2.process(quiet)));
   });
 });
+
+import { matchAppStreamNode } from '../../native/audio-helper-linux.mjs';
+
+function streamNode(id: number, props: Record<string, unknown>, state = 'running') {
+  return {
+    id,
+    type: 'PipeWire:Interface:Node',
+    info: { state, props: { 'media.class': 'Stream/Output/Audio', ...props } }
+  };
+}
+
+describe('matchAppStreamNode', () => {
+  const game = streamNode(40, { 'application.process.id': 1234, 'application.process.binary': 'game-bin' });
+  const music = streamNode(41, { 'application.process.id': 999, 'application.process.binary': 'spotify' });
+  const sinkNode = { id: 50, type: 'PipeWire:Interface:Node', info: { state: 'running', props: { 'media.class': 'Audio/Sink' } } };
+
+  it('matches by process id', () => {
+    expect(matchAppStreamNode([music, game, sinkNode], { processId: 1234, executableName: null, processPath: null })?.id).toBe(40);
+  });
+
+  it('falls back to the executable name', () => {
+    expect(matchAppStreamNode([music, game], { processId: 0, executableName: 'game-bin', processPath: null })?.id).toBe(40);
+  });
+
+  it('falls back to the process path basename', () => {
+    expect(matchAppStreamNode([music, game], { processId: 0, executableName: null, processPath: '/opt/game/game-bin' })?.id).toBe(40);
+  });
+
+  it('prefers a running node over an idle one', () => {
+    const idle = streamNode(42, { 'application.process.binary': 'game-bin' }, 'idle');
+    const running = streamNode(43, { 'application.process.binary': 'game-bin' }, 'running');
+    expect(matchAppStreamNode([idle, running], { processId: 0, executableName: 'game-bin', processPath: null })?.id).toBe(43);
+  });
+
+  it('returns null when nothing matches or only non-streams exist', () => {
+    expect(matchAppStreamNode([music, sinkNode], { processId: 1234, executableName: 'game-bin', processPath: null })).toBeNull();
+  });
+});

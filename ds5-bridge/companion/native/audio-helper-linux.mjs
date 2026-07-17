@@ -388,6 +388,25 @@ async function runSetDefaultRenderBridge() {
   });
 }
 
+export function matchAppStreamNode(objects, { processId, executableName, processPath }) {
+  const pathBasename = processPath ? processPath.split('/').pop() : null;
+  const matches = objects.filter((object) => {
+    if (object.type !== 'PipeWire:Interface:Node') {
+      return false;
+    }
+    const props = nodeProps(object);
+    if (props['media.class'] !== 'Stream/Output/Audio') {
+      return false;
+    }
+    if (processId > 0 && Number(props['application.process.id'] ?? 0) === processId) {
+      return true;
+    }
+    const binary = props['application.process.binary'] ?? null;
+    return Boolean(binary && (binary === executableName || binary === pathBasename));
+  });
+  return matches.find((object) => object.info?.state === 'running') ?? matches[0] ?? null;
+}
+
 async function listOutputStreamSessions() {
   const objects = await pwDump();
   const bridge = await findBridgeSink().catch(() => null);
