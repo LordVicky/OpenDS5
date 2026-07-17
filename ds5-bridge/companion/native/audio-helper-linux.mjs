@@ -130,11 +130,32 @@ function envelopeCoefficient(milliseconds) {
   return Math.exp(-1 / (SAMPLE_RATE * (milliseconds / 1000)));
 }
 
+// wpctl reports volume on the cubic user scale; PipeWire applies vol^3 to
+// samples. Compensate post-limiter so haptics strength is independent of
+// the listening volume; cap so a near-zero volume cannot amplify noise.
+export function volumeCompensation(cubicVolume) {
+  if (!Number.isFinite(cubicVolume) || cubicVolume <= 0) {
+    return 1;
+  }
+  const linear = cubicVolume ** 3;
+  return Math.min(32, Math.max(1 / 32, 1 / linear));
+}
+
+export function parseWpctlVolume(stdout) {
+  const match = /Volume:\s*([0-9.]+)/.exec(stdout ?? '');
+  return match ? Number(match[1]) : null;
+}
+
 export class HapticsProcessor {
   constructor(config) {
     this.envelope = 0;
     this.layout = { stride: 4, fl: 0, fr: 1, fc: -1, lfe: -1 };
+    this.outputCompensation = 1;
     this.setConfig(config);
+  }
+
+  setOutputCompensation(compensation) {
+    this.outputCompensation = compensation;
   }
 
   setConfig({ gainPercent, bassFocus, response, attack, release }) {
@@ -172,8 +193,9 @@ export class HapticsProcessor {
       // noise floor so silence does not buzz the actuators.
       const gate = this.envelope < 0.003 ? 0 : 1;
       const drive = this.gain * this.responseGain * 4 * gate;
-      output[frame * 4 + 2] = Math.tanh(left * drive);
-      output[frame * 4 + 3] = Math.tanh(right * drive);
+      const comp = this.outputCompensation;
+      output[frame * 4 + 2] = Math.max(-1, Math.min(1, Math.tanh(left * drive) * comp));
+      output[frame * 4 + 3] = Math.max(-1, Math.min(1, Math.tanh(right * drive) * comp));
     }
     return output;
   }
@@ -218,8 +240,26 @@ async function runRenderLoopbackHaptics(args) {
 
   let record = null;
   let attachTimer = null;
+  let volumeTimer = null;
   let stopping = false;
   let announcedRecording = false;
+
+  // Playback always goes to the bridge sink, whose cubic volume PipeWire
+  // applies to the haptic samples. Poll it and compensate so haptics
+  // strength stays independent of the user's listening volume.
+  const refreshVolumeCompensation = () => {
+    execFile('wpctl', ['get-volume', `${sink.id}`], (error, stdout) => {
+      if (error) {
+        return; // keep last compensation
+      }
+      const volume = parseWpctlVolume(stdout);
+      if (volume !== null) {
+        processor.setOutputCompensation(volumeCompensation(volume));
+      }
+    });
+  };
+  refreshVolumeCompensation();
+  volumeTimer = setInterval(refreshVolumeCompensation, 2000);
 
   const shutdown = (code, detail) => {
     stopping = true;
@@ -227,6 +267,7 @@ async function runRenderLoopbackHaptics(args) {
       process.stderr.write(`${detail}\n`);
     }
     clearTimeout(attachTimer);
+    clearInterval(volumeTimer);
     record?.kill();
     play.kill();
     process.exit(code);

@@ -117,7 +117,95 @@ describe('HapticsProcessor layouts', () => {
   });
 });
 
-import { appCaptureRecordArgs, matchAppStreamNode } from '../../native/audio-helper-linux.mjs';
+import { appCaptureRecordArgs, matchAppStreamNode, parseWpctlVolume, volumeCompensation } from '../../native/audio-helper-linux.mjs';
+
+describe('volumeCompensation', () => {
+  it('is a no-op at unity volume', () => {
+    expect(volumeCompensation(1)).toBe(1);
+  });
+
+  it('compensates for the cubic sink volume at a typical listening level', () => {
+    expect(volumeCompensation(0.55)).toBeCloseTo(1 / 0.55 ** 3, 2);
+  });
+
+  it('caps the boost at 32 for near-silent sinks', () => {
+    expect(volumeCompensation(0.1)).toBe(32);
+  });
+
+  it('returns 1 for zero, negative, or non-finite inputs', () => {
+    expect(volumeCompensation(0)).toBe(1);
+    expect(volumeCompensation(-0.5)).toBe(1);
+    expect(volumeCompensation(NaN)).toBe(1);
+  });
+
+  it('compensates downward when volume exceeds unity, with a 1/32 floor', () => {
+    expect(volumeCompensation(1.26)).toBeCloseTo(1 / 1.26 ** 3, 2);
+    expect(volumeCompensation(1.26)).toBeGreaterThanOrEqual(1 / 32);
+  });
+});
+
+describe('parseWpctlVolume', () => {
+  it('parses a plain volume line', () => {
+    expect(parseWpctlVolume('Volume: 0.55\n')).toBe(0.55);
+  });
+
+  it('parses a muted volume line', () => {
+    expect(parseWpctlVolume('Volume: 1.00 [MUTED]\n')).toBe(1.00);
+  });
+
+  it('returns null for garbage, empty, or missing input', () => {
+    expect(parseWpctlVolume('nonsense')).toBeNull();
+    expect(parseWpctlVolume('')).toBeNull();
+    expect(parseWpctlVolume(undefined)).toBeNull();
+  });
+});
+
+describe('HapticsProcessor output compensation', () => {
+  function loudInput(frames: number) {
+    const input = new Float32Array(frames * 4);
+    for (let f = 0; f < frames; f += 1) {
+      const s = Math.sin(2 * Math.PI * 40 * (f / 48000)) * 0.9;
+      input[f * 4] = s;
+      input[f * 4 + 1] = s;
+    }
+    return input;
+  }
+
+  it('doubles nonzero samples at compensation 2 but clamps to unit magnitude', () => {
+    const frames = 256;
+    const input = loudInput(frames);
+    const base = makeProcessor().process(input);
+    const boosted = makeProcessor();
+    boosted.setOutputCompensation(2);
+    const out = boosted.process(input);
+    for (let i = 0; i < out.length; i += 1) {
+      if (base[i] === 0) {
+        expect(out[i]).toBe(0);
+      } else {
+        expect(out[i]).toBeCloseTo(Math.max(-1, Math.min(1, base[i] * 2)), 6);
+        expect(Math.abs(out[i])).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('clips to exactly unit magnitude with a strong input and high compensation', () => {
+    const frames = 256;
+    const input = loudInput(frames);
+    const clipped = makeProcessor();
+    clipped.setOutputCompensation(8);
+    const out = clipped.process(input);
+    const peak = Math.max(...Array.from(out).map((s) => Math.abs(s)));
+    expect(peak).toBe(1);
+  });
+
+  it('leaves output byte-identical to a fresh default processor at compensation 1', () => {
+    const frames = 256;
+    const input = loudInput(frames);
+    const withComp = makeProcessor();
+    withComp.setOutputCompensation(1);
+    expect(Array.from(withComp.process(input))).toEqual(Array.from(makeProcessor().process(input)));
+  });
+});
 
 describe('appCaptureRecordArgs', () => {
   it('targets the app stream by object.serial, not by --target id (mic fallback)', () => {
