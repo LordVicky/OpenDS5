@@ -85,14 +85,6 @@ constexpr auto kOutputTraceFeatureSlowWarn = std::chrono::milliseconds(20);
  * seconds.
  */
 constexpr auto kAudioOutputInterval = std::chrono::milliseconds(10);
-/*
- * Cap on how far behind the fixed-cadence speaker deadline may fall before we
- * resync instead of draining back-to-back. The producer (USB isochronous
- * audio) delivers ~one 0x36 chunk per 10 ms; if we ever fall more than a few
- * intervals behind (e.g. the speaker stream paused), replaying that backlog
- * would just add latency, so we drop it and realign to the wall clock.
- */
-constexpr auto kMaxAudioCatchup = std::chrono::milliseconds(50);
 constexpr auto kHapticsOutputBlockedRetry = std::chrono::milliseconds(2);
 constexpr auto kBluetoothPreemptWait = std::chrono::milliseconds(2000);
 constexpr auto kBluetoothPreemptPoll = std::chrono::milliseconds(100);
@@ -1521,24 +1513,6 @@ int next_wakeup_timeout_ms(std::span<const VirtualPort> ports,
   return timeout_ms;
 }
 
-/*
- * Advance a fixed-cadence send deadline without accumulating scheduler jitter.
- * Stepping from the previous deadline (prev + interval) keeps the long-run
- * average at exactly one send per interval, so the 100 Hz speaker consumer
- * never drifts below the 100 Hz USB producer and stops overflowing the pending
- * queue. A fresh deadline (prev == {}) or one that has fallen more than
- * max_catchup behind resyncs to now + interval instead of replaying stale audio.
- */
-inline Clock::time_point next_audio_deadline(Clock::time_point prev,
-                                             Clock::time_point now,
-                                             Clock::duration interval,
-                                             Clock::duration max_catchup) {
-  if (prev == Clock::time_point{} || now - prev > max_catchup) {
-    return now + interval;
-  }
-  return prev + interval;
-}
-
 bool flush_pending_audio_chunk(VirtualPort &port,
                                vds::BtL2capBackend &bt_backend,
                                std::uint32_t trace_flags, vds::Logger &logger) {
@@ -1588,8 +1562,7 @@ bool flush_pending_audio_chunk(VirtualPort &port,
     port.pending_bt_state.reset();
     port.pending_bt_state_report.reset();
   }
-  port.next_haptics_send_time = next_audio_deadline(
-      port.next_haptics_send_time, now, kAudioOutputInterval, kMaxAudioCatchup);
+  port.next_haptics_send_time = now + kAudioOutputInterval;
 
   if (output_trace) {
     trace_output_latency(port.path, "audio_bt_send",
