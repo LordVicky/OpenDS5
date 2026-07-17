@@ -281,11 +281,12 @@ const SPEAKER_VOLUME_STEP = 10;
 const MIC_VOLUME_STEP = 10;
 const AUDIO_BUFFER_LENGTH_MIN = 16;
 const AUDIO_BUFFER_LENGTH_MAX = 240;
-// Zone boundaries follow the Linux daemon's 10 ms chunk queue (30 samples per
-// chunk, floor of 2 chunks): <=45 all map to the 2-chunk floor, 46-75 to
-// 3 chunks, and 4+ chunks (>=76) give enough headroom for bursty USB arrival.
-const AUDIO_BUFFER_LENGTH_HIGH_STUTTER_MAX = 45;
-const AUDIO_BUFFER_LENGTH_RISKY_MAX = 75;
+// Zone boundaries follow the Linux daemon's 10 ms chunk queue: it rounds the
+// value to whole chunks (30 samples each, floor of 2), so <=74 all map to the
+// 2-chunk floor, 75-104 to 3 chunks, and 4+ chunks (>=105) give enough
+// headroom for bursty USB arrival.
+const AUDIO_BUFFER_LENGTH_HIGH_STUTTER_MAX = 74;
+const AUDIO_BUFFER_LENGTH_RISKY_MAX = 104;
 const LIGHTBAR_BRIGHTNESS_STEP = 10;
 const TRIGGER_EFFECT_STEP = 10;
 const CONTROLLER_POWER_SAVING_CAP_PERCENT = 60;
@@ -872,7 +873,7 @@ function snapMicVolume(value: number): number {
 
 function clampAudioBufferLength(value: number): number {
   if (!Number.isFinite(value)) {
-    return 64;
+    return 120;
   }
   return Math.max(AUDIO_BUFFER_LENGTH_MIN, Math.min(AUDIO_BUFFER_LENGTH_MAX, Math.round(value)));
 }
@@ -5723,6 +5724,12 @@ export function App() {
       }
       if (!enabled && next.settings.duplexMicEnabled) {
         next = await window.bridge.setDuplexMicEnabled(false);
+      }
+      if (enabled && !next.settings.duplexMicEnabled) {
+        // Re-enabling the audio section restores mic pass-through too;
+        // otherwise the mic stays disabled (and its controls grayed out)
+        // until the mic toggle is found and pressed separately.
+        next = await window.bridge.setDuplexMicEnabled(true);
       }
       return next;
     });

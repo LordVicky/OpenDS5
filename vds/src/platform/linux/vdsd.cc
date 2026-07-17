@@ -1167,6 +1167,13 @@ bool handle_bt_input(VirtualPort &port, vds::BtL2capBackend &bt_backend,
     port.headset_mic_plugged = headset_mic_plugged;
     headset_mic_changed = true;
   }
+  if (mic_mute_changed) {
+    // Mirror the physical mute-button toggle into the companion settings so
+    // the app's STATUS poll picks it up (the app reconciles micMuted from
+    // status when it did not initiate the change).
+    companion.settings.mic_muted = port.mic_muted;
+    ++companion.settings_revision;
+  }
   if (mic_mute_changed ||
       (headset_mic_changed && port.audio_in_stream_active)) {
     const auto report = port.output_state.build_bt_mic_state_report(
@@ -2329,6 +2336,18 @@ void apply_companion_state(std::vector<VirtualPort> &ports,
           (settings.haptics_buffer_samples + 15) / 30, 2, 16);
       port.max_pending_audio_chunks = chunks;
       port.fresh_pending_audio_chunks = std::max<std::size_t>(1, chunks / 2);
+    }
+    if (port.mic_muted != settings.mic_muted) {
+      // App-initiated mute toggle (SET_MIC_MUTE): actuate it on the
+      // controller the same way the physical mute button does.
+      port.mic_muted = settings.mic_muted;
+      const auto mic_report = port.output_state.build_bt_mic_state_report(
+          port.audio_in_stream_active, port.mic_muted);
+      controller->backend->try_send_output_report(mic_report);
+      logger.log(vds::LogScope::Companion, vds::LogLevel::Info,
+                 port.path + " mic " +
+                     std::string(port.mic_muted ? "muted" : "unmuted") +
+                     " via companion");
     }
     port.output_state.set_companion_overrides(overrides);
     try {

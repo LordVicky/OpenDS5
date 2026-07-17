@@ -150,7 +150,7 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
   hapticsEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.hapticsEnabled,
   hapticsGainPercent: DEFAULT_CONTROLLER_PROFILE_SETTINGS.hapticsGainPercent,
   feedbackBoostEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.feedbackBoostEnabled,
-  hapticsBufferLength: 64,
+  hapticsBufferLength: 120,
   classicRumbleEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.classicRumbleEnabled,
   classicRumbleGainPercent: DEFAULT_CONTROLLER_PROFILE_SETTINGS.classicRumbleGainPercent,
   classicRumbleV1Enabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.classicRumbleV1Enabled,
