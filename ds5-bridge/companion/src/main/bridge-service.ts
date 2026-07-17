@@ -609,7 +609,8 @@ function normalizeAudioReactiveHapticsConfig(
     bassFocus: normalizeAudioReactiveHapticsBassFocus(config.bassFocus ?? settings.audioReactiveHapticsBassFocus),
     response: normalizeAudioReactiveHapticsResponse(config.response ?? settings.audioReactiveHapticsResponse),
     attack: normalizeAudioReactiveHapticsAttack(config.attack ?? settings.audioReactiveHapticsAttack),
-    release: normalizeAudioReactiveHapticsRelease(config.release ?? settings.audioReactiveHapticsRelease)
+    release: normalizeAudioReactiveHapticsRelease(config.release ?? settings.audioReactiveHapticsRelease),
+    volumeSync: typeof config.volumeSync === 'boolean' ? config.volumeSync : settings.audioReactiveHapticsVolumeSync
   };
 }
 
@@ -2370,6 +2371,13 @@ export class BridgeService extends EventEmitter {
     return this.getSnapshot();
   }
 
+  async setHapticsVolumeSync(enabled: boolean): Promise<BridgeSnapshot> {
+    this.snapshot.settings = this.settingsStore.update(customSettingUpdate({ hapticsVolumeSync: enabled }));
+    await this.updateVolumeGuardEngine(this.controllerAudioReady());
+    this.emitSnapshot();
+    return this.getSnapshot();
+  }
+
   async setClassicRumbleEnabled(enabled: boolean): Promise<BridgeSnapshot> {
     const settings = { ...this.settingsStore.get(), classicRumbleEnabled: enabled };
     await this.sendSettingCommand(
@@ -2497,7 +2505,8 @@ export class BridgeService extends EventEmitter {
       audioReactiveHapticsBassFocus: normalized.bassFocus,
       audioReactiveHapticsResponse: normalized.response,
       audioReactiveHapticsAttack: normalized.attack,
-      audioReactiveHapticsRelease: normalized.release
+      audioReactiveHapticsRelease: normalized.release,
+      audioReactiveHapticsVolumeSync: normalized.volumeSync
     };
     if (!this.audioReactiveHapticsSupported()) {
       throw new Error('Audio reactive haptics require updated bridge firmware.');
@@ -2532,7 +2541,8 @@ export class BridgeService extends EventEmitter {
       audioReactiveHapticsBassFocus: normalized.bassFocus,
       audioReactiveHapticsResponse: normalized.response,
       audioReactiveHapticsAttack: normalized.attack,
-      audioReactiveHapticsRelease: normalized.release
+      audioReactiveHapticsRelease: normalized.release,
+      audioReactiveHapticsVolumeSync: normalized.volumeSync
     }));
     await this.updateSystemAudioHapticsEngine();
     this.emitSnapshot();

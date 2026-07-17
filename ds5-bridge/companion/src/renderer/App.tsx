@@ -2981,6 +2981,7 @@ export function App() {
   const [classicRumbleCommitPending, setClassicRumbleCommitPending] = useState(false);
   const [classicRumbleV1CommitPending, setClassicRumbleV1CommitPending] = useState(false);
   const [feedbackBoostCommitPending, setFeedbackBoostCommitPending] = useState(false);
+  const [hapticsVolumeSyncCommitPending, setHapticsVolumeSyncCommitPending] = useState(false);
   const [speakerVolumeCommitPending, setSpeakerVolumeCommitPending] = useState(false);
   const [micVolumeCommitPending, setMicVolumeCommitPending] = useState(false);
   const [audioBufferLengthCommitPending, setAudioBufferLengthCommitPending] = useState(false);
@@ -4028,6 +4029,8 @@ export function App() {
   const headsetOutputDetected = Boolean(audioStatus?.headsetPlugged);
   const controllerPowerSavingActive = controllerPowerSavingActiveFromSnapshot(snapshot);
   const feedbackBoostEnabled = Boolean(snapshot?.settings.feedbackBoostEnabled);
+  const hapticsVolumeSync = Boolean(snapshot?.settings.hapticsVolumeSync);
+  const audioReactiveHapticsVolumeSync = Boolean(snapshot?.settings.audioReactiveHapticsVolumeSync);
   const hapticsSliderMax = feedbackSliderMaxFromSnapshot(snapshot);
   const hapticsSliderTicks = feedbackSliderTicks(hapticsSliderMax);
   const percentSliderMax = controllerPowerSavingActive ? CONTROLLER_POWER_SAVING_CAP_PERCENT : 100;
@@ -5714,6 +5717,30 @@ export function App() {
         setFeedbackBoostCommitPending(false);
       }
     })();
+  }
+
+  function toggleHapticsVolumeSync() {
+    if (!snapshot || hapticsVolumeSyncCommitPending) return;
+
+    setHapticsVolumeSyncCommitPending(true);
+    void (async () => {
+      try {
+        const next = await window.bridge.setHapticsVolumeSync(!snapshot.settings.hapticsVolumeSync);
+        setSnapshot(next);
+      } catch {
+        const next = await window.bridge.getStatus();
+        setSnapshot(next);
+      } finally {
+        setHapticsVolumeSyncCommitPending(false);
+      }
+    })();
+  }
+
+  function toggleAudioReactiveHapticsVolumeSync() {
+    if (!snapshot) return;
+    void commitAudioReactiveHapticsConfig({
+      volumeSync: !snapshot.settings.audioReactiveHapticsVolumeSync
+    });
   }
 
   function toggleSpeakerEnabled() {
@@ -8017,6 +8044,23 @@ export function App() {
                           />
                         </label>
                       </div>
+                      <div
+                        className="inline-switch audio-haptics-volume-sync-control"
+                        title="Haptics follow the listening volume"
+                      >
+                        <span className="feedback-boost-label">Volume Sync</span>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={audioReactiveHapticsVolumeSync}
+                          aria-label={audioReactiveHapticsVolumeSync ? 'Disable Volume Sync' : 'Enable Volume Sync'}
+                          className={`switch ${audioReactiveHapticsVolumeSync ? 'on' : ''}`}
+                          disabled={audioReactiveHapticsConfigDisabled}
+                          onClick={toggleAudioReactiveHapticsVolumeSync}
+                        >
+                          <span />
+                        </button>
+                      </div>
                     </div>
                     <div className="feature-status test-status audio-haptics-status">
                       <span className={`status-badge ${audioReactiveHapticsStatusTone}`} title={audioReactiveHapticsStatusLabel}>
@@ -8182,6 +8226,23 @@ export function App() {
                       className={`switch ${feedbackBoostEnabled ? 'on' : ''}`}
                       disabled={!connected || pendingAction !== null || feedbackBoostCommitPending}
                       onClick={toggleFeedbackBoostEnabled}
+                    >
+                      <span />
+                    </button>
+                  </div>
+                  <div
+                    className="inline-switch haptics-volume-sync-control"
+                    title="Haptics follow the listening volume"
+                  >
+                    <span className="feedback-boost-label">Volume Sync</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={hapticsVolumeSync}
+                      aria-label={hapticsVolumeSync ? 'Disable Volume Sync' : 'Enable Volume Sync'}
+                      className={`switch ${hapticsVolumeSync ? 'on' : ''}`}
+                      disabled={!connected || pendingAction !== null || hapticsVolumeSyncCommitPending}
+                      onClick={toggleHapticsVolumeSync}
                     >
                       <span />
                     </button>

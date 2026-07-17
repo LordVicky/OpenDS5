@@ -81,6 +81,9 @@ const api = {
   setFeedbackBoostEnabled: (value: boolean): Promise<BridgeSnapshot> => (
     ipcRenderer.invoke('bridge:setFeedbackBoostEnabled', value)
   ),
+  setHapticsVolumeSync: (value: boolean): Promise<BridgeSnapshot> => (
+    ipcRenderer.invoke('bridge:setHapticsVolumeSync', value)
+  ),
   setHapticsBufferLength: (value: number): Promise<BridgeSnapshot> => (
     ipcRenderer.invoke('bridge:setHapticsBufferLength', value)
   ),
