@@ -133,6 +133,7 @@ function envelopeCoefficient(milliseconds) {
 export class HapticsProcessor {
   constructor(config) {
     this.envelope = 0;
+    this.layout = { stride: 4, fl: 0, fr: 1, fc: -1, lfe: -1 };
     this.setConfig(config);
   }
 
@@ -146,14 +147,23 @@ export class HapticsProcessor {
     this.lowpassRight = biquadLowpass(cutoff);
   }
 
-  // 4ch f32 in (front channels used, rears ignored) -> 4ch f32 out
-  // (speaker channels silent, haptics on 3-4)
+  setInputLayout(layout) {
+    this.layout = layout;
+  }
+
+  // Layout-aware input (see setInputLayout) -> 4ch f32 out
+  // (speaker channels silent, haptics on 3-4). Blend per spec:
+  // left/right = FL/FR + 0.5*FC + 1.0*LFE; rears and sides ignored.
   process(input) {
-    const frames = input.length / 4;
+    const { stride, fl, fr, fc, lfe } = this.layout;
+    const frames = Math.floor(input.length / stride);
     const output = new Float32Array(frames * 4);
     for (let frame = 0; frame < frames; frame += 1) {
-      const left = biquadStep(this.lowpassLeft, input[frame * 4]);
-      const right = biquadStep(this.lowpassRight, input[frame * 4 + 1]);
+      const base = frame * stride;
+      const center = fc >= 0 ? input[base + fc] * 0.5 : 0;
+      const bass = lfe >= 0 ? input[base + lfe] : 0;
+      const left = biquadStep(this.lowpassLeft, input[base + fl] + center + bass);
+      const right = biquadStep(this.lowpassRight, input[base + fr] + center + bass);
       const peak = Math.max(Math.abs(left), Math.abs(right));
       const coeff = peak > this.envelope ? this.attackCoeff : this.releaseCoeff;
       this.envelope = coeff * this.envelope + (1 - coeff) * peak;
