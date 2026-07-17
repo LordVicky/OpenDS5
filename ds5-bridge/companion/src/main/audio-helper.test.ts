@@ -80,7 +80,8 @@ describe('SystemAudioHapticsEngine app source', () => {
       bassFocus: 'punchy',
       response: 'strong',
       attack: 'fast',
-      release: 'smooth'
+      release: 'smooth',
+      volumeSync: true
     }, 'xbox');
 
     const helper = childProcessMock.processes[0]!;
@@ -97,9 +98,51 @@ describe('SystemAudioHapticsEngine app source', () => {
     expect(args).toContain('Game.exe');
     expect(args).toContain('--bridge-persona');
     expect(args).toContain('xbox');
+    expect(args).toContain('--haptics-volume-sync');
+    expect(args[args.indexOf('--haptics-volume-sync') + 1]).toBe('1');
     expect(args).not.toContain('--device-name');
     expect(args).not.toContain('DS5 Bridge');
     expect(args).not.toContain('--stdout-only');
+
+    await engine.stop();
+  });
+
+  it('passes the volume-sync flag as 0 when disabled and reconfigures with a 7-field line', async () => {
+    const engine = new SystemAudioHapticsEngine();
+    const start = engine.start({
+      source: 'system-audio',
+      gainPercent: 100,
+      bassFocus: 'balanced',
+      response: 'balanced',
+      attack: 'balanced',
+      release: 'balanced',
+      volumeSync: false
+    }, 'dualsense');
+
+    const helper = childProcessMock.processes[0]!;
+    helper.stderr.emit('data', Buffer.from('status: recording-started\n'));
+    await start;
+
+    const args = childProcessMock.spawn.mock.calls[0]![1] as string[];
+    expect(args).toContain('--haptics-volume-sync');
+    expect(args[args.indexOf('--haptics-volume-sync') + 1]).toBe('0');
+
+    engine.setConfig({
+      source: 'system-audio',
+      gainPercent: 100,
+      bassFocus: 'balanced',
+      response: 'balanced',
+      attack: 'balanced',
+      release: 'balanced',
+      volumeSync: false
+    });
+
+    const writes = (helper.stdin.write as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0] as string)
+      .filter((line) => line.startsWith('haptics-config '));
+    const lastLine = writes[writes.length - 1]!.trim();
+    expect(lastLine).toBe('haptics-config 100 balanced balanced balanced balanced 0');
+    expect(lastLine.split(' ')).toHaveLength(7);
 
     await engine.stop();
   });

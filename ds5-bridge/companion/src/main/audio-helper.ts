@@ -21,6 +21,7 @@ export type SystemAudioHapticsConfig = {
   response: AudioReactiveHapticsResponse;
   attack: AudioReactiveHapticsAttack;
   release: AudioReactiveHapticsRelease;
+  volumeSync: boolean;
 };
 
 export type DefaultRenderEndpointStatus = {
@@ -97,7 +98,8 @@ export class SystemAudioHapticsEngine extends EventEmitter {
     bassFocus: 'balanced',
     response: 'balanced',
     attack: 'balanced',
-    release: 'balanced'
+    release: 'balanced',
+    volumeSync: true
   };
 
   async start(config: SystemAudioHapticsConfig, hostPersonaMode: HostPersonaMode = 'dualsense'): Promise<void> {
@@ -138,7 +140,7 @@ export class SystemAudioHapticsEngine extends EventEmitter {
   setConfig(config: SystemAudioHapticsConfig): void {
     this.activeConfig = normalizeSystemAudioHapticsConfig(config);
     this.writeControlLine(
-      `haptics-config ${this.activeConfig.gainPercent} ${this.activeConfig.bassFocus} ${this.activeConfig.response} ${this.activeConfig.attack} ${this.activeConfig.release}`
+      `haptics-config ${this.activeConfig.gainPercent} ${this.activeConfig.bassFocus} ${this.activeConfig.response} ${this.activeConfig.attack} ${this.activeConfig.release} ${this.activeConfig.volumeSync ? '1' : '0'}`
     );
   }
 
@@ -206,7 +208,9 @@ export class SystemAudioHapticsEngine extends EventEmitter {
       '--haptics-attack',
       config.attack,
       '--haptics-release',
-      config.release
+      config.release,
+      '--haptics-volume-sync',
+      config.volumeSync ? '1' : '0'
     ];
     const deviceSource = audioReactiveHapticsOutputDeviceSource(config.source);
     if (deviceSource) {
@@ -459,7 +463,8 @@ function normalizeSystemAudioHapticsConfig(config: SystemAudioHapticsConfig): Sy
       : 'balanced',
     release: config.release === 'tight' || config.release === 'smooth' || config.release === 'long'
       ? config.release
-      : 'balanced'
+      : 'balanced',
+    volumeSync: config.volumeSync !== false
   };
 }
 

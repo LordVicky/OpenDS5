@@ -2206,7 +2206,8 @@ export class BridgeService extends EventEmitter {
       bassFocus: settings.audioReactiveHapticsBassFocus,
       response: settings.audioReactiveHapticsResponse,
       attack: settings.audioReactiveHapticsAttack,
-      release: settings.audioReactiveHapticsRelease
+      release: settings.audioReactiveHapticsRelease,
+      volumeSync: settings.audioReactiveHapticsVolumeSync
     };
   }
 
