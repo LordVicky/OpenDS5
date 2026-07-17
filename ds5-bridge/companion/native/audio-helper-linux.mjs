@@ -8,6 +8,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 
 const SAMPLE_RATE = 48000;
 const BRIDGE_NODE_PATTERN = /dualsense|vds/i;
@@ -104,7 +105,7 @@ function envelopeCoefficient(milliseconds) {
   return Math.exp(-1 / (SAMPLE_RATE * (milliseconds / 1000)));
 }
 
-class HapticsProcessor {
+export class HapticsProcessor {
   constructor(config) {
     this.envelope = 0;
     this.setConfig(config);
@@ -451,4 +452,8 @@ async function main() {
   }
 }
 
-main().catch((error) => fail(error.message));
+const isCliEntry = process.argv[1]
+  && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isCliEntry) {
+  main().catch((error) => fail(error.message));
+}
