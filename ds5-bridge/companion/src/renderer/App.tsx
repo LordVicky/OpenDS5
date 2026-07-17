@@ -116,6 +116,7 @@ import type {
   AudioReactiveHapticsBassFocus,
   AudioReactiveHapticsConfig,
   AudioReactiveHapticsMode,
+  AudioOutputDevice,
   AudioReactiveHapticsSource,
   AudioReactiveHapticsAttack,
   AudioReactiveHapticsRelease,
@@ -827,7 +828,17 @@ function audioHapticsSessionKey(session: AudioHapticsSession): string {
   return `app-pid:${session.processId}`;
 }
 
+function audioHapticsOutputDeviceSource(source: AudioReactiveHapticsSource | null | undefined) {
+  return source && typeof source === 'object' && source.kind === 'output-device'
+    ? source
+    : null;
+}
+
 function audioHapticsSourceKey(source: AudioReactiveHapticsSource | null | undefined): string {
+  const deviceSource = audioHapticsOutputDeviceSource(source);
+  if (deviceSource) {
+    return `output-device:${deviceSource.nodeName}`;
+  }
   const appSource = audioHapticsAppSource(source);
   if (!appSource) {
     return 'system-audio';
@@ -854,6 +865,10 @@ function audioHapticsSourceFromSession(session: AudioHapticsSession): AudioReact
 }
 
 function audioHapticsSourceDisplayName(source: AudioReactiveHapticsSource | null | undefined): string {
+  const deviceSource = audioHapticsOutputDeviceSource(source);
+  if (deviceSource) {
+    return deviceSource.displayName || deviceSource.nodeName;
+  }
   const appSource = audioHapticsAppSource(source);
   if (!appSource) {
     return 'System';
@@ -2815,6 +2830,7 @@ export function App() {
   const [triggerEffectIntensityValue, setTriggerEffectIntensityValue] = useState(100);
   const [audioHapticsOpen, setAudioHapticsOpen] = useState(false);
   const [audioHapticsSessions, setAudioHapticsSessions] = useState<AudioHapticsSession[]>([]);
+  const [audioOutputDevices, setAudioOutputDevices] = useState<AudioOutputDevice[]>([]);
   const [audioHapticsSessionsLoading, setAudioHapticsSessionsLoading] = useState(false);
   const [triggerProfiles, setTriggerProfiles] = useState<TriggerProfile[]>([]);
   const [triggerProfilesEnabled, setTriggerProfilesEnabled] = useState(false);
@@ -3571,13 +3587,18 @@ export function App() {
       refreshInFlight = true;
       setAudioHapticsSessionsLoading(true);
       try {
-        const sessions = await window.bridge.listAudioHapticsSessions();
+        const [sessions, devices] = await Promise.all([
+          window.bridge.listAudioHapticsSessions(),
+          window.bridge.listAudioOutputDevices()
+        ]);
         if (!cancelled) {
           setAudioHapticsSessions(sessions);
+          setAudioOutputDevices(devices);
         }
       } catch {
         if (!cancelled) {
           setAudioHapticsSessions([]);
+          setAudioOutputDevices([]);
         }
       } finally {
         refreshInFlight = false;
@@ -3954,14 +3975,28 @@ export function App() {
   }, [audioHapticsSessions]);
   const selectedAudioHapticsSourceDisplayName = audioHapticsSessionByKey.get(audioReactiveHapticsSourceKey)?.displayName
     ?? audioHapticsSourceDisplayName(audioReactiveHapticsSource);
+  const audioOutputDeviceByKey = useMemo(() => {
+    const devices = new Map<string, AudioOutputDevice>();
+    for (const device of audioOutputDevices) {
+      devices.set(`output-device:${device.nodeName}`, device);
+    }
+    return devices;
+  }, [audioOutputDevices]);
   const audioHapticsSourceOptions = useMemo<Array<[string, string]>>(() => {
-    const options: Array<[string, string]> = [['System', 'system-audio']];
+    const options: Array<[string, string]> = [['System (follows default output)', 'system-audio']];
+    for (const device of audioOutputDevices) {
+      options.push([
+        device.isDefault ? `${device.displayName} (default)` : device.displayName,
+        `output-device:${device.nodeName}`
+      ]);
+    }
     for (const session of audioHapticsSessions) {
       options.push([session.displayName, audioHapticsSessionKey(session)]);
     }
     if (
       audioReactiveHapticsSourceKey !== 'system-audio'
       && !audioHapticsSessionByKey.has(audioReactiveHapticsSourceKey)
+      && !audioOutputDeviceByKey.has(audioReactiveHapticsSourceKey)
     ) {
       options.push([`${audioHapticsSourceDisplayName(audioReactiveHapticsSource)} unavailable`, audioReactiveHapticsSourceKey]);
     }
@@ -3969,6 +4004,8 @@ export function App() {
   }, [
     audioHapticsSessionByKey,
     audioHapticsSessions,
+    audioOutputDeviceByKey,
+    audioOutputDevices,
     audioReactiveHapticsSource,
     audioReactiveHapticsSourceKey
   ]);
@@ -4801,6 +4838,13 @@ export function App() {
     if (!snapshot || value === audioReactiveHapticsSourceKey) return;
     if (value === 'system-audio') {
       void commitAudioReactiveHapticsConfig({ source: 'system-audio' });
+      return;
+    }
+    const device = audioOutputDeviceByKey.get(value);
+    if (device) {
+      void commitAudioReactiveHapticsConfig({
+        source: { kind: 'output-device', nodeName: device.nodeName, displayName: device.displayName }
+      });
       return;
     }
     const session = audioHapticsSessionByKey.get(value);

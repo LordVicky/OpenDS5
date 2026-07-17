@@ -4,6 +4,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { CompanionDebugConfig, DEBUG_ENV } from './debug-config';
 import type {
+  AudioOutputDevice,
   AudioReactiveHapticsSource,
   AudioReactiveHapticsAttack,
   AudioReactiveHapticsBassFocus,
@@ -207,6 +208,10 @@ export class SystemAudioHapticsEngine extends EventEmitter {
       '--haptics-release',
       config.release
     ];
+    const deviceSource = audioReactiveHapticsOutputDeviceSource(config.source);
+    if (deviceSource) {
+      args.push('--haptics-output-device', deviceSource.nodeName);
+    }
     const appSource = audioReactiveHapticsAppSource(config.source);
     if (appSource) {
       if (Number.isFinite(appSource.processId) && appSource.processId > 0) {
@@ -517,6 +522,18 @@ function normalizeAudioReactiveHapticsSource(source: AudioReactiveHapticsSource 
   if (source === 'controller-audio' || source === 'system-audio') {
     return source;
   }
+  const deviceSource = audioReactiveHapticsOutputDeviceSource(source);
+  if (deviceSource) {
+    const nodeName = normalizeOptionalText(deviceSource.nodeName);
+    if (!nodeName) {
+      return 'system-audio';
+    }
+    return {
+      kind: 'output-device',
+      nodeName,
+      displayName: normalizeOptionalText(deviceSource.displayName)
+    };
+  }
   const appSource = audioReactiveHapticsAppSource(source);
   if (!appSource) {
     return 'system-audio';
@@ -539,7 +556,17 @@ function audioReactiveHapticsAppSource(source: AudioReactiveHapticsSource | unde
     : null;
 }
 
+function audioReactiveHapticsOutputDeviceSource(source: AudioReactiveHapticsSource | undefined) {
+  return source && typeof source === 'object' && source.kind === 'output-device'
+    ? source
+    : null;
+}
+
 function audioReactiveHapticsSourceKey(source: AudioReactiveHapticsSource): string {
+  const deviceSource = audioReactiveHapticsOutputDeviceSource(source);
+  if (deviceSource) {
+    return `output-device:${deviceSource.nodeName}`;
+  }
   const appSource = audioReactiveHapticsAppSource(source);
   if (!appSource) {
     return source === 'controller-audio' ? 'controller-audio' : 'system-audio';
@@ -759,6 +786,53 @@ async function waitForHelperRecordingStarted(
         `Audio helper exited before recording started: helper exited (${signal ?? code ?? 'unknown'}).`,
         'helper-exit'
       ));
+    });
+  });
+}
+
+// Lists system audio output devices (sinks) for the Audio Haptics capture
+// picker. The helper prints one JSON array on stdout and exits.
+export async function listAudioOutputDevices(): Promise<AudioOutputDevice[]> {
+  const launch = helperLaunch(['--list-output-sinks']);
+  const helper = spawn(launch.command, launch.args, {
+    env: launch.env,
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  return new Promise<AudioOutputDevice[]>((resolve) => {
+    let stdout = '';
+    const timeout = setTimeout(() => {
+      if (!helper.killed) {
+        helper.kill('SIGKILL');
+      }
+      resolve([]);
+    }, 5000);
+    helper.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    helper.on('error', () => {
+      clearTimeout(timeout);
+      resolve([]);
+    });
+    helper.on('exit', () => {
+      clearTimeout(timeout);
+      try {
+        const parsed = JSON.parse(stdout);
+        resolve(Array.isArray(parsed)
+          ? parsed.filter((device): device is AudioOutputDevice => (
+            Boolean(device) && typeof device.nodeName === 'string' && device.nodeName.length > 0
+          )).map((device) => ({
+            nodeName: device.nodeName,
+            displayName: typeof device.displayName === 'string' && device.displayName
+              ? device.displayName
+              : device.nodeName,
+            isDefault: Boolean(device.isDefault)
+          }))
+          : []);
+      } catch {
+        resolve([]);
+      }
     });
   });
 }

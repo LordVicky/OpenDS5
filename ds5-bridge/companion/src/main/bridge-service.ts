@@ -43,6 +43,7 @@ import type {
   AudioReactiveHapticsBassFocus,
   AudioReactiveHapticsConfig,
   AudioReactiveHapticsMode,
+  AudioOutputDevice,
   AudioReactiveHapticsRelease,
   AudioReactiveHapticsResponse,
   AudioReactiveHapticsSource,
@@ -81,6 +82,7 @@ import {
   AudioHapticsSessionMonitor,
   MicKeepaliveEngine,
   SystemAudioHapticsEngine,
+  listAudioOutputDevices,
   playBridgeHapticsTestPattern,
   playBridgeSpeakerTestTone,
   getDefaultRenderEndpointStatus,
@@ -507,6 +509,15 @@ function normalizeAudioReactiveHapticsSource(source: unknown): AudioReactiveHapt
   if (!source || typeof source !== 'object') {
     return 'system-audio';
   }
+  const deviceCandidate = source as Partial<Extract<AudioReactiveHapticsSource, { kind: 'output-device' }>>;
+  if (deviceCandidate.kind === 'output-device') {
+    const nodeName = normalizeOptionalString(deviceCandidate.nodeName);
+    if (!nodeName) {
+      return 'system-audio';
+    }
+    const displayName = normalizeOptionalString(deviceCandidate.displayName);
+    return { kind: 'output-device', nodeName, ...(displayName ? { displayName } : {}) };
+  }
   const candidate = source as Partial<Extract<AudioReactiveHapticsSource, { kind: 'app-session' }>>;
   if (candidate.kind !== 'app-session') {
     return 'system-audio';
@@ -538,6 +549,9 @@ function normalizeOptionalString(value: unknown): string | undefined {
 function audioReactiveHapticsSourceKey(source: AudioReactiveHapticsSource): string {
   if (source === 'controller-audio' || source === 'system-audio') {
     return source;
+  }
+  if (source.kind === 'output-device') {
+    return `output-device:${source.nodeName}`;
   }
   if (source.processPath) {
     return `app-path:${source.processPath.toLowerCase()}`;
@@ -1553,6 +1567,10 @@ export class BridgeService extends EventEmitter {
     await this.systemAudioHapticsEngine.stop();
     await this.stopAudioHapticsSessionPolling();
     await this.micKeepaliveEngine.stop();
+  }
+
+  async listAudioOutputDevices(): Promise<AudioOutputDevice[]> {
+    return listAudioOutputDevices();
   }
 
   async listAudioHapticsSessions(): Promise<AudioHapticsSession[]> {

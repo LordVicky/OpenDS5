@@ -157,10 +157,19 @@ async function runRenderLoopbackHaptics(args) {
   const target = nodeProps(sink)['node.name'];
   const processor = new HapticsProcessor(readHapticsConfig(args));
 
+  // Optional capture pin: monitor a specific output device instead of
+  // following the system default sink.
+  const captureDevice = argValue(args, '--haptics-output-device');
   const record = spawn('pw-record', [
     '--raw',
     '-P', '{ stream.capture.sink = true }',
+    ...(captureDevice ? ['--target', captureDevice] : []),
+    // Capture the front channels only. When the headset is plugged in, the
+    // default sink can be the bridge's own 4-channel device; an unmapped
+    // stereo capture downmixes the rear haptics channels we play into it,
+    // feeding our own output back (constant buzz / self-oscillation).
     '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '2',
+    '--channel-map', 'FL,FR',
     '--latency', '256',
     '-'
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -303,6 +312,27 @@ async function defaultSinkName() {
   });
 }
 
+// Prints the audio output sinks as a JSON array for the Audio Haptics
+// capture-device picker. The bridge's own sink is excluded: capturing it
+// would feed the haptics we play back into the processor.
+async function runListOutputSinks() {
+  const objects = await pwDump();
+  const current = await defaultSinkName();
+  const devices = objects
+    .filter((object) => isAudioSink(object) && !isBridgeSink(object))
+    .map((object) => {
+      const props = nodeProps(object);
+      const nodeName = props['node.name'] ?? '';
+      return {
+        nodeName,
+        displayName: props['node.description'] || nodeName,
+        isDefault: nodeName === (current?.name ?? '')
+      };
+    })
+    .filter((device) => device.nodeName);
+  process.stdout.write(`${JSON.stringify(devices)}\n`);
+}
+
 async function runDefaultRenderStatus() {
   const current = await defaultSinkName();
   const deviceName = current?.description || current?.name || '';
@@ -400,6 +430,8 @@ async function main() {
     await runPlayTestTone(args);
   } else if (args.includes('--play-test-haptics')) {
     await runPlayTestHaptics(args);
+  } else if (args.includes('--list-output-sinks')) {
+    await runListOutputSinks();
   } else if (args.includes('--default-render-status')) {
     await runDefaultRenderStatus();
   } else if (args.includes('--set-default-render-bridge')) {

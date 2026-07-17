@@ -1333,6 +1333,7 @@ function registerIpc(
 
   ipcMain.handle('bridge:getStatus', () => service.getSnapshot());
   ipcMain.handle('bridge:listDevices', () => service.listDevices());
+  ipcMain.handle('bridge:listAudioOutputDevices', async () => service.listAudioOutputDevices());
   ipcMain.handle('bridge:listAudioHapticsSessions', async () => (
     addAudioHapticsSessionIcons(await service.listAudioHapticsSessions())
   ));

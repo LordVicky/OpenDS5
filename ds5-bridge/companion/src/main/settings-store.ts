@@ -245,6 +245,18 @@ function normalizeAudioReactiveHapticsSource(value: unknown): AudioReactiveHapti
   if (!value || typeof value !== 'object') {
     return DEFAULT_CONTROLLER_PROFILE_SETTINGS.audioReactiveHapticsSource;
   }
+  const deviceCandidate = value as Partial<Extract<AudioReactiveHapticsSource, { kind: 'output-device' }>>;
+  if (deviceCandidate.kind === 'output-device') {
+    const nodeName = normalizeOptionalString(deviceCandidate.nodeName);
+    if (!nodeName) {
+      return DEFAULT_CONTROLLER_PROFILE_SETTINGS.audioReactiveHapticsSource;
+    }
+    return {
+      kind: 'output-device',
+      nodeName,
+      displayName: normalizeOptionalString(deviceCandidate.displayName)
+    };
+  }
   const candidate = value as Partial<Extract<AudioReactiveHapticsSource, { kind: 'app-session' }>>;
   if (candidate.kind !== 'app-session') {
     return DEFAULT_CONTROLLER_PROFILE_SETTINGS.audioReactiveHapticsSource;

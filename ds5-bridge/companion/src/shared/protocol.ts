@@ -153,7 +153,21 @@ export interface AudioReactiveHapticsAppSource {
   sessionIdentifier?: string;
   sessionInstanceIdentifier?: string;
 }
-export type AudioReactiveHapticsSource = 'controller-audio' | 'system-audio' | AudioReactiveHapticsAppSource;
+export interface AudioReactiveHapticsOutputDeviceSource {
+  kind: 'output-device';
+  nodeName: string;
+  displayName?: string;
+}
+export interface AudioOutputDevice {
+  nodeName: string;
+  displayName: string;
+  isDefault: boolean;
+}
+export type AudioReactiveHapticsSource =
+  | 'controller-audio'
+  | 'system-audio'
+  | AudioReactiveHapticsAppSource
+  | AudioReactiveHapticsOutputDeviceSource;
 export type AudioReactiveHapticsMode = 'mix' | 'replace';
 export type AudioReactiveHapticsBassFocus = 'deep' | 'balanced' | 'punchy' | 'wide';
 export type AudioReactiveHapticsResponse = 'subtle' | 'balanced' | 'strong';
