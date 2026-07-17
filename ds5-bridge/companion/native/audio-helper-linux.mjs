@@ -624,6 +624,81 @@ async function runMonitorAudioSessions() {
   process.on('SIGTERM', stop);
 }
 
+// Desktop volume controls rewrite all four channels of the bridge sink;
+// when HD Volume Sync is off the haptic pair (3-4) must stay at unity so
+// game HD haptics don't fade with the listening volume.
+export function pinnedChannelVolumes(current) {
+  if (!Array.isArray(current) || current.length < 4) {
+    return null;
+  }
+  if (current[2] === 1 && current[3] === 1) {
+    return null;
+  }
+  return [current[0], current[1], 1, 1, ...current.slice(4)];
+}
+
+const VOLUME_GUARD_INTERVAL_MS = 2000;
+
+async function runVolumeGuard() {
+  let stopping = false;
+  // Hard-fail the first tick when the sink is missing (mirrors the other
+  // helper modes): the parent only starts the guard once the controller
+  // audio path is ready, so a missing sink at boot is a real setup error.
+  let sink = await requireBridgeSink();
+
+  const pinTick = async () => {
+    if (stopping) {
+      return;
+    }
+    try {
+      // Re-find the sink each tick so the guard survives the sink coming
+      // and going with the controller. channelVolumes change as the user
+      // adjusts volume, so always read them fresh from a live pw-dump.
+      const found = await findBridgeSink();
+      if (!found) {
+        process.stderr.write('volume guard: bridge sink not found, retrying\n');
+        return;
+      }
+      sink = found;
+      const vols = sink.info?.params?.Props?.[0]?.channelVolumes;
+      const pinned = pinnedChannelVolumes(vols);
+      if (!pinned) {
+        return;
+      }
+      await new Promise((resolve) => {
+        execFile('pw-cli', [
+          'set-param', `${sink.id}`, 'Props',
+          `{ channelVolumes: [ ${pinned.join(', ')} ] }`
+        ], (error) => {
+          if (error) {
+            process.stderr.write(`volume guard: set-param failed: ${error.message}\n`);
+          }
+          resolve();
+        });
+      });
+    } catch (error) {
+      process.stderr.write(`volume guard tick failed: ${error.message}\n`);
+    }
+  };
+
+  await pinTick();
+  const timer = setInterval(pinTick, VOLUME_GUARD_INTERVAL_MS);
+  const control = createInterface({ input: process.stdin });
+  const stop = () => {
+    stopping = true;
+    clearInterval(timer);
+    process.exit(0);
+  };
+  control.on('line', (line) => {
+    if (line.trim() === 'stop') {
+      stop();
+    }
+  });
+  control.on('close', stop);
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+}
+
 function runMicKeepalive() {
   // Microphone input is unsupported over the vds Bluetooth transport; stay
   // alive so the engine's lifecycle management works, but do nothing.
@@ -647,6 +722,8 @@ async function main() {
     await runSetDefaultRenderBridge();
   } else if (args.includes('--monitor-audio-sessions')) {
     await runMonitorAudioSessions();
+  } else if (args.includes('--volume-guard')) {
+    await runVolumeGuard();
   } else if (args.includes('--mic-keepalive-only')) {
     runMicKeepalive();
   } else if (argValue(args, '--source') === 'render-loopback') {

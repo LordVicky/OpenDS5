@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { channelIndices, hapticsPlaybackArgs, HapticsProcessor, nodeChannelLayout } from '../../native/audio-helper-linux.mjs';
+import { channelIndices, hapticsPlaybackArgs, HapticsProcessor, nodeChannelLayout, pinnedChannelVolumes } from '../../native/audio-helper-linux.mjs';
 
 describe('audio-helper-linux exports', () => {
   it('imports without running main and exposes HapticsProcessor', () => {
@@ -365,5 +365,27 @@ describe('hapticsPlaybackArgs', () => {
     expect(hasPair(args, '--channels', '4')).toBe(true);
     expect(hasPair(args, '--channel-map', 'FL,FR,RL,RR')).toBe(true);
     expect(args[args.length - 1]).toBe('-');
+  });
+});
+
+describe('pinnedChannelVolumes', () => {
+  it('returns null for a non-array or too-short input', () => {
+    expect(pinnedChannelVolumes(undefined)).toBeNull();
+    expect(pinnedChannelVolumes(null)).toBeNull();
+    expect(pinnedChannelVolumes([0.3, 0.3, 0.3])).toBeNull();
+  });
+
+  it('returns null when the haptic pair is already pinned at unity', () => {
+    expect(pinnedChannelVolumes([0.3, 0.3, 1, 1])).toBeNull();
+    expect(pinnedChannelVolumes([1, 1, 1, 1])).toBeNull();
+  });
+
+  it('pins the haptic pair to unity while keeping the speaker channels', () => {
+    expect(pinnedChannelVolumes([0.3, 0.3, 0.3, 0.3])).toEqual([0.3, 0.3, 1, 1]);
+  });
+
+  it('preserves any trailing channels beyond the first four', () => {
+    expect(pinnedChannelVolumes([0.3, 0.3, 0.3, 0.3, 0.5, 0.5]))
+      .toEqual([0.3, 0.3, 1, 1, 0.5, 0.5]);
   });
 });

@@ -82,6 +82,7 @@ import {
   AudioHapticsSessionMonitor,
   MicKeepaliveEngine,
   SystemAudioHapticsEngine,
+  VolumeGuardEngine,
   listAudioOutputDevices,
   playBridgeHapticsTestPattern,
   playBridgeSpeakerTestTone,
@@ -1378,6 +1379,7 @@ export class BridgeService extends EventEmitter {
   private readonly systemAudioHapticsEngine = new SystemAudioHapticsEngine();
   private readonly audioHapticsSessionMonitor = new AudioHapticsSessionMonitor();
   private readonly micKeepaliveEngine = new MicKeepaliveEngine();
+  private readonly volumeGuardEngine = new VolumeGuardEngine();
   private readonly hidDiscovery = new HidDiscoveryClient();
   private audioHapticsSessionCache: { key: string; expiresAt: number; sessions: AudioHapticsSession[] } | null = null;
   private audioHapticsSessionListInFlight: Promise<AudioHapticsSession[]> | null = null;
@@ -1478,6 +1480,16 @@ export class BridgeService extends EventEmitter {
       }
       this.emitSnapshot();
     });
+    this.volumeGuardEngine.on('error', (error: Error) => {
+      this.appendAudioDebugLines([`[VolumeGuard] error: ${error.message}`]);
+      this.emitSnapshot();
+    });
+    this.volumeGuardEngine.on('status', (line: string) => {
+      if (line) {
+        this.appendAudioDebugLines([`[VolumeGuard] ${line}`]);
+      }
+      this.emitSnapshot();
+    });
   }
 
   private enqueueShortcutEvent(event: InputShortcutEvent): void {
@@ -1567,6 +1579,7 @@ export class BridgeService extends EventEmitter {
     await this.systemAudioHapticsEngine.stop();
     await this.stopAudioHapticsSessionPolling();
     await this.micKeepaliveEngine.stop();
+    await this.volumeGuardEngine.stop();
   }
 
   async listAudioOutputDevices(): Promise<AudioOutputDevice[]> {
@@ -3555,6 +3568,26 @@ export class BridgeService extends EventEmitter {
     }
   }
 
+  // Pins the bridge sink's haptic channels at unity while HD Volume Sync is
+  // off (Linux only). Reconciled from the poll loop when controller audio is
+  // ready; a future settings-toggle setter should also call this for an
+  // immediate reconcile (as setDuplexMicEnabled does for mic keepalive). The
+  // guard is gated on controller readiness so the helper never hard-fails on
+  // a missing sink at boot and respawn-loops.
+  private async updateVolumeGuardEngine(controllerAudioReady: boolean): Promise<void> {
+    try {
+      const settings = this.settingsStore.get();
+      if (process.platform !== 'linux' || !controllerAudioReady || settings.hapticsVolumeSync) {
+        await this.volumeGuardEngine.stop();
+        return;
+      }
+      await this.volumeGuardEngine.start();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.appendAudioDebugLines([`[VolumeGuard] error: ${message}`]);
+    }
+  }
+
   private async pulseSystemAudioHaptics(): Promise<void> {
     const settings = this.settingsStore.get();
     if (!this.systemAudioHapticsDesired(settings)) {
@@ -3699,6 +3732,7 @@ export class BridgeService extends EventEmitter {
       await this.restartSystemAudioHapticsAfterPersonaTransition(completedHostPersonaMode);
     }
     await this.updateMicKeepaliveEngine(status.controllerConnected);
+    await this.updateVolumeGuardEngine(this.controllerAudioReady(status));
     await this.syncControllerPowerSavingState(settings);
 
     if (status.controllerConnected) {

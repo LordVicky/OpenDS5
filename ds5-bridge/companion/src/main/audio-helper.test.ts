@@ -55,7 +55,8 @@ import {
   AudioHapticsSessionMonitor,
   playBridgeHapticsTestPattern,
   playBridgeSpeakerTestTone,
-  SystemAudioHapticsEngine
+  SystemAudioHapticsEngine,
+  VolumeGuardEngine
 } from './audio-helper';
 
 beforeEach(() => {
@@ -190,6 +191,39 @@ describe('bridge speaker test', () => {
       '--speaker-volume',
       '65'
     ]);
+  });
+});
+
+describe('VolumeGuardEngine', () => {
+  it('spawns the helper in volume-guard mode once and is idempotent', async () => {
+    const engine = new VolumeGuardEngine();
+    await engine.start();
+    await engine.start();
+
+    expect(childProcessMock.spawn).toHaveBeenCalledTimes(1);
+    const rawArgs = childProcessMock.spawn.mock.calls[0]![1] as string[];
+    const args = process.platform === 'win32' ? rawArgs : rawArgs.slice(1);
+    expect(args).toEqual(['--volume-guard']);
+    expect(engine.isActive()).toBe(true);
+
+    await engine.stop();
+  });
+
+  it('stops the helper and becomes inactive', async () => {
+    const engine = new VolumeGuardEngine();
+    await engine.start();
+    const helper = childProcessMock.processes[0]!;
+
+    await engine.stop();
+
+    expect(helper.kill).toHaveBeenCalled();
+    expect(engine.isActive()).toBe(false);
+  });
+
+  it('stop is a no-op when never started', async () => {
+    const engine = new VolumeGuardEngine();
+    await engine.stop();
+    expect(childProcessMock.spawn).not.toHaveBeenCalled();
   });
 });
 
