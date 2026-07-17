@@ -151,11 +151,19 @@ export class HapticsProcessor {
     this.envelope = 0;
     this.layout = { stride: 4, fl: 0, fr: 1, fc: -1, lfe: -1 };
     this.outputCompensation = 1;
+    // Volume Sync (default ON): haptics follow the listening volume, so the
+    // sink-volume compensation is neutralized to unity. OFF holds haptics
+    // strength independent of the listening volume via outputCompensation.
+    this.volumeSync = true;
     this.setConfig(config);
   }
 
   setOutputCompensation(compensation) {
     this.outputCompensation = compensation;
+  }
+
+  setVolumeSync(enabled) {
+    this.volumeSync = enabled;
   }
 
   setConfig({ gainPercent, bassFocus, response, attack, release }) {
@@ -193,7 +201,7 @@ export class HapticsProcessor {
       // noise floor so silence does not buzz the actuators.
       const gate = this.envelope < 0.003 ? 0 : 1;
       const drive = this.gain * this.responseGain * 4 * gate;
-      const comp = this.outputCompensation;
+      const comp = this.volumeSync ? 1 : this.outputCompensation;
       output[frame * 4 + 2] = Math.max(-1, Math.min(1, Math.tanh(left * drive) * comp));
       output[frame * 4 + 3] = Math.max(-1, Math.min(1, Math.tanh(right * drive) * comp));
     }
@@ -201,20 +209,27 @@ export class HapticsProcessor {
   }
 }
 
-function readHapticsConfig(args) {
+export function readHapticsConfig(args) {
   return {
     gainPercent: Number(argValue(args, '--haptics-gain') ?? 100),
     bassFocus: argValue(args, '--haptics-bass-focus') ?? 'balanced',
     response: argValue(args, '--haptics-response') ?? 'balanced',
     attack: argValue(args, '--haptics-attack') ?? 'balanced',
-    release: argValue(args, '--haptics-release') ?? 'balanced'
+    release: argValue(args, '--haptics-release') ?? 'balanced',
+    // Volume Sync defaults ON: only an explicit "0" disables it.
+    volumeSync: argValue(args, '--haptics-volume-sync') !== '0'
   };
 }
 
 async function runRenderLoopbackHaptics(args) {
   const sink = await requireBridgeSink();
   const target = nodeProps(sink)['node.name'];
-  const processor = new HapticsProcessor(readHapticsConfig(args));
+  const config = readHapticsConfig(args);
+  const processor = new HapticsProcessor(config);
+  // Volume polling keeps running either way (cheap); this just decides
+  // whether the polled compensation is applied. Toggling OFF later via
+  // stdin then takes effect on the next processed block.
+  processor.setVolumeSync(config.volumeSync);
 
   const appSource = {
     processId: Number(argValue(args, '--haptics-app-process-id') ?? 0),
@@ -368,6 +383,8 @@ async function runRenderLoopbackHaptics(args) {
         attack: parts[4],
         release: parts[5]
       });
+      // 7th field is optional so 6-field lines keep working: absent → sync ON.
+      processor.setVolumeSync(parts[6] === undefined ? true : parts[6] === '1');
     } else if (parts[0] === 'stop') {
       shutdown(0);
     }

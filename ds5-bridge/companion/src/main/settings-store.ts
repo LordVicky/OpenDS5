@@ -170,6 +170,8 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
   audioReactiveHapticsResponse: DEFAULT_CONTROLLER_PROFILE_SETTINGS.audioReactiveHapticsResponse,
   audioReactiveHapticsAttack: DEFAULT_CONTROLLER_PROFILE_SETTINGS.audioReactiveHapticsAttack,
   audioReactiveHapticsRelease: DEFAULT_CONTROLLER_PROFILE_SETTINGS.audioReactiveHapticsRelease,
+  audioReactiveHapticsVolumeSync: true,
+  hapticsVolumeSync: true,
   lightbarEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.lightbarEnabled,
   lightbarColor: DEFAULT_CONTROLLER_PROFILE_SETTINGS.lightbarColor,
   lightbarBrightnessPercent: DEFAULT_CONTROLLER_PROFILE_SETTINGS.lightbarBrightnessPercent,
@@ -956,6 +958,12 @@ function normalizeSettings(value: Partial<CompanionSettings> | null | undefined)
     audioReactiveHapticsResponse: normalizeAudioReactiveHapticsResponse(value?.audioReactiveHapticsResponse),
     audioReactiveHapticsAttack: normalizeAudioReactiveHapticsAttack(value?.audioReactiveHapticsAttack),
     audioReactiveHapticsRelease: normalizeAudioReactiveHapticsRelease(value?.audioReactiveHapticsRelease),
+    audioReactiveHapticsVolumeSync: typeof value?.audioReactiveHapticsVolumeSync === 'boolean'
+      ? value.audioReactiveHapticsVolumeSync
+      : DEFAULT_SETTINGS.audioReactiveHapticsVolumeSync,
+    hapticsVolumeSync: typeof value?.hapticsVolumeSync === 'boolean'
+      ? value.hapticsVolumeSync
+      : DEFAULT_SETTINGS.hapticsVolumeSync,
     lightbarEnabled: typeof value?.lightbarEnabled === 'boolean'
       ? value.lightbarEnabled
       : DEFAULT_SETTINGS.lightbarEnabled,

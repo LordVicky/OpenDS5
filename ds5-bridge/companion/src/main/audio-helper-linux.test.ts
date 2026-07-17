@@ -117,7 +117,7 @@ describe('HapticsProcessor layouts', () => {
   });
 });
 
-import { appCaptureRecordArgs, matchAppStreamNode, parseWpctlVolume, volumeCompensation } from '../../native/audio-helper-linux.mjs';
+import { appCaptureRecordArgs, matchAppStreamNode, parseWpctlVolume, readHapticsConfig, volumeCompensation } from '../../native/audio-helper-linux.mjs';
 
 describe('volumeCompensation', () => {
   it('is a no-op at unity volume', () => {
@@ -176,6 +176,7 @@ describe('HapticsProcessor output compensation', () => {
     const input = loudInput(frames);
     const base = makeProcessor().process(input);
     const boosted = makeProcessor();
+    boosted.setVolumeSync(false);
     boosted.setOutputCompensation(2);
     const out = boosted.process(input);
     for (let i = 0; i < out.length; i += 1) {
@@ -192,6 +193,7 @@ describe('HapticsProcessor output compensation', () => {
     const frames = 256;
     const input = loudInput(frames);
     const clipped = makeProcessor();
+    clipped.setVolumeSync(false);
     clipped.setOutputCompensation(8);
     const out = clipped.process(input);
     const peak = Math.max(...Array.from(out).map((s) => Math.abs(s)));
@@ -204,6 +206,86 @@ describe('HapticsProcessor output compensation', () => {
     const withComp = makeProcessor();
     withComp.setOutputCompensation(1);
     expect(Array.from(withComp.process(input))).toEqual(Array.from(makeProcessor().process(input)));
+  });
+});
+
+describe('readHapticsConfig volume sync flag', () => {
+  it('defaults volumeSync to true when the flag is absent', () => {
+    expect(readHapticsConfig([]).volumeSync).toBe(true);
+    expect(readHapticsConfig(['--haptics-gain', '120']).volumeSync).toBe(true);
+  });
+
+  it('reads volumeSync true when the flag is 1', () => {
+    expect(readHapticsConfig(['--haptics-volume-sync', '1']).volumeSync).toBe(true);
+  });
+
+  it('reads volumeSync false when the flag is 0', () => {
+    expect(readHapticsConfig(['--haptics-volume-sync', '0']).volumeSync).toBe(false);
+  });
+});
+
+describe('HapticsProcessor volume sync gating', () => {
+  function loudInput(frames: number) {
+    const input = new Float32Array(frames * 4);
+    for (let f = 0; f < frames; f += 1) {
+      const s = Math.sin(2 * Math.PI * 40 * (f / 48000)) * 0.9;
+      input[f * 4] = s;
+      input[f * 4 + 1] = s;
+    }
+    return input;
+  }
+
+  it('applies compensation 1 when volume sync is ON regardless of polled compensation', () => {
+    const frames = 256;
+    const input = loudInput(frames);
+    const synced = makeProcessor();
+    synced.setOutputCompensation(6);
+    synced.setVolumeSync(true);
+    const reference = makeProcessor();
+    reference.setOutputCompensation(1);
+    expect(Array.from(synced.process(input))).toEqual(Array.from(reference.process(input)));
+  });
+
+  it('restores the compensated (clamped) output when volume sync is OFF', () => {
+    const frames = 256;
+    const input = loudInput(frames);
+    const off = makeProcessor();
+    off.setVolumeSync(false);
+    off.setOutputCompensation(6);
+    const compensated = makeProcessor();
+    compensated.setVolumeSync(false);
+    compensated.setOutputCompensation(6);
+    expect(Array.from(off.process(input))).toEqual(Array.from(compensated.process(input)));
+
+    const base = makeProcessor();
+    base.setVolumeSync(false);
+    base.setOutputCompensation(1);
+    const baseOut = base.process(input);
+    const offOut = makeProcessor();
+    offOut.setVolumeSync(false);
+    offOut.setOutputCompensation(6);
+    const out = offOut.process(input);
+    let sawNonzero = false;
+    for (let i = 0; i < out.length; i += 1) {
+      if (baseOut[i] === 0) {
+        expect(out[i]).toBe(0);
+      } else {
+        sawNonzero = true;
+        expect(out[i]).toBeCloseTo(Math.max(-1, Math.min(1, baseOut[i] * 6)), 6);
+      }
+    }
+    expect(sawNonzero).toBe(true);
+  });
+
+  it('defaults volume sync ON so compensation has no effect on a fresh processor', () => {
+    const frames = 256;
+    const input = loudInput(frames);
+    const fresh = makeProcessor();
+    fresh.setOutputCompensation(6);
+    const reference = makeProcessor();
+    reference.setVolumeSync(false);
+    reference.setOutputCompensation(1);
+    expect(Array.from(fresh.process(input))).toEqual(Array.from(reference.process(input)));
   });
 });
 
