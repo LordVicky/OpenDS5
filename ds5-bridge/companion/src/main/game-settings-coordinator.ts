@@ -95,7 +95,11 @@ export class GameSettingsCoordinator extends EventEmitter {
    * running, and flapping the whole settings set for that would be wrong.
    */
   onEngineStatus(status: EngineStatus): void {
-    const gameId = status.enabled && status.activeProfileId !== DEFAULT_PROFILE_ID
+    // Only a detected running game activates the game scope. A manual pin
+    // (matchedBy 'pin') is a trigger-profile override, not the game running,
+    // so it must not swap the full settings set or mark the game active.
+    const gameId = status.enabled && status.matchedBy === 'process'
+      && status.activeProfileId !== DEFAULT_PROFILE_ID
       ? status.activeProfileId
       : null;
     if (gameId === this.activeGameProfileId) return;

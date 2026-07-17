@@ -5,6 +5,7 @@ Wants=bluetooth.service
 
 [Service]
 Type=simple
+ExecStartPre=modprobe vds_hcd
 ExecStart=@VDS_SYSTEMD_VDSD@
 Restart=on-failure
 RestartSec=1s

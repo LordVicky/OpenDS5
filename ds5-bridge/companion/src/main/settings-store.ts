@@ -150,7 +150,7 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
   hapticsEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.hapticsEnabled,
   hapticsGainPercent: DEFAULT_CONTROLLER_PROFILE_SETTINGS.hapticsGainPercent,
   feedbackBoostEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.feedbackBoostEnabled,
-  hapticsBufferLength: 64,
+  hapticsBufferLength: 120,
   classicRumbleEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.classicRumbleEnabled,
   classicRumbleGainPercent: DEFAULT_CONTROLLER_PROFILE_SETTINGS.classicRumbleGainPercent,
   classicRumbleV1Enabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.classicRumbleV1Enabled,
@@ -897,7 +897,7 @@ function normalizeSettings(value: Partial<CompanionSettings> | null | undefined)
       ? value.feedbackBoostEnabled
       : DEFAULT_SETTINGS.feedbackBoostEnabled,
     hapticsBufferLength: Number.isFinite(value?.hapticsBufferLength)
-      ? Math.max(16, Math.min(128, Math.round(value!.hapticsBufferLength!)))
+      ? Math.max(16, Math.min(240, Math.round(value!.hapticsBufferLength!)))
       : DEFAULT_SETTINGS.hapticsBufferLength,
     classicRumbleEnabled: typeof value?.classicRumbleEnabled === 'boolean'
       ? value.classicRumbleEnabled

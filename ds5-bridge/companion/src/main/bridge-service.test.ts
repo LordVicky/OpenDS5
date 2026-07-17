@@ -1101,8 +1101,8 @@ describe('BridgeService', () => {
 
     command = device.sentReports.at(-1);
     expect(command?.[7]).toBe(COMMAND_ID.SET_HAPTICS_BUFFER_LENGTH);
-    expect(command?.[9]).toBe(128);
-    expect(snapshot.settings.hapticsBufferLength).toBe(128);
+    expect(command?.[9]).toBe(240);
+    expect(snapshot.settings.hapticsBufferLength).toBe(240);
   });
 
   it('sends and stores adaptive trigger intensity', async () => {

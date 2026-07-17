@@ -84,6 +84,21 @@ describe('GameSettingsCoordinator', () => {
     expect(coordinator.getStatus().appliedProfileId).toBeNull();
   });
 
+  it('ignores a manually pinned trigger profile (pin is not the game running)', async () => {
+    service.controllerProfileId = 'my-profile';
+    service.gameSettings.add('cyberpunk');
+    const coordinator = new GameSettingsCoordinator(service, dir);
+
+    coordinator.onEngineStatus({
+      ...engineStatus('cyberpunk'),
+      matchedBy: 'pin',
+      matchedName: null
+    });
+    await settle(coordinator);
+    expect(service.controllerProfileId).toBe('my-profile');
+    expect(coordinator.getStatus().appliedProfileId).toBeNull();
+  });
+
   it('leaves selections alone for a game without game settings', async () => {
     const coordinator = new GameSettingsCoordinator(service, dir);
     coordinator.onEngineStatus(engineStatus('elden-ring'));

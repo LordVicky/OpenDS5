@@ -18,8 +18,11 @@ namespace vds {
 class Logger;
 struct CompanionRuntime;
 
-inline constexpr std::uint32_t kTraceInput = 1u << 0;
-inline constexpr std::uint32_t kTraceOutput = 1u << 1;
+inline constexpr std::uint32_t kTraceInputAudio = 1u << 0;
+inline constexpr std::uint32_t kTraceInputControl = 1u << 1;
+inline constexpr std::uint32_t kTraceInput =
+    kTraceInputAudio | kTraceInputControl;
+inline constexpr std::uint32_t kTraceOutput = 1u << 2;
 inline constexpr std::uint32_t kTraceAll = kTraceInput | kTraceOutput;
 
 struct VdsdCommonOptions {

@@ -9,6 +9,7 @@
  */
 
 #include <linux/errno.h>
+#include <linux/hid.h>
 #include <linux/string.h>
 
 #include "uapi/vds.h"
@@ -30,6 +31,9 @@
 #define UAC_CS_REQ_GET_RES 0x84
 #define UAC_FU_CTRL_MUTE 0x01
 #define UAC_FU_CTRL_VOLUME 0x02
+
+#define VDS_USB_NO_INTERFACE 0xff
+#define VDS_USB_NO_ENDPOINT 0xff
 
 /* UAC1 volume values are signed 8.8 dB fixed-point units. */
 #define VDS_USB_SPK_VOLUME_MIN (-100 * 256)
@@ -170,7 +174,7 @@ bool vds_usb_device_is_audio_in(const struct vds_usb_device *dev, int endpoint)
 	const struct vds_controller_profile *profile =
 		vds_usb_device_profile(dev);
 
-	return profile->audio_in_endpoint != VDS_CONTROLLER_NO_ENDPOINT &&
+	return profile->audio_in_endpoint != VDS_USB_NO_ENDPOINT &&
 	       endpoint == vds_usb_endpoint_number(profile->audio_in_endpoint);
 }
 
@@ -249,12 +253,12 @@ static int vds_usb_enqueue_frame(const struct vds_usb_device_ops *ops,
 static void
 vds_usb_enqueue_interface_event(const struct vds_usb_device_ops *ops,
 				void *context, u8 interface_number,
-				u8 altsetting, u8 interface_kind, gfp_t gfp)
+				u8 altsetting, u8 interface_type, gfp_t gfp)
 {
 	struct vds_usb_interface_event event = {
 		.interface_number = interface_number,
 		.altsetting = altsetting,
-		.interface_kind = interface_kind,
+		.interface_type = interface_type,
 	};
 
 	(void)vds_usb_enqueue_frame(ops, context, VDS_FRAME_USB_INTERFACE,
@@ -304,7 +308,8 @@ static int vds_usb_audio_control(struct vds_usb_device *dev, struct urb *urb,
 			switch (setup->bRequest) {
 			case UAC_CS_REQ_GET_CUR:
 				spin_lock_irqsave(&dev->lock, flags);
-				volume = cpu_to_le16(dev->audio_volume[feature_index]);
+				volume =
+					cpu_to_le16(dev->audio_volume[feature_index]);
 				spin_unlock_irqrestore(&dev->lock, flags);
 				break;
 			case UAC_CS_REQ_GET_MIN:
@@ -481,8 +486,10 @@ vds_usb_standard_control(struct vds_usb_device *dev, struct urb *urb,
 			device_desc.bDeviceProtocol = profile->device_protocol;
 			device_desc.bMaxPacketSize0 = profile->max_packet_size0;
 			device_desc.idVendor = cpu_to_le16(VDS_SONY_VENDOR_ID);
-			device_desc.idProduct = cpu_to_le16(profile->product_id);
-			device_desc.bcdDevice = cpu_to_le16(profile->device_version);
+			device_desc.idProduct =
+				cpu_to_le16(profile->product_id);
+			device_desc.bcdDevice =
+				cpu_to_le16(profile->device_version);
 			device_desc.iManufacturer = 1;
 			device_desc.iProduct = 2;
 			device_desc.bNumConfigurations =
@@ -491,8 +498,8 @@ vds_usb_standard_control(struct vds_usb_device *dev, struct urb *urb,
 						   sizeof(device_desc));
 		case USB_DT_CONFIG:
 			return vds_usb_copy_to_urb(urb,
-				profile->configuration_descriptor,
-				profile->configuration_descriptor_size);
+						   profile->configuration_descriptor,
+						   profile->configuration_descriptor_size);
 		case USB_DT_DEVICE_QUALIFIER:
 			return vds_usb_copy_to_urb(urb, &vds_qualifier_desc,
 						   sizeof(vds_qualifier_desc));
@@ -503,24 +510,25 @@ vds_usb_standard_control(struct vds_usb_device *dev, struct urb *urb,
 								      NULL);
 			case 1:
 				return vds_usb_copy_string_descriptor(urb,
-								      profile->manufacturer);
+						profile->manufacturer);
 			case 2:
 				return vds_usb_copy_string_descriptor(urb,
-								      profile->product);
+						profile->product);
 			default:
 				return -EPIPE;
 			}
-		case USB_DT_REPORT:
+		case HID_DT_REPORT:
 			if ((index & 0xff) != profile->hid_interface)
 				return -EPIPE;
 			return vds_usb_copy_to_urb(urb,
-				profile->hid_report_descriptor,
-				profile->hid_report_descriptor_size);
-		case USB_DT_HID:
+						   profile->hid_report_descriptor,
+						   profile->hid_report_descriptor_size);
+		case HID_DT_HID:
 			if ((index & 0xff) != profile->hid_interface)
 				return -EPIPE;
-			return vds_usb_copy_to_urb(urb, profile->hid_descriptor,
-				profile->hid_descriptor_size);
+			return vds_usb_copy_to_urb(urb,
+						   profile->hid_descriptor,
+						   profile->hid_descriptor_size);
 		default:
 			return -EPIPE;
 		}
@@ -556,8 +564,10 @@ vds_usb_standard_control(struct vds_usb_device *dev, struct urb *urb,
 			if (value)
 				return -EPIPE;
 			vds_usb_enqueue_interface_event(ops, context,
-							profile->hid_interface, 0,
-							VDS_USB_INTERFACE_HID, gfp);
+							profile->hid_interface,
+							0,
+							VDS_USB_INTERFACE_HID,
+							gfp);
 			return 0;
 		}
 		if (value > 1)
@@ -570,24 +580,23 @@ vds_usb_standard_control(struct vds_usb_device *dev, struct urb *urb,
 			vds_usb_set_status(ops, context,
 					   VDS_STATUS_AUDIO_ENABLED,
 					   audio_enabled);
-				vds_usb_enqueue_interface_event(ops, context,
-								profile->audio_out_interface,
-								value & 0xff,
-								VDS_USB_INTERFACE_AUDIO_OUT,
-								gfp);
+			vds_usb_enqueue_interface_event(ops, context,
+							profile->audio_out_interface,
+							value & 0xff,
+							VDS_USB_INTERFACE_AUDIO_OUT,
+							gfp);
 			return 0;
 		}
-		if (profile->audio_in_interface !=
-			    VDS_CONTROLLER_NO_INTERFACE &&
+		if (profile->audio_in_interface != VDS_USB_NO_INTERFACE &&
 		    (index & 0xff) == profile->audio_in_interface) {
 			spin_lock_irqsave(&dev->lock, flags);
 			dev->audio_in_altsetting = value & 0xff;
 			spin_unlock_irqrestore(&dev->lock, flags);
-				vds_usb_enqueue_interface_event(ops, context,
-								profile->audio_in_interface,
-								value & 0xff,
-								VDS_USB_INTERFACE_AUDIO_IN,
-								gfp);
+			vds_usb_enqueue_interface_event(ops, context,
+							profile->audio_in_interface,
+							value & 0xff,
+							VDS_USB_INTERFACE_AUDIO_IN,
+							gfp);
 			return 0;
 		}
 		return -EPIPE;
@@ -596,7 +605,7 @@ vds_usb_standard_control(struct vds_usb_device *dev, struct urb *urb,
 		if ((index & 0xff) == profile->audio_out_interface) {
 			configuration = dev->audio_out_altsetting;
 		} else if (profile->audio_in_interface !=
-				   VDS_CONTROLLER_NO_INTERFACE &&
+				   VDS_USB_NO_INTERFACE &&
 			   (index & 0xff) == profile->audio_in_interface) {
 			configuration = dev->audio_in_altsetting;
 		} else if ((index & 0xff) == profile->hid_interface) {
@@ -639,7 +648,8 @@ int vds_usb_device_control_urb(struct vds_usb_device *dev, struct urb *urb,
 						context, gfp);
 	if (type == USB_TYPE_CLASS &&
 	    (setup.bRequestType & USB_RECIP_MASK) == USB_RECIP_INTERFACE) {
-		if ((le16_to_cpu(setup.wIndex) & 0xff) == profile->hid_interface)
+		if ((le16_to_cpu(setup.wIndex) & 0xff) ==
+		    profile->hid_interface)
 			return vds_usb_hid_control(dev, urb, &setup, profile,
 						   ops, context, gfp);
 		return vds_usb_audio_control(dev, urb, &setup, profile);

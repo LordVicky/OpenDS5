@@ -23,6 +23,7 @@
 #include "unique_fd.hh"
 #include "vds_bt.hh"
 #include "vds_io.hh"
+#include "vds_protocol.hh"
 
 namespace vds {
 
@@ -269,7 +270,8 @@ std::optional<std::vector<std::uint8_t>> BtL2capBackend::read_feature_report() {
       std::span(buffer.data(), static_cast<std::size_t>(got)));
 }
 
-std::optional<UsbInputReport> BtL2capBackend::read_input_report() {
+std::optional<std::vector<std::uint8_t>>
+BtL2capBackend::read_interrupt_packet() {
   std::array<std::uint8_t, kBtReadBufferSize> buffer{};
   const ssize_t got = ::read(interrupt_fd_, buffer.data(), buffer.size());
   if (got < 0) {
@@ -282,8 +284,8 @@ std::optional<UsbInputReport> BtL2capBackend::read_input_report() {
   if (got == 0) {
     throw std::runtime_error("Bluetooth L2CAP interrupt channel closed");
   }
-  return bt_input_to_usb_input(
-      std::span(buffer.data(), static_cast<std::size_t>(got)));
+  return std::vector<std::uint8_t>(
+      buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(got));
 }
 
 } // namespace vds
