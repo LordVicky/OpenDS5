@@ -1131,7 +1131,11 @@ BtStateReport DsOutputState::build_bt_mic_state_report(bool active,
   state_[kOutputMicVolumeOffset] = active && !muted ? mic_volume_ : 0;
   state_[kOutputAudioControlOffset] = audio_control;
   state_[kOutputAudioControl2Offset] = audio_control2_;
-  state_[kOutputMuteLedOffset] = 0;
+  // Drive the DualSense mute LED from the mute state so toggles initiated by
+  // the host (companion app) are visible on the controller, matching native
+  // PS5 behavior. 1 = solid on while muted.
+  const std::uint8_t mute_led = muted ? 1 : 0;
+  state_[kOutputMuteLedOffset] = mute_led;
   state_[kOutputPowerSaveControlOffset] = power_save_control;
   recompute_effective_state();
 
@@ -1148,7 +1152,7 @@ BtStateReport DsOutputState::build_bt_mic_state_report(bool active,
   report[kBtStateOffset + kOutputMicVolumeOffset] =
       active && !muted ? mic_volume_ : 0;
   report[kBtStateOffset + kOutputAudioControlOffset] = audio_control;
-  report[kBtStateOffset + kOutputMuteLedOffset] = 0;
+  report[kBtStateOffset + kOutputMuteLedOffset] = mute_led;
   report[kBtStateOffset + kOutputPowerSaveControlOffset] = power_save_control;
   report[kBtStateOffset + kOutputAudioControl2Offset] = audio_control2_;
   fill_output_report_checksum(report);
