@@ -10,8 +10,8 @@ async function flushQueue(): Promise<void> {
 }
 
 class FakeInput extends EventEmitter {
-  emitInput(buttons: ControllerInputState['buttons'], timestampMs: number): void {
-    this.emit('input', { buttons, timestampMs, l2: 0, r2: 0 });
+  emitInput(buttons: ControllerInputState['buttons'], timestampMs: number, sourceId: string | null = null): void {
+    this.emit('input', { buttons, timestampMs, sourceId, l2: 0, r2: 0 });
   }
 }
 
@@ -91,6 +91,38 @@ describe('GamingShortcutsCoordinator', () => {
     await flushQueue();
     expect(execute).toHaveBeenCalledWith({ type: 'screenshot', provider: 'auto' });
     expect(coordinator.getMode().state).toBe('inactive');
+    coordinator.stop();
+  });
+
+  it('does not accept shortcut selections from another physical source', async () => {
+    const input = new FakeInput();
+    const execute = vi.fn().mockResolvedValue({ ok: true });
+    const settings = { ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true, chords: [{ button: 'create' as const, action: { type: 'screenshot', provider: 'auto' as const } }] };
+    const coordinator = new GamingShortcutsCoordinator({
+      input, settingsStore: { get: () => ({ gamingShortcuts: settings }) }, executor: { execute } as unknown as ActionExecutor,
+      controllerIdForSource: (sourceId) => sourceId
+    });
+    coordinator.start();
+    input.emitInput(new Set(['ps']), 0, 'source-A'); input.emitInput(new Set(), 1, 'source-A');
+    vi.advanceTimersByTime(300);
+    expect(coordinator.getMode().state).toBe('awaiting-selection');
+    input.emitInput(new Set(['create']), 400, 'source-B'); input.emitInput(new Set(), 401, 'source-B');
+    await flushQueue();
+    expect(execute).not.toHaveBeenCalled();
+    expect(coordinator.getMode().state).toBe('awaiting-selection');
+    coordinator.stop();
+  });
+
+  it('does not emit a result when the source disconnects during deferred execution', async () => {
+    const input = new FakeInput();
+    let resolveExecution!: (value: { ok: true }) => void;
+    const execute = vi.fn().mockReturnValue(new Promise<{ ok: true }>((resolve) => { resolveExecution = resolve; }));
+    const settings = { ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true, psPressAction: 'open-opends5' as const };
+    const coordinator = new GamingShortcutsCoordinator({ input, settingsStore: { get: () => ({ gamingShortcuts: settings }) }, executor: { execute } as unknown as ActionExecutor, controllerIdForSource: (sourceId) => sourceId });
+    const result = vi.fn(); coordinator.on('result', result); coordinator.start();
+    input.emitInput(new Set(['ps']), 0, 'source-A'); input.emitInput(new Set(), 1, 'source-A'); vi.advanceTimersByTime(300); await flushQueue();
+    input.emit('disconnect', 'source-A'); resolveExecution({ ok: true }); await flushQueue();
+    expect(result).not.toHaveBeenCalled();
     coordinator.stop();
   });
 

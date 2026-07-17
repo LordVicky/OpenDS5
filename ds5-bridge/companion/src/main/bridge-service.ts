@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -92,6 +92,7 @@ import { CompanionDebugConfig } from './debug-config';
 import { HidDiscoveryClient } from './hid-discovery-client';
 import { SettingsStore, normalizeUiScalePercent, normalizeUiThemePreset } from './settings-store';
 import { openCompanionTransport, type CompanionTransport } from './companion-transport';
+import { normalizeControllerSysfsPath, resolveHidSourceIdentity } from './controller-source-identity';
 
 const POLL_INTERVAL_MS = 500;
 const SHORTCUT_POLL_INTERVAL_MS = 50;
@@ -3017,6 +3018,24 @@ export class BridgeService extends EventEmitter {
   async testClassicRumble(): Promise<BridgeSnapshot> {
     await this.sendCommand(COMMAND_ID.TEST_CLASSIC_RUMBLE, 0, { throwOnCommandError: false });
     return this.getSnapshot();
+  }
+
+  getGamingShortcutControllerId(): string | null {
+    return this.snapshot.status?.controllerConnected && this.snapshot.diagnostics.hidPath
+      ? this.snapshot.diagnostics.hidPath : null;
+  }
+
+  getGamingShortcutControllerIdForInputSource(sourceId: string | null): string | null {
+    if (!sourceId) return null;
+    const controllerId = this.getGamingShortcutControllerId();
+    if (!controllerId) return null;
+    if (process.platform === 'linux' && !controllerId.includes('/hidraw')) return null;
+    // The evdev and bridge nodes are uniquely associated when their sysfs
+    // physical controller nodes match. No path metadata means no target.
+    const hidSourceId = resolveHidSourceIdentity(controllerId) ?? (() => {
+      try { return normalizeControllerSysfsPath(realpathSync(controllerId)); } catch { return null; }
+    })();
+    return hidSourceId === sourceId ? controllerId : null;
   }
 
   async testAdaptiveTriggers(

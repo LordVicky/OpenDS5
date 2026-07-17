@@ -10434,6 +10434,7 @@ export function App() {
             active={activeControlTab === 'gaming-shortcuts'}
             profiles={triggerProfiles}
             activeProfileId={triggerProfileEngineStatus?.activeProfileId ?? null}
+            snapshot={snapshot}
           />
 
           <div

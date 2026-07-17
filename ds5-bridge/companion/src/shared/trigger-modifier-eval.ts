@@ -4,6 +4,8 @@ import type { ControllerButton } from './controller-input';
 export type { ControllerButton } from './controller-input';
 
 export interface ControllerInputState {
+  /** Physical evdev source identity; absent only for synthetic/legacy callers. */
+  sourceId?: string | null;
   timestampMs: number;
   l2: number;
   r2: number;

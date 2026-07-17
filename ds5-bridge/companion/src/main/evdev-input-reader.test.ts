@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -116,6 +116,88 @@ describe('EvdevInputReader', () => {
     reader.stop();
   });
 
+  it('merges auxiliary input without clearing the gamepad trigger or buttons', async () => {
+    const gamepad = new PassThrough();
+    const touchpad = new PassThrough();
+    const reader = new EvdevInputReader({
+      findNodes: () => ['/dev/input/gamepad', '/dev/input/touchpad'],
+      openStream: (devicePath) => devicePath.endsWith('touchpad') ? touchpad : gamepad,
+      sourceIdentity: () => 'physical-A'
+    });
+    reader.start();
+    const pending = collect(reader, 2);
+    gamepad.write(Buffer.concat([event(EV_ABS, ABS_RZ, 220), event(EV_KEY, BTN_TL, 1), event(EV_SYN, 0, 0)]));
+    touchpad.write(Buffer.concat([event(EV_KEY, 272, 1), event(EV_SYN, 0, 0)]));
+    const [, auxiliary] = await pending;
+    expect(auxiliary.sourceId).toBe('physical-A');
+    expect(auxiliary.r2).toBe(220);
+    expect(auxiliary.buttons).toEqual(new Set(['l1', 'touchpad']));
+    reader.stop();
+  });
+
+  it('removes an auxiliary node without disconnecting the physical source until the last node closes', () => {
+    const gamepad = new PassThrough();
+    const touchpad = new PassThrough();
+    const reader = new EvdevInputReader({
+      findNodes: () => ['/dev/input/gamepad', '/dev/input/touchpad'],
+      openStream: (devicePath) => devicePath.endsWith('touchpad') ? touchpad : gamepad,
+      sourceIdentity: () => 'physical-A'
+    });
+    const disconnect = vi.fn(); reader.on('disconnect', disconnect); reader.start();
+    touchpad.emit('close');
+    expect(disconnect).not.toHaveBeenCalled();
+    gamepad.emit('close');
+    expect(disconnect).toHaveBeenCalledOnce();
+    reader.stop();
+  });
+
+  it('keeps button and axis state isolated for simultaneous streams', async () => {
+    const streams = new Map<string, PassThrough>([['A', new PassThrough()], ['B', new PassThrough()]]);
+    const reader = new EvdevInputReader({
+      findNodes: () => ['/dev/input/A', '/dev/input/B'],
+      openStream: (devicePath) => streams.get(devicePath.endsWith('A') ? 'A' : 'B')!,
+      sourceIdentity: (devicePath) => devicePath.endsWith('A') ? 'source-A' : 'source-B'
+    });
+    reader.start();
+    const pending = collect(reader, 2);
+    streams.get('A')!.write(Buffer.concat([event(EV_ABS, ABS_RZ, 200), event(EV_KEY, BTN_TL, 1), event(EV_SYN, 0, 0)]));
+    streams.get('B')!.write(event(EV_SYN, 0, 0));
+    const states = await pending;
+    expect(states[0]).toMatchObject({ sourceId: 'source-A', r2: 200 });
+    expect(states[0].buttons).toEqual(new Set(['l1']));
+    expect(states[1]).toMatchObject({ sourceId: 'source-B', r2: 0 });
+    expect(states[1].buttons).toEqual(new Set());
+    reader.stop();
+  });
+
+  it.each(['close', 'end', 'error'] as const)('clears a removed gamepad contribution when its touchpad node remains (%s)', async (removal) => {
+    const gamepad = new PassThrough();
+    const touchpad = new PassThrough();
+    const reader = new EvdevInputReader({
+      findNodes: () => ['/dev/input/gamepad', '/dev/input/touchpad'],
+      openStream: (devicePath) => devicePath.endsWith('touchpad') ? touchpad : gamepad,
+      sourceIdentity: () => 'physical-A'
+    });
+    reader.start();
+    const pending = collect(reader, 2);
+    gamepad.write(Buffer.concat([
+      event(EV_ABS, ABS_RZ, 220),
+      event(EV_KEY, BTN_TL, 1),
+      event(EV_KEY, 0x13c, 1),
+      event(EV_KEY, 0x13d, 1),
+      event(EV_KEY, 0x130, 1),
+      event(EV_SYN, 0, 0)
+    ]));
+    if (removal === 'error') gamepad.emit('error', new Error('gamepad closed with error'));
+    else gamepad.emit(removal);
+    const [, cleared] = await pending;
+    expect(cleared.sourceId).toBe('physical-A');
+    expect(cleared.r2).toBe(0);
+    expect(cleared.buttons).toEqual(new Set());
+    touchpad.write(event(EV_SYN, 0, 0));
+    reader.stop();
+  });
+
   it('handles packets split across chunk boundaries', async () => {
     const stream = new PassThrough();
     const reader = new EvdevInputReader({ devicePath: '/fake', openStream: () => stream });
@@ -220,10 +302,12 @@ describe('findDualSenseEventNode', () => {
   // Values captured from real hardware: the DualSense exposes four evdev
   // nodes whose names all contain "DualSense" — only the gamepad has both
   // trigger axes (abs bits 2 and 5) and button (key) capabilities.
-  function addNode(entry: string, name: string, abs: string, key: string): void {
-    const capsDir = path.join(sysDir, entry, 'device', 'capabilities');
+  function addNode(entry: string, name: string, abs: string, key: string, physicalPath?: string): void {
+    const devicePath = path.join(sysDir, entry, 'device');
+    if (physicalPath) { mkdirSync(physicalPath, { recursive: true }); mkdirSync(path.dirname(devicePath), { recursive: true }); symlinkSync(physicalPath, devicePath); }
+    const capsDir = path.join(physicalPath ?? devicePath, 'capabilities');
     mkdirSync(capsDir, { recursive: true });
-    writeFileSync(path.join(sysDir, entry, 'device', 'name'), `${name}\n`);
+    writeFileSync(path.join(physicalPath ?? devicePath, 'name'), `${name}\n`);
     writeFileSync(path.join(capsDir, 'abs'), `${abs}\n`);
     writeFileSync(path.join(capsDir, 'key'), `${key}\n`);
   }
@@ -240,8 +324,8 @@ describe('findDualSenseEventNode', () => {
 
   it('returns the gamepad and touchpad nodes as one DualSense input group', () => {
     sysDir = mkdtempSync(path.join(tmpdir(), 'sys-input-'));
-    addNode('event29', 'Sony Interactive Entertainment DualSense Wireless Controller', '3003f', '7fdb000000000000 0 0 0 0');
-    addNode('event31', 'Sony Interactive Entertainment DualSense Wireless Controller Touchpad', '2608000 3', '2420 10000 0 0 0 0');
+    addNode('event29', 'Sony Interactive Entertainment DualSense Wireless Controller', '3003f', '7fdb000000000000 0 0 0 0', path.join(sysDir, 'physical', 'input', 'input29'));
+    addNode('event31', 'Sony Interactive Entertainment DualSense Wireless Controller Touchpad', '2608000 3', '2420 10000 0 0 0 0', path.join(sysDir, 'physical', 'input', 'input31'));
     expect(findDualSenseEventNodes(sysDir)).toEqual(['/dev/input/event29', '/dev/input/event31']);
   });
 
