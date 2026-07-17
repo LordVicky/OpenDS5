@@ -97,6 +97,7 @@ const POLL_INTERVAL_MS = 500;
 const SHORTCUT_POLL_INTERVAL_MS = 50;
 const SHORTCUT_POLL_ERROR_RETRY_MS = 250;
 const AUDIO_STATUS_READ_INTERVAL_MS = 500;
+const MIC_MUTE_RECONCILE_HOLDOFF_MS = 2000;
 const AUDIO_DEBUG_READ_INTERVAL_MS = 500;
 const TRIGGER_TRACE_READ_INTERVAL_MS = 250;
 const FEEDBACK_TRACE_READ_INTERVAL_MS = 250;
@@ -1396,6 +1397,10 @@ export class BridgeService extends EventEmitter {
   private systemAudioHapticsPassthroughActive = false;
   private commandQueue: Promise<unknown> = Promise.resolve();
   private lastAudioStatusReadAt = 0;
+  // Set when this app sends SET_MIC_MUTE. The status-poll micMuted reconcile
+  // is skipped inside this window: the polled status report may predate the
+  // command, and adopting it would snap the UI back to the stale state.
+  private lastMicMuteCommandAt = 0;
   private lastAudioDebugReadAt = 0;
   private lastTriggerTraceReadAt = 0;
   private lastFeedbackTraceReadAt = 0;
@@ -2433,6 +2438,7 @@ export class BridgeService extends EventEmitter {
   }
 
   async setMicMute(enabled: boolean): Promise<BridgeSnapshot> {
+    this.lastMicMuteCommandAt = Date.now();
     await this.sendCommand(COMMAND_ID.SET_MIC_MUTE, enabled ? 1 : 0, {
       expectSettingsRevisionChange: true
     });
@@ -2500,6 +2506,7 @@ export class BridgeService extends EventEmitter {
 
   async setDuplexMicEnabled(enabled: boolean): Promise<BridgeSnapshot> {
     const nextEnabled = enabled;
+    this.lastMicMuteCommandAt = Date.now();
     if (!nextEnabled) {
       await this.sendCommand(COMMAND_ID.SET_MIC_MUTE, 1, {
         expectSettingsRevisionChange: true
@@ -3620,6 +3627,7 @@ export class BridgeService extends EventEmitter {
       this.reappliedSessionKey === this.sessionKey
       && settings.duplexMicEnabled
       && settings.micMuted !== status.micMuted
+      && Date.now() - this.lastMicMuteCommandAt > MIC_MUTE_RECONCILE_HOLDOFF_MS
     ) {
       settings = this.settingsStore.update(customSettingUpdate({ micMuted: status.micMuted }));
     }
