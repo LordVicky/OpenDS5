@@ -2339,15 +2339,18 @@ void apply_companion_state(std::vector<VirtualPort> &ports,
     }
     if (port.mic_muted != settings.mic_muted) {
       // App-initiated mute toggle (SET_MIC_MUTE): actuate it on the
-      // controller the same way the physical mute button does.
-      port.mic_muted = settings.mic_muted;
+      // controller the same way the physical mute button does. Only commit
+      // the new state when the report went out, so a blocked HID queue
+      // leaves the mismatch in place and the next companion write retries.
       const auto mic_report = port.output_state.build_bt_mic_state_report(
-          port.audio_in_stream_active, port.mic_muted);
-      controller->backend->try_send_output_report(mic_report);
-      logger.log(vds::LogScope::Companion, vds::LogLevel::Info,
-                 port.path + " mic " +
-                     std::string(port.mic_muted ? "muted" : "unmuted") +
-                     " via companion");
+          port.audio_in_stream_active, settings.mic_muted);
+      if (controller->backend->try_send_output_report(mic_report)) {
+        port.mic_muted = settings.mic_muted;
+        logger.log(vds::LogScope::Companion, vds::LogLevel::Info,
+                   port.path + " mic " +
+                       std::string(port.mic_muted ? "muted" : "unmuted") +
+                       " via companion");
+      }
     }
     port.output_state.set_companion_overrides(overrides);
     try {
