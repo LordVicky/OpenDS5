@@ -587,6 +587,20 @@ void forward_bt_state_if_changed(VirtualPort &port,
   }
 }
 
+/*
+ * A mic-state report mutates the output state (mute LED, mic volume, power
+ * save). Any 0x31 state report queued while the HID queue was blocked was
+ * built from the pre-change state; if it flushed later it would re-assert
+ * the stale mute LED. Rebuild the queued report from the current state.
+ */
+void refresh_pending_bt_state(VirtualPort &port) {
+  if (!port.pending_bt_state) {
+    return;
+  }
+  port.pending_bt_state = port.output_state.state();
+  port.pending_bt_state_report = port.output_state.build_bt_state_report();
+}
+
 void ioctl_noarg(int fd, unsigned long request, const char *name) {
   if (::ioctl(fd, request) < 0) {
     throw std::runtime_error(std::string(name) +
@@ -700,6 +714,7 @@ void handle_frame(const vds_frame_header &header,
         const auto state_report = port.output_state.build_bt_mic_state_report(
             port.audio_in_stream_active, port.mic_muted);
         bt_backend->try_send_output_report(state_report);
+        refresh_pending_bt_state(port);
         const auto report =
             port.output_state.build_bt_mic_report(port.audio_in_stream_active);
         const bool sent = bt_backend->try_send_output_report(report);
@@ -1178,7 +1193,14 @@ bool handle_bt_input(VirtualPort &port, vds::BtL2capBackend &bt_backend,
       (headset_mic_changed && port.audio_in_stream_active)) {
     const auto report = port.output_state.build_bt_mic_state_report(
         port.audio_in_stream_active, port.mic_muted);
-    bt_backend.try_send_output_report(report);
+    if (bt_backend.try_send_output_report(report)) {
+      refresh_pending_bt_state(port);
+    } else {
+      // HID queue blocked: queue a full state report (it carries the mute
+      // LED and mic flags) so the flush loop delivers the change.
+      port.pending_bt_state = port.output_state.state();
+      port.pending_bt_state_report = port.output_state.build_bt_state_report();
+    }
     if (input_trace) {
       logger.log(vds::LogScope::InputControl, vds::LogLevel::Info,
                  port.path + " mic " +
@@ -2346,6 +2368,7 @@ void apply_companion_state(std::vector<VirtualPort> &ports,
           port.audio_in_stream_active, settings.mic_muted);
       if (controller->backend->try_send_output_report(mic_report)) {
         port.mic_muted = settings.mic_muted;
+        refresh_pending_bt_state(port);
         logger.log(vds::LogScope::Companion, vds::LogLevel::Info,
                    port.path + " mic " +
                        std::string(port.mic_muted ? "muted" : "unmuted") +
