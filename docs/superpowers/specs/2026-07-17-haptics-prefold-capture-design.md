@@ -110,3 +110,7 @@ exist; this makes the Linux helper honor what they send.
 - LFE weight (1.0) and the FC weight (0.5) get sanity-tuned during
   hardware verification; a Normal/Boosted toggle is a small follow-up if
   tuning shows a boost is worth exposing.
+- Tuning checkpoint: rears/sides are excluded from the summing by design
+  (bass management routes low end to LFE/fronts). During hardware tuning,
+  if a surround game demonstrably puts felt-worthy bass in RL/RR, add
+  them at a small weight (~0.3×) — a one-line change in the summing.
