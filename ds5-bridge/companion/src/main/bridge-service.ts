@@ -2442,6 +2442,9 @@ export class BridgeService extends EventEmitter {
     await this.sendCommand(COMMAND_ID.SET_MIC_MUTE, enabled ? 1 : 0, {
       expectSettingsRevisionChange: true
     });
+    if (this.settingsStore.get().micMuted !== enabled) {
+      this.emitMicMuteToast(enabled);
+    }
     this.snapshot.settings = this.settingsStore.update(customSettingUpdate({
       micMuted: enabled
     }));
@@ -2519,6 +2522,9 @@ export class BridgeService extends EventEmitter {
       await this.sendCommand(COMMAND_ID.SET_MIC_MUTE, 0, {
         expectSettingsRevisionChange: true
       });
+    }
+    if (this.settingsStore.get().micMuted !== !nextEnabled) {
+      this.emitMicMuteToast(!nextEnabled);
     }
     this.snapshot.settings = this.settingsStore.update(customSettingUpdate({
       duplexMicEnabled: nextEnabled,
@@ -2848,10 +2854,20 @@ export class BridgeService extends EventEmitter {
     await this.sleepController();
   }
 
+  private emitMicMuteToast(muted: boolean): void {
+    this.emit('toast', {
+      title: 'OpenDS5',
+      body: muted ? 'Microphone muted' : 'Microphone unmuted'
+    } satisfies BridgeToast);
+  }
+
   private async applyControllerMicMuteEvent(micMuted: boolean): Promise<void> {
     const settings = this.settingsStore.get();
     if (!settings.duplexMicEnabled || settings.muteButtonMode !== 'normal') {
       return;
+    }
+    if (settings.micMuted !== micMuted) {
+      this.emitMicMuteToast(micMuted);
     }
     this.snapshot.settings = this.settingsStore.update(customSettingUpdate({ micMuted }));
     if (this.snapshot.status) {
@@ -3630,6 +3646,7 @@ export class BridgeService extends EventEmitter {
       && Date.now() - this.lastMicMuteCommandAt > MIC_MUTE_RECONCILE_HOLDOFF_MS
     ) {
       settings = this.settingsStore.update(customSettingUpdate({ micMuted: status.micMuted }));
+      this.emitMicMuteToast(status.micMuted);
     }
     const state = transition ? 'transitioning' : 'connected';
 
