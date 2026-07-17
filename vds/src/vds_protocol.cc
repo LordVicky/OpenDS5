@@ -1003,8 +1003,18 @@ bool DsOutputState::apply_usb_output_report(
     copy_state_bytes(state_, update, kOutputAudioControl2Offset, 1);
   }
   if (decoded.allow_audio_mute) {
+    // The host-side hid-playstation driver toggles its own mic-mute state on
+    // every mute-button press, but it cannot see companion-initiated mute
+    // changes, so its phase drifts from ours. The daemon (companion + button
+    // handling) owns mic mute: take the host's other power-save bits but
+    // preserve our mic-mute bit.
     state_[kOutputFlag1Offset] |= kOutputFlag1PowerSaveControlEnable;
-    power_save_control_ = update[kOutputPowerSaveControlOffset];
+    const std::uint8_t preserved_mic_mute =
+        state_[kOutputPowerSaveControlOffset] & kOutputPowerSaveMicMute;
+    power_save_control_ = static_cast<std::uint8_t>(
+        (update[kOutputPowerSaveControlOffset] &
+         static_cast<std::uint8_t>(~kOutputPowerSaveMicMute)) |
+        preserved_mic_mute);
     state_[kOutputPowerSaveControlOffset] = power_save_control_;
   }
   if (decoded.allow_speaker_volume && decoded.volume_speaker != 0) {
@@ -1015,11 +1025,9 @@ bool DsOutputState::apply_usb_output_report(
         audio_control_with_output_path(audio_control_, kOutputPathSpeaker);
     state_[kOutputAudioControl2Offset] = audio_control2_;
   }
-  if (decoded.allow_mute_light) {
-    copy_state_bytes(state_, update,
-                     offsetof(vds_set_state_data, mute_light_mode),
-                     sizeof(decoded.mute_light_mode));
-  }
+  // decoded.allow_mute_light is deliberately ignored: the mute LED mirrors
+  // the daemon-owned mic-mute state (build_bt_mic_state_report), and the
+  // host driver's out-of-phase toggles would otherwise override it.
   if (decoded.allow_right_trigger_ffb) {
     copy_state_bytes(state_, update,
                      offsetof(vds_set_state_data, right_trigger_ffb),
