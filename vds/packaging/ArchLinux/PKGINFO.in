@@ -21,6 +21,7 @@ optdepend = base-devel
 optdepend = clang
 optdepend = linux-headers
 optdepend = linux-lts-headers
+optdepend = logrotate
 optdepend = pipewire
 optdepend = systemd
 optdepend = wireplumber

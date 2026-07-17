@@ -22,17 +22,36 @@ enum class LogLevel {
   Error,
 };
 
+enum class LogScope {
+  Bluetooth,
+  Companion,
+  Config,
+  Control,
+  Daemon,
+  Hid,
+  InputAudio,
+  InputControl,
+  Output,
+  Port,
+  Usb,
+};
+
 class Logger {
 public:
   explicit Logger(const std::string &path);
 
-  void log(std::string_view scope, LogLevel level, std::string_view message);
+  void reopen();
+  void log(LogScope scope, LogLevel level, std::string_view message);
 
 private:
+  std::ofstream open_file() const;
+
   std::mutex mutex_;
+  std::string path_;
   std::ofstream file_;
 };
 
 const char *log_level_name(LogLevel level);
+const char *log_scope_name(LogScope scope);
 
 } // namespace vds

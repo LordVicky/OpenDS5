@@ -5,18 +5,9 @@
 
 #include <linux/types.h>
 
-#ifndef USB_DT_HID
-#define USB_DT_HID 0x21
-#endif
-#ifndef USB_DT_REPORT
-#define USB_DT_REPORT 0x22
-#endif
-
-#define VDS_CONTROLLER_NO_INTERFACE 0xff
-#define VDS_CONTROLLER_NO_ENDPOINT 0xff
 #define VDS_CONTROLLER_NO_AUDIO_FEATURE 0xff
+
 #define VDS_CONTROLLER_HID_PACKET_SIZE 64
-#define VDS_CONTROLLER_AUDIO_FEATURE_COUNT 2
 
 enum vds_controller_audio_feature {
 	VDS_CONTROLLER_AUDIO_FEATURE_SPEAKER = 0,

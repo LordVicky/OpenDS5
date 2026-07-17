@@ -133,6 +133,8 @@ install -Dm0755 "${repo_root}/install-service.sh" \
 	"${package_root}/usr/share/vds/install-service.sh"
 install -Dm0755 "${repo_root}/uninstall-service.sh" \
 	"${package_root}/usr/share/vds/uninstall-service.sh"
+install -Dm0644 "${repo_root}/logrotate-vds.conf" \
+	"${package_root}/etc/logrotate.d/vds"
 
 install -d "$dkms_source_dir/include"
 install -m0644 "${repo_root}/module/Makefile" \

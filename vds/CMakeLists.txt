@@ -58,7 +58,9 @@ target_include_directories(jsonl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 if(WIN32)
   add_library(vds_win32 OBJECT src/platform/win32/vds_win32.cc)
-  target_include_directories(vds_win32 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_include_directories(
+    vds_win32 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+                     ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
   add_library(vds_io OBJECT src/platform/win32/vds_io.cc)
   target_include_directories(vds_io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include

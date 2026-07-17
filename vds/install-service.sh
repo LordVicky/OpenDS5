@@ -60,10 +60,10 @@ fi
 
 systemctl daemon-reload
 
-if [ "$enable_service" -eq 1 ]; then
+if [ "$enable_service" -eq 1 ] && [ "$start_service" -eq 1 ]; then
+	systemctl enable --now "$service_name"
+elif [ "$enable_service" -eq 1 ]; then
 	systemctl enable "$service_name"
-fi
-
-if [ "$start_service" -eq 1 ]; then
+elif [ "$start_service" -eq 1 ]; then
 	systemctl start "$service_name"
 fi

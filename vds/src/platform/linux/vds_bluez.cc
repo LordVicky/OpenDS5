@@ -55,8 +55,6 @@ public:
     return ::dbus_error_has_name(&error_, name) != 0;
   }
 
-  bool is_set() const { return ::dbus_error_is_set(&error_) != 0; }
-
   std::string message() const {
     if (error_.message != nullptr) {
       return error_.message;

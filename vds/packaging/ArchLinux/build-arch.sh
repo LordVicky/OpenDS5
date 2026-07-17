@@ -164,6 +164,8 @@ install -Dm0755 "${repo_root}/install-service.sh" \
 	"${package_root}/usr/share/vds/install-service.sh"
 install -Dm0755 "${repo_root}/uninstall-service.sh" \
 	"${package_root}/usr/share/vds/uninstall-service.sh"
+install -Dm0644 "${repo_root}/logrotate-vds.conf" \
+	"${package_root}/etc/logrotate.d/vds"
 
 install_dkms_sources "$dkms_source_dir"
 
@@ -195,8 +197,8 @@ substitute_template "${script_dir}/vds.install.in" "${package_root}/.INSTALL"
 		. | gzip -c >"$mtree_tmp"
 	mv "$mtree_tmp" .MTREE
 	trap - EXIT
-	bsdtar -cf - .PKGINFO .BUILDINFO .INSTALL .MTREE usr |
-		zstd -T0 -q -c >"$package_path"
-)
+		bsdtar -cf - .PKGINFO .BUILDINFO .INSTALL .MTREE etc usr |
+			zstd -T0 -q -c >"$package_path"
+	)
 
 echo "$package_path"

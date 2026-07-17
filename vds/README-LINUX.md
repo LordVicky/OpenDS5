@@ -212,18 +212,10 @@ Set the `pro-audio` profile:
 wpctl set-profile <device-id> <pro-audio-profile-index>
 ```
 
-> [!WARNING]
->
-> The microphone/source node is disabled on purpose. vDS currently supports
-> controller speaker and haptics output, but not microphone input. If
-> WirePlumber, games, or tools such as `pavucontrol` open the capture endpoint,
-> the extra USB audio traffic can disrupt controller speaker and haptics output,
-> as well as main audio playback.
-
 After setting the `pro-audio` profile, install the included WirePlumber rule. It
 gives the virtual controller stable display names, sets the output node to 4
-channels, disables channelmix normalization, disables the unsupported microphone
-source node, and lowers its priority:
+channels, disables channelmix normalization, and gives the microphone source a
+low priority:
 
 ```sh
 mkdir -p ~/.config/wireplumber/wireplumber.conf.d

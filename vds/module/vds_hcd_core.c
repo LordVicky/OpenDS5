@@ -12,6 +12,7 @@
 #include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
+#include <linux/hrtimer.h>
 #include <linux/kthread.h>
 #include <linux/ktime.h>
 #include <linux/list.h>
@@ -20,6 +21,7 @@
 #include <linux/platform_device.h>
 #include <linux/poll.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/uaccess.h>
 #include <linux/usb.h>
 #include <linux/usb/ch11.h>
@@ -33,6 +35,12 @@
 #endif
 
 #define VDS_HCD_DRIVER_NAME "vds_hcd"
+#define VDS_AUDIO_IN_BYTES_PER_MS	192
+#define VDS_AUDIO_OUT_BYTES_PER_MS	384
+#define VDS_AUDIO_IN_QUEUE_MS		100
+#define VDS_AUDIO_IN_QUEUE_MAX_BYTES \
+	(VDS_AUDIO_IN_BYTES_PER_MS * VDS_AUDIO_IN_QUEUE_MS)
+
 static unsigned int max_port = VDS_MAX_PORT_COUNT;
 module_param(max_port, uint, 0444);
 MODULE_PARM_DESC(max_port, "Number of virtual DualSense ports to create (1-4)");
@@ -56,6 +64,13 @@ struct vds_input_packet {
 	u8 payload[VDS_CONTROLLER_HID_PACKET_SIZE];
 };
 
+struct vds_audio_packet {
+	struct list_head list;
+	u32 offset;
+	u32 length;
+	u8 payload[VDS_FRAME_MAX_PAYLOAD];
+};
+
 enum vds_urb_context_state {
 	VDS_URB_ACTIVE = 0,
 	VDS_URB_PENDING_HID_IN,
@@ -72,6 +87,7 @@ struct vds_urb_context {
 	u8 feature_report_id;
 	enum vds_urb_context_state state;
 	bool deliver_iso_out;
+	bool deliver_iso_in;
 };
 
 struct vds_hcd_dev {
@@ -87,6 +103,7 @@ struct vds_hcd_dev {
 	struct list_head pending_feature_get;
 	struct list_head completed_urbs;
 	struct list_head input_packets;
+	struct list_head audio_in_packets;
 	struct task_struct *giveback_thread;
 	u64 frames_to_user;
 	u64 frames_from_user;
@@ -101,6 +118,8 @@ struct vds_hcd_dev {
 	bool opened;
 	unsigned int port_index;
 	u32 input_packet_count;
+	u32 audio_in_packet_count;
+	u32 audio_in_queued_bytes;
 	struct vds_usb_device usb;
 };
 
@@ -394,6 +413,7 @@ static void vds_flush_buffered_frames_locked(struct vds_hcd_dev *dev)
 {
 	struct vds_event *event, *event_tmp;
 	struct vds_input_packet *packet, *packet_tmp;
+	struct vds_audio_packet *audio, *audio_tmp;
 
 	list_for_each_entry_safe(packet, packet_tmp, &dev->input_packets,
 				 list) {
@@ -401,6 +421,14 @@ static void vds_flush_buffered_frames_locked(struct vds_hcd_dev *dev)
 		kfree(packet);
 	}
 	dev->input_packet_count = 0;
+
+	list_for_each_entry_safe(audio, audio_tmp, &dev->audio_in_packets,
+				 list) {
+		list_del(&audio->list);
+		kfree(audio);
+	}
+	dev->audio_in_packet_count = 0;
+	dev->audio_in_queued_bytes = 0;
 
 	list_for_each_entry_safe(event, event_tmp, &dev->events, list) {
 		list_del(&event->list);
@@ -488,6 +516,76 @@ static int vds_iso_out_urb(struct vds_hcd_dev *dev, struct urb *urb)
 	return 0;
 }
 
+static void vds_fill_audio_in_locked(struct vds_hcd_dev *dev, u8 *data,
+				     u32 length)
+{
+	u32 copied = 0;
+
+	while (copied < length && !list_empty(&dev->audio_in_packets)) {
+		struct vds_audio_packet *packet;
+		u32 available;
+		u32 copy_len;
+
+		packet = list_first_entry(&dev->audio_in_packets,
+					  struct vds_audio_packet, list);
+		available = packet->length - packet->offset;
+		copy_len = min(length - copied, available);
+		memcpy(data + copied, packet->payload + packet->offset,
+		       copy_len);
+		copied += copy_len;
+		packet->offset += copy_len;
+		if (dev->audio_in_queued_bytes > copy_len)
+			dev->audio_in_queued_bytes -= copy_len;
+		else
+			dev->audio_in_queued_bytes = 0;
+		if (packet->offset == packet->length) {
+			list_del(&packet->list);
+			dev->audio_in_packet_count--;
+			kfree(packet);
+		}
+	}
+
+	if (copied < length)
+		memset(data + copied, 0, length - copied);
+}
+
+static int vds_iso_in_urb(struct vds_hcd_dev *dev, struct urb *urb)
+{
+	unsigned long flags;
+	u32 total = 0;
+	int i;
+
+	if (!urb->transfer_buffer)
+		return -EPIPE;
+
+	spin_lock_irqsave(&dev->lock, flags);
+	urb->error_count = 0;
+	for (i = 0; i < urb->number_of_packets; i++) {
+		struct usb_iso_packet_descriptor *desc =
+			&urb->iso_frame_desc[i];
+		u8 *data;
+
+		if (desc->offset > urb->transfer_buffer_length ||
+		    desc->length > urb->transfer_buffer_length - desc->offset) {
+			desc->status = -EOVERFLOW;
+			desc->actual_length = 0;
+			urb->error_count++;
+			continue;
+		}
+
+		data = (u8 *)urb->transfer_buffer + desc->offset;
+		desc->actual_length =
+			min_t(u32, desc->length, VDS_AUDIO_IN_BYTES_PER_MS);
+		vds_fill_audio_in_locked(dev, data, desc->actual_length);
+		desc->status = 0;
+		total += desc->actual_length;
+	}
+	spin_unlock_irqrestore(&dev->lock, flags);
+
+	urb->actual_length = total;
+	return 0;
+}
+
 static int vds_giveback_thread(void *data)
 {
 	struct vds_hcd_dev *dev = data;
@@ -516,15 +614,17 @@ static int vds_giveback_thread(void *data)
 			ktime_t now = ktime_get();
 			s64 delay_us = ktime_us_delta(context->ready_time, now);
 
-			/*
-			 * ISO audio URBs must complete at roughly realtime
-			 * pace. Sleep in short chunks so module removal is not
-			 * delayed by a long prequeued audio burst.
-			 */
 			if (delay_us > 0) {
+				ktime_t expires = context->ready_time;
+
 				spin_unlock_irqrestore(&dev->lock, flags);
-				usleep_range(min_t(s64, delay_us, 5000),
-					     min_t(s64, delay_us + 500, 5500));
+				set_current_state(TASK_INTERRUPTIBLE);
+				if (!kthread_should_stop())
+					schedule_hrtimeout_range_clock(&expires,
+								       50 * NSEC_PER_USEC,
+								       HRTIMER_MODE_ABS,
+								       CLOCK_MONOTONIC);
+				__set_current_state(TASK_RUNNING);
 				continue;
 			}
 		}
@@ -538,6 +638,8 @@ static int vds_giveback_thread(void *data)
 
 		if (!status && context->deliver_iso_out)
 			status = vds_iso_out_urb(dev, urb);
+		if (!status && context->deliver_iso_in)
+			status = vds_iso_in_urb(dev, urb);
 		usb_hcd_giveback_urb(dev->hcd, urb, status);
 		kfree(context);
 	}
@@ -701,6 +803,57 @@ static int vds_write_feature_reply(struct vds_hcd_dev *dev, const u8 *payload,
 	return 0;
 }
 
+static int vds_write_audio_in_frame(struct vds_hcd_dev *dev, const u8 *payload,
+				    u32 length)
+{
+	struct vds_audio_packet *packet, *oldest;
+	unsigned long flags;
+	int ret = 0;
+
+	if (!length)
+		return -EINVAL;
+
+	packet = kmalloc_obj(*packet, GFP_KERNEL);
+	if (!packet)
+		return -ENOMEM;
+
+	packet->offset = 0;
+	packet->length = length;
+	memcpy(packet->payload, payload, length);
+
+	spin_lock_irqsave(&dev->lock, flags);
+	if (dev->stopping) {
+		ret = -ESHUTDOWN;
+	} else {
+		while (!list_empty(&dev->audio_in_packets) &&
+		       dev->audio_in_queued_bytes + length >
+			       VDS_AUDIO_IN_QUEUE_MAX_BYTES) {
+			u32 available;
+
+			oldest = list_first_entry(&dev->audio_in_packets,
+						  struct vds_audio_packet,
+						  list);
+			available = oldest->length - oldest->offset;
+			list_del(&oldest->list);
+			dev->audio_in_packet_count--;
+			if (dev->audio_in_queued_bytes > available)
+				dev->audio_in_queued_bytes -= available;
+			else
+				dev->audio_in_queued_bytes = 0;
+			kfree(oldest);
+		}
+		list_add_tail(&packet->list, &dev->audio_in_packets);
+		dev->audio_in_packet_count++;
+		dev->audio_in_queued_bytes += length;
+		dev->frames_from_user++;
+		packet = NULL;
+	}
+	spin_unlock_irqrestore(&dev->lock, flags);
+
+	kfree(packet);
+	return ret;
+}
+
 static ssize_t vds_write(struct file *file, const char __user *buf,
 			 size_t count, loff_t *ppos)
 {
@@ -723,7 +876,8 @@ static ssize_t vds_write(struct file *file, const char __user *buf,
 	if (header.flags)
 		return -EINVAL;
 	if (header.type != VDS_FRAME_USB_HID_IN &&
-	    header.type != VDS_FRAME_USB_FEATURE_REPLY)
+	    header.type != VDS_FRAME_USB_FEATURE_REPLY &&
+	    header.type != VDS_FRAME_USB_AUDIO_IN)
 		return -EINVAL;
 
 	if (header.length) {
@@ -736,6 +890,8 @@ static ssize_t vds_write(struct file *file, const char __user *buf,
 		ret = vds_write_input_frame(dev, payload, header.length);
 	else if (header.type == VDS_FRAME_USB_FEATURE_REPLY)
 		ret = vds_write_feature_reply(dev, payload, header.length);
+	else if (header.type == VDS_FRAME_USB_AUDIO_IN)
+		ret = vds_write_audio_in_frame(dev, payload, header.length);
 
 	kfree(payload);
 	return ret ? ret : count;
@@ -793,12 +949,14 @@ static void vds_set_connection(struct vds_hcd_dev *dev, bool connected)
 static long vds_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct vds_hcd_dev *dev = vds_from_file(file);
+	struct vds_driver_info driver_info;
 	struct vds_profile_config profile;
 	struct vds_status status;
 	unsigned long flags;
 	int ret;
 
-	if (cmd != VDS_IOC_GET_STATUS && vds_is_stopping(dev))
+	if (cmd != VDS_IOC_GET_STATUS && cmd != VDS_IOC_GET_DRIVER_INFO &&
+	    vds_is_stopping(dev))
 		return -ESHUTDOWN;
 
 	switch (cmd) {
@@ -811,6 +969,16 @@ static long vds_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		status.frames_from_user = dev->frames_from_user;
 		spin_unlock_irqrestore(&dev->lock, flags);
 		if (copy_to_user((void __user *)arg, &status, sizeof(status)))
+			return -EFAULT;
+		return 0;
+	case VDS_IOC_GET_DRIVER_INFO:
+		memset(&driver_info, 0, sizeof(driver_info));
+		driver_info.version = VDS_DRIVER_INFO_VERSION;
+		driver_info.size = sizeof(driver_info);
+		strscpy(driver_info.driver_version, VDS_VERSION,
+			sizeof(driver_info.driver_version));
+		if (copy_to_user((void __user *)arg, &driver_info,
+				 sizeof(driver_info)))
 			return -EFAULT;
 		return 0;
 	case VDS_IOC_SET_PROFILE:
@@ -895,7 +1063,7 @@ static const struct file_operations vds_fops = {
 
 static void vds_schedule_iso_giveback(struct vds_hcd_dev *dev,
 				      struct vds_urb_context *context,
-				      const struct urb *urb, bool input)
+				      struct urb *urb, bool input)
 {
 	unsigned int packets = max_t(unsigned int, urb->number_of_packets, 1);
 	unsigned int duration_us = packets * 1000U;
@@ -906,8 +1074,13 @@ static void vds_schedule_iso_giveback(struct vds_hcd_dev *dev,
 	unsigned long flags;
 	int i;
 
-	for (i = 0; i < urb->number_of_packets; i++)
-		total += urb->iso_frame_desc[i].length;
+	for (i = 0; i < urb->number_of_packets; i++) {
+		u32 length = urb->iso_frame_desc[i].length;
+
+		if (input)
+			length = min_t(u32, length, VDS_AUDIO_IN_BYTES_PER_MS);
+		total += length;
+	}
 	if (total) {
 		/*
 		 * ALSA may submit a single descriptor containing multiple
@@ -917,7 +1090,8 @@ static void vds_schedule_iso_giveback(struct vds_hcd_dev *dev,
 		 * or drops. Both virtual UAC1 streams are 48 kHz S16_LE:
 		 * OUT is 4ch (384 bytes/ms), IN is 2ch (192 bytes/ms).
 		 */
-		u32 bytes_per_ms = input ? 192 : 384;
+		u32 bytes_per_ms = input ? VDS_AUDIO_IN_BYTES_PER_MS :
+					   VDS_AUDIO_OUT_BYTES_PER_MS;
 		u64 duration_by_bytes;
 
 		duration_by_bytes =
@@ -930,6 +1104,7 @@ static void vds_schedule_iso_giveback(struct vds_hcd_dev *dev,
 	spin_lock_irqsave(&dev->lock, flags);
 	next_ready = input ? &dev->next_iso_in_ready : &dev->next_iso_out_ready;
 	base = ktime_after(*next_ready, now) ? *next_ready : now;
+	urb->start_frame = (int)ktime_to_ms(base);
 	/*
 	 * Serialize ISO completion by the amount of PCM carried by each URB so
 	 * the host audio stack observes a realtime USB sink/source.
@@ -937,39 +1112,6 @@ static void vds_schedule_iso_giveback(struct vds_hcd_dev *dev,
 	context->ready_time = ktime_add_us(base, duration_us);
 	*next_ready = context->ready_time;
 	spin_unlock_irqrestore(&dev->lock, flags);
-}
-
-static int vds_iso_in_urb(struct urb *urb)
-{
-	u32 total = 0;
-	int i;
-
-	if (!urb->transfer_buffer)
-		return -EPIPE;
-
-	urb->error_count = 0;
-	for (i = 0; i < urb->number_of_packets; i++) {
-		struct usb_iso_packet_descriptor *desc =
-			&urb->iso_frame_desc[i];
-		u8 *data;
-
-		if (desc->offset > urb->transfer_buffer_length ||
-		    desc->length > urb->transfer_buffer_length - desc->offset) {
-			desc->status = -EOVERFLOW;
-			desc->actual_length = 0;
-			urb->error_count++;
-			continue;
-		}
-
-		data = (u8 *)urb->transfer_buffer + desc->offset;
-		memset(data, 0, desc->length);
-		desc->status = 0;
-		desc->actual_length = desc->length;
-		total += desc->actual_length;
-	}
-
-	urb->actual_length = total;
-	return 0;
 }
 
 static int vds_interrupt_out_urb(struct vds_hcd_dev *dev, struct urb *urb)
@@ -1036,6 +1178,7 @@ static int vds_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 	context->feature_report_id = 0;
 	context->state = VDS_URB_ACTIVE;
 	context->deliver_iso_out = false;
+	context->deliver_iso_in = false;
 	INIT_LIST_HEAD(&context->list);
 
 	spin_lock_irqsave(&dev->lock, flags);
@@ -1085,8 +1228,13 @@ static int vds_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 			}
 		} else if (usb_urb_dir_in(urb) &&
 			   vds_usb_device_is_audio_in(&dev->usb, endpoint)) {
-			ret = vds_iso_in_urb(urb);
-			timed_iso = ret == 0;
+			if (!urb->transfer_buffer) {
+				ret = -EPIPE;
+			} else {
+				ret = 0;
+				timed_iso = true;
+				context->deliver_iso_in = true;
+			}
 			iso_input = true;
 		} else {
 			ret = -EPIPE;
@@ -1120,12 +1268,12 @@ static int vds_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 				context->status = status;
 				context->ready_time = 0;
 				wake_giveback = true;
-				} else {
-					wake_giveback =
-						vds_queue_urb_giveback_locked(dev,
-									      context,
-									      status);
-				}
+			} else {
+				wake_giveback =
+					vds_queue_urb_giveback_locked(dev,
+								      context,
+								      status);
+			}
 		}
 	}
 	spin_unlock_irqrestore(&dev->lock, flags);
@@ -1354,6 +1502,7 @@ static int vds_hcd_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&dev->pending_feature_get);
 	INIT_LIST_HEAD(&dev->completed_urbs);
 	INIT_LIST_HEAD(&dev->input_packets);
+	INIT_LIST_HEAD(&dev->audio_in_packets);
 
 	dev->misc.minor = MISC_DYNAMIC_MINOR;
 	snprintf(dev->misc_name, sizeof(dev->misc_name), "vds%u",
