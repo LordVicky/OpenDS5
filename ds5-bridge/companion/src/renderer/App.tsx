@@ -3168,8 +3168,12 @@ export function App() {
   const openGameProfileEntry = openGameProfileId
     ? gameProfiles.find((profile) => profile.id === openGameProfileId) ?? null
     : null;
+  // A manually pinned trigger profile (matchedBy 'pin') is an override of the
+  // trigger engine only — it must not present the game profile card as the
+  // active game.
   const activeGameProfile = triggerProfileEngineStatus
     && triggerProfileEngineStatus.enabled
+    && triggerProfileEngineStatus.matchedBy === 'process'
     && triggerProfileEngineStatus.activeProfileId !== DEFAULT_PROFILE_ID
     ? gameProfiles.find((profile) => profile.id === triggerProfileEngineStatus.activeProfileId) ?? null
     : null;
