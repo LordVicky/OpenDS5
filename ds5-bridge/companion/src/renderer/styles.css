@@ -2584,8 +2584,13 @@ button {
   align-items: flex-start;
 }
 
+.gaming-preview-heading > div {
+  min-width: 0;
+}
+
 .gaming-preview-heading h3 {
   font-size: 1rem;
+  overflow-wrap: anywhere;
 }
 
 .gaming-controller-state {
@@ -2641,6 +2646,7 @@ button {
 
 .gaming-ps-chip span { color: var(--accent-color); font-size: .68rem; font-weight: 700; }
 .gaming-ps-chip small { color: var(--text-muted); }
+.gaming-ps-chip strong { overflow-wrap: anywhere; }
 
 .gaming-preview-bindings {
   display: grid;
@@ -2685,6 +2691,7 @@ button {
 .gaming-shortcuts-save-status,
 .gaming-provider-status span,
 .muted-copy {
+  min-width: 0;
   color: var(--text-muted);
   font-size: 0.86rem;
 }

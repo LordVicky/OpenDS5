@@ -166,6 +166,12 @@ function scheduleWindowStateSave(): void {
   }, 500);
 }
 
+function repaintWindowAfterResize(window: BrowserWindow): void {
+  if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+    window.webContents.invalidate();
+  }
+}
+
 async function createTrayIcon(): Promise<Electron.NativeImage> {
   const icon = createImageAsset(APP_TRAY_ICON_ICO);
   if (!icon.isEmpty()) {
@@ -509,7 +515,13 @@ function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {
   });
   window.on('will-move', () => bridgeService?.pausePollingFor(1200));
   window.on('move', () => bridgeService?.pausePollingFor(700));
-  window.on('resize', scheduleWindowStateSave);
+  window.on('resize', () => {
+    scheduleWindowStateSave();
+    // Frameless windows can retain undamaged transparent compositor regions
+    // during native resize on Linux/Wayland. Force the renderer to repaint the
+    // full surface so the desktop cannot show through stale regions.
+    repaintWindowAfterResize(window);
+  });
   window.on('move', scheduleWindowStateSave);
   window.on('maximize', scheduleWindowStateSave);
   window.on('unmaximize', scheduleWindowStateSave);

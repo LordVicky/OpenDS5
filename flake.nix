@@ -66,6 +66,35 @@
             self.packages.${pkgs.stdenv.hostPlatform.system}.vds
             self.packages.${pkgs.stdenv.hostPlatform.system}.opends5
           ];
+
+          packages = with pkgs; [
+            fish
+            nodejs
+            git
+            ripgrep
+            fd
+            jq
+            tree
+            pkg-config
+            cmake
+            ninja
+            gnumake
+            gcc
+            chromium
+            evtest
+            wayland-utils
+            pipewire
+            wireplumber
+            gpu-screen-recorder
+          ];
+
+          shellHook = ''
+            export OPENDS5_REPO_ROOT="''${OPENDS5_REPO_ROOT:-$PWD}"
+            export npm_config_update_notifier=false
+            if [[ $- == *i* && "$(${pkgs.coreutils}/bin/readlink /proc/$$/exe)" != */fish ]]; then
+              exec ${pkgs.fish}/bin/fish
+            fi
+          '';
         };
       }
     );

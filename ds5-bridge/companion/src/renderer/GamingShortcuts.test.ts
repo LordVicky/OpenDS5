@@ -7,9 +7,9 @@ const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 describe('Gaming Shortcuts page', () => {
   it('keeps the renderer preview static and binds only connection state from the existing snapshot', () => {
     expect(component).toContain('snapshot?: BridgeSnapshot | null');
-    expect(component).toContain('Static controller preview');
-    expect(component).toContain('Live hardware illumination is unavailable here');
-    expect(component).toContain('hardware output is never sent by this preview');
+    expect(component).toContain('aria-label="Controller preview"');
+    expect(component).not.toContain('Static controller preview');
+    expect(component).not.toContain('Live hardware illumination is unavailable here');
     expect(component).toContain('controllerConnected');
     expect(component).toContain('controllerImage');
     expect(component).not.toContain('Live preview');
@@ -40,5 +40,13 @@ describe('Gaming Shortcuts page', () => {
     expect(css).toContain('.gaming-shortcuts-preview {');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('.gaming-controller-stage img');
+    expect(css).toContain('.gaming-preview-heading > div');
+    expect(css).toContain('overflow-wrap: anywhere');
+  });
+
+  it('keeps compositor details out of the provider status card', () => {
+    expect(component).toContain('aria-label="Provider status"');
+    expect(component).not.toContain('capabilities?.environment');
+    expect(component).not.toContain('Environment and provider status');
   });
 });

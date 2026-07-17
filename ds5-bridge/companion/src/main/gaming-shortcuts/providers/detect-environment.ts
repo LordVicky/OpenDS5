@@ -56,6 +56,7 @@ export function detectProviderCapabilities(options: EnvironmentProbe = {}): Prov
   const environment = detectDesktopEnvironment({ env, hasExecutable });
 
   const screenshot: string[] = [];
+  if (environment === 'hyprland' && hasExecutable('hyprshot')) screenshot.push('hyprshot');
   if (hasExecutable('grim')) screenshot.push('grim');
   if (hasExecutable('gnome-screenshot')) screenshot.push('gnome-screenshot');
   if (hasExecutable('spectacle')) screenshot.push('spectacle');

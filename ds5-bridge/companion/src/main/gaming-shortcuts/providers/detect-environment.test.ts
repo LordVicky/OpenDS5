@@ -30,4 +30,15 @@ describe('detectProviderCapabilities', () => {
       keyboard: []
     });
   });
+
+  it('reports hyprshot on Hyprland when it is installed', () => {
+    const available = new Set(['hyprshot']);
+    expect(detectProviderCapabilities({
+      env: { HYPRLAND_INSTANCE_SIGNATURE: '1', WAYLAND_DISPLAY: 'wayland-1' },
+      hasExecutable: (name) => available.has(name)
+    })).toMatchObject({
+      environment: 'hyprland',
+      screenshot: ['hyprshot']
+    });
+  });
 });
