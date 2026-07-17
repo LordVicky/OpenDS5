@@ -194,25 +194,18 @@ async function runRenderLoopbackHaptics(args) {
   const target = nodeProps(sink)['node.name'];
   const processor = new HapticsProcessor(readHapticsConfig(args));
 
+  const appSource = {
+    processId: Number(argValue(args, '--haptics-app-process-id') ?? 0),
+    processPath: argValue(args, '--haptics-app-process-path'),
+    executableName: argValue(args, '--haptics-app-executable')
+  };
+  const hasAppSource = appSource.processId > 0 || Boolean(appSource.processPath)
+    || Boolean(appSource.executableName);
+
   // Optional capture pin: monitor a specific output device instead of
   // following the system default sink.
   const captureDevice = argValue(args, '--haptics-output-device');
-  const record = spawn('pw-record', [
-    '--raw',
-    '-P', '{ stream.capture.sink = true }',
-    ...(captureDevice ? ['--target', captureDevice] : []),
-    // Capture four discrete channels and let the processor use the fronts
-    // only. When the headset is plugged in, the default sink can be the
-    // bridge's own 4-channel device; any narrower capture goes through
-    // PipeWire's channel mixer, which folds the rear haptics channels we
-    // play back into the fronts (constant buzz / self-oscillation). With a
-    // matching 4ch format no mixing happens; stereo sinks upmix with
-    // silent rears, leaving the fronts intact either way.
-    '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
-    '--channel-map', 'FL,FR,RL,RR',
-    '--latency', '256',
-    '-'
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
   const play = spawn('pw-play', [
     '--raw',
     '--target', target,
@@ -221,41 +214,122 @@ async function runRenderLoopbackHaptics(args) {
     '--latency', '256',
     '-'
   ], { stdio: ['pipe', 'ignore', 'pipe'] });
+  play.stderr.on('data', (chunk) => process.stderr.write(chunk));
 
-  // Report readiness on stream startup: a suspended default sink delivers no
-  // monitor frames until something plays, and the app only waits 8 s.
-  record.on('spawn', () => {
-    process.stderr.write('status: recording-started\n');
-  });
-
-  let carry = Buffer.alloc(0);
-  record.stdout.on('data', (chunk) => {
-    let data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
-    const frameBytes = 4 * 4; // 4 channels x f32
-    const usable = data.length - (data.length % frameBytes);
-    carry = data.subarray(usable);
-    if (usable === 0) {
-      return;
-    }
-    const input = new Float32Array(data.buffer, data.byteOffset, usable / 4);
-    const output = processor.process(input);
-    if (play.stdin.writable) {
-      play.stdin.write(Buffer.from(output.buffer, 0, output.byteLength));
-    }
-  });
+  let record = null;
+  let attachTimer = null;
+  let stopping = false;
+  let announcedRecording = false;
 
   const shutdown = (code, detail) => {
+    stopping = true;
     if (detail) {
       process.stderr.write(`${detail}\n`);
     }
-    record.kill();
+    clearTimeout(attachTimer);
+    record?.kill();
     play.kill();
     process.exit(code);
   };
-  record.stderr.on('data', (chunk) => process.stderr.write(chunk));
-  play.stderr.on('data', (chunk) => process.stderr.write(chunk));
-  record.on('exit', (code) => shutdown(code ?? 1, 'capture stream ended'));
   play.on('exit', (code) => shutdown(code ?? 1, 'playback stream ended'));
+
+  const pipeRecordToProcessor = (proc, stride) => {
+    let carry = Buffer.alloc(0);
+    proc.stdout.on('data', (chunk) => {
+      let data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+      const frameBytes = stride * 4; // stride channels x f32
+      const usable = data.length - (data.length % frameBytes);
+      carry = data.subarray(usable);
+      if (usable === 0) {
+        return;
+      }
+      const input = new Float32Array(data.buffer, data.byteOffset, usable / 4);
+      const output = processor.process(input);
+      if (play.stdin.writable) {
+        play.stdin.write(Buffer.from(output.buffer, 0, output.byteLength));
+      }
+    });
+    proc.stderr.on('data', (chunk) => process.stderr.write(chunk));
+    proc.on('spawn', () => {
+      if (!announcedRecording) {
+        announcedRecording = true;
+        process.stderr.write('status: recording-started\n');
+      }
+    });
+  };
+
+  const startSinkMonitorCapture = () => {
+    record = spawn('pw-record', [
+      '--raw',
+      '-P', '{ stream.capture.sink = true }',
+      ...(captureDevice ? ['--target', captureDevice] : []),
+      // Capture four discrete channels and let the processor use the fronts
+      // only. When the headset is plugged in, the default sink can be the
+      // bridge's own 4-channel device; any narrower capture goes through
+      // PipeWire's channel mixer, which folds the rear haptics channels we
+      // play back into the fronts (constant buzz / self-oscillation). With a
+      // matching 4ch format no mixing happens; stereo sinks upmix with
+      // silent rears, leaving the fronts intact either way.
+      '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
+      '--channel-map', 'FL,FR,RL,RR',
+      '--latency', '256',
+      '-'
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    pipeRecordToProcessor(record, 4);
+    record.on('exit', (code) => {
+      if (!stopping) {
+        shutdown(code ?? 1, 'capture stream ended');
+      }
+    });
+  };
+
+  // Pre-fold app capture: target the app's own output stream so discrete
+  // surround channels (especially LFE) survive even when the listening
+  // device is stereo. The node comes and goes with the game, so poll and
+  // re-attach instead of failing hard.
+  const APP_POLL_MS = 2000;
+  const pollForAppNode = async () => {
+    if (stopping) {
+      return;
+    }
+    let node = null;
+    try {
+      node = matchAppStreamNode(await pwDump(), appSource);
+    } catch (error) {
+      process.stderr.write(`app node poll failed: ${error.message}\n`);
+    }
+    if (!node) {
+      attachTimer = setTimeout(pollForAppNode, APP_POLL_MS);
+      return;
+    }
+    const layout = nodeChannelLayout(node);
+    processor.setInputLayout(channelIndices(layout.position));
+    record = spawn('pw-record', [
+      '--raw',
+      '--target', `${node.id}`,
+      '--format', 'f32', '--rate', `${SAMPLE_RATE}`,
+      '--channels', `${layout.channels}`,
+      '--channel-map', layout.position.join(','),
+      '--latency', '256',
+      '-'
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    pipeRecordToProcessor(record, layout.channels);
+    record.on('exit', () => {
+      // Game restarted its stream (level load, restart): go back to polling.
+      record = null;
+      if (!stopping) {
+        process.stderr.write('status: waiting-for-app\n');
+        attachTimer = setTimeout(pollForAppNode, APP_POLL_MS);
+      }
+    });
+  };
+
+  if (hasAppSource) {
+    process.stderr.write('status: waiting-for-app\n');
+    await pollForAppNode();
+  } else {
+    startSinkMonitorCapture();
+  }
 
   const control = createInterface({ input: process.stdin });
   control.on('line', (line) => {
