@@ -48,6 +48,31 @@ function nodeProps(object) {
   return object?.info?.props ?? {};
 }
 
+const STEREO_LAYOUT = { channels: 2, position: ['FL', 'FR'] };
+
+// Negotiated audio format of a pw-dump node; stereo fallback when absent
+// or inconsistent (spec: unknown layouts read as first-two-channel stereo).
+export function nodeChannelLayout(node) {
+  const format = node?.info?.params?.Format?.[0];
+  const channels = Number(format?.channels ?? 0);
+  const position = Array.isArray(format?.position) ? format.position : null;
+  if (!position || channels < 1 || position.length !== channels) {
+    return { ...STEREO_LAYOUT, position: [...STEREO_LAYOUT.position] };
+  }
+  return { channels, position: [...position] };
+}
+
+export function channelIndices(position) {
+  const stride = position.length;
+  let fl = position.indexOf('FL');
+  let fr = position.indexOf('FR');
+  if (fl < 0 || fr < 0) {
+    fl = 0;
+    fr = Math.min(1, stride - 1);
+  }
+  return { stride, fl, fr, fc: position.indexOf('FC'), lfe: position.indexOf('LFE') };
+}
+
 function isAudioSink(object) {
   return object.type === 'PipeWire:Interface:Node'
     && nodeProps(object)['media.class'] === 'Audio/Sink';
