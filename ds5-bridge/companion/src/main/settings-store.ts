@@ -897,7 +897,7 @@ function normalizeSettings(value: Partial<CompanionSettings> | null | undefined)
       ? value.feedbackBoostEnabled
       : DEFAULT_SETTINGS.feedbackBoostEnabled,
     hapticsBufferLength: Number.isFinite(value?.hapticsBufferLength)
-      ? Math.max(16, Math.min(128, Math.round(value!.hapticsBufferLength!)))
+      ? Math.max(16, Math.min(240, Math.round(value!.hapticsBufferLength!)))
       : DEFAULT_SETTINGS.hapticsBufferLength,
     classicRumbleEnabled: typeof value?.classicRumbleEnabled === 'boolean'
       ? value.classicRumbleEnabled

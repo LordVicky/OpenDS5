@@ -303,7 +303,7 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
     return kAckOk;
   }
   case 0x0B: // SET_HAPTICS_BUFFER_LENGTH (3 kHz haptics samples)
-    if (value < 16 || value > 128) {
+    if (value < 16 || value > 240) {
       return kAckErrInvalidValue;
     }
     settings.haptics_buffer_samples = value;

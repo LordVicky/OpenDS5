@@ -66,8 +66,8 @@ int main() {
 
   send_command(runtime, 16, logger);
   assert(runtime.settings.haptics_buffer_samples == 16);
-  send_command(runtime, 128, logger);
-  assert(runtime.settings.haptics_buffer_samples == 128);
+  send_command(runtime, 240, logger);
+  assert(runtime.settings.haptics_buffer_samples == 240);
 
   std::puts("companion_buffer_length_test OK");
   return 0;

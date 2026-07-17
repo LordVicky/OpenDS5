@@ -2292,7 +2292,7 @@ export class BridgeService extends EventEmitter {
   }
 
   async setHapticsBufferLength(length: number): Promise<BridgeSnapshot> {
-    const value = Math.max(16, Math.min(128, Math.round(length)));
+    const value = Math.max(16, Math.min(240, Math.round(length)));
     await this.sendSettingCommand(COMMAND_ID.SET_HAPTICS_BUFFER_LENGTH, value, { hapticsBufferLength: value });
     return this.getSnapshot();
   }
