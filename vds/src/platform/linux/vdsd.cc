@@ -189,6 +189,10 @@ struct VirtualPort {
   bool speaker_waveout_active = false;
   std::uint32_t speaker_waveout_phase = 0;
   std::uint16_t haptics_gain_percent = 100;
+  // Speaker/haptics queue depth in 10 ms chunks, from the companion
+  // SET_HAPTICS_BUFFER_LENGTH setting; defaults match the old constants.
+  std::size_t max_pending_audio_chunks = kMaxPendingAudioChunks;
+  std::size_t fresh_pending_audio_chunks = kFreshPendingAudioChunks;
   std::uint8_t battery_status = 0xff;
   vds::CompanionInputState companion_input;
   std::array<std::vector<std::uint8_t>, 256> feature_cache;
@@ -622,6 +626,8 @@ void reset_virtual_port(VirtualPort &port) {
   port.speaker_waveout_active = false;
   port.speaker_waveout_phase = 0;
   port.haptics_gain_percent = 100;
+  port.max_pending_audio_chunks = kMaxPendingAudioChunks;
+  port.fresh_pending_audio_chunks = kFreshPendingAudioChunks;
   port.battery_status = 0xff;
   port.companion_input = {};
   port.feature_cache = {};
@@ -959,7 +965,7 @@ void handle_frame(const vds_frame_header &header,
      * speaker frame interval, otherwise speaker/haptics audio turns into
      * audible bursts.
      */
-    if (port.pending_audio_chunks.size() >= kMaxPendingAudioChunks) {
+    if (port.pending_audio_chunks.size() >= port.max_pending_audio_chunks) {
       port.pending_audio_chunks.pop_front();
       ++dropped_chunks;
       ++port.trace_state.dropped_audio_haptics_count;
@@ -1746,7 +1752,7 @@ bool flush_pending_audio_chunk(VirtualPort &port,
 
   const bool output_trace = trace_enabled(trace_flags, kTraceOutput);
   std::size_t stale_dropped = 0;
-  while (port.pending_audio_chunks.size() > kFreshPendingAudioChunks) {
+  while (port.pending_audio_chunks.size() > port.fresh_pending_audio_chunks) {
     port.pending_audio_chunks.pop_front();
     ++stale_dropped;
     ++port.trace_state.dropped_audio_haptics_count;
@@ -1849,7 +1855,7 @@ void enqueue_speaker_waveout_chunk(VirtualPort &port, std::uint32_t trace_flags,
 
   const auto chunks = port.waveout_extractor.push_usb_audio(pcm);
   for (const auto &chunk : chunks) {
-    if (port.pending_audio_chunks.size() >= kMaxPendingAudioChunks) {
+    if (port.pending_audio_chunks.size() >= port.max_pending_audio_chunks) {
       break;
     }
     port.pending_audio_chunks.push_back(chunk);
@@ -2315,6 +2321,15 @@ void apply_companion_state(std::vector<VirtualPort> &ports,
       continue;
     }
     port.haptics_gain_percent = settings.haptics_gain_percent;
+    if (settings.haptics_buffer_samples != 0) {
+      // Slider value is 3 kHz haptics samples; each queued chunk covers a
+      // 10 ms speaker frame (30 samples). Keep at least two chunks so a
+      // single late URB burst does not immediately drop audio.
+      const std::size_t chunks = std::clamp<std::size_t>(
+          (settings.haptics_buffer_samples + 15) / 30, 2, 16);
+      port.max_pending_audio_chunks = chunks;
+      port.fresh_pending_audio_chunks = std::max<std::size_t>(1, chunks / 2);
+    }
     port.output_state.set_companion_overrides(overrides);
     try {
       forward_bt_state_if_changed(port, *controller->backend, trace_flags,

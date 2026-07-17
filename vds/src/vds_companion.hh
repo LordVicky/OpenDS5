@@ -31,6 +31,9 @@ struct CompanionSettings {
   bool idle_disconnect_enabled = false;
   std::uint16_t idle_disconnect_timeout_minutes = 10;
   std::uint16_t speaker_volume_percent = 100;
+  // Speaker/haptics buffering in 3 kHz haptics samples (app slider 16-128,
+  // about 5-43 ms). 0 keeps the daemon's built-in queue depth.
+  std::uint16_t haptics_buffer_samples = 0;
   std::uint8_t speaker_gain_level = 4;
   std::uint8_t lightbar_red = 0;
   std::uint8_t lightbar_green = 0;

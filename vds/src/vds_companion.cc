@@ -302,8 +302,13 @@ std::uint8_t apply_command(CompanionRuntime &runtime,
     runtime.pending_input_events.clear();
     return kAckOk;
   }
+  case 0x0B: // SET_HAPTICS_BUFFER_LENGTH (3 kHz haptics samples)
+    if (value < 16 || value > 128) {
+      return kAckErrInvalidValue;
+    }
+    settings.haptics_buffer_samples = value;
+    return kAckOk;
   // Settings accepted and stored by the app but not yet actuated here.
-  case 0x0B: // SET_HAPTICS_BUFFER_LENGTH
   case 0x12: // SET_POLLING_RATE_MODE
   case 0x19: // SET_DUPLEX_ENABLED
   case 0x1D: // SET_SPEAKER_VOLUME_SHORTCUT_ENABLED
