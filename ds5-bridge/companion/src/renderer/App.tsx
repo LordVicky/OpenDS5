@@ -281,8 +281,11 @@ const SPEAKER_VOLUME_STEP = 10;
 const MIC_VOLUME_STEP = 10;
 const AUDIO_BUFFER_LENGTH_MIN = 16;
 const AUDIO_BUFFER_LENGTH_MAX = 240;
-const AUDIO_BUFFER_LENGTH_HIGH_STUTTER_MAX = 44;
-const AUDIO_BUFFER_LENGTH_RISKY_MAX = 63;
+// Zone boundaries follow the Linux daemon's 10 ms chunk queue (30 samples per
+// chunk, floor of 2 chunks): <=45 all map to the 2-chunk floor, 46-75 to
+// 3 chunks, and 4+ chunks (>=76) give enough headroom for bursty USB arrival.
+const AUDIO_BUFFER_LENGTH_HIGH_STUTTER_MAX = 45;
+const AUDIO_BUFFER_LENGTH_RISKY_MAX = 75;
 const LIGHTBAR_BRIGHTNESS_STEP = 10;
 const TRIGGER_EFFECT_STEP = 10;
 const CONTROLLER_POWER_SAVING_CAP_PERCENT = 60;
