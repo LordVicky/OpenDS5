@@ -304,15 +304,7 @@ async function runRenderLoopbackHaptics(args) {
     }
     const layout = nodeChannelLayout(node);
     processor.setInputLayout(channelIndices(layout.position));
-    record = spawn('pw-record', [
-      '--raw',
-      '--target', `${node.id}`,
-      '--format', 'f32', '--rate', `${SAMPLE_RATE}`,
-      '--channels', `${layout.channels}`,
-      '--channel-map', layout.position.join(','),
-      '--latency', '256',
-      '-'
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    record = spawn('pw-record', appCaptureRecordArgs(node, layout), { stdio: ['ignore', 'pipe', 'pipe'] });
     pipeRecordToProcessor(record, layout.channels);
     record.on('exit', () => {
       // Game restarted its stream (level load, restart): go back to polling.
@@ -460,6 +452,22 @@ async function runSetDefaultRenderBridge() {
   await new Promise((resolve, reject) => {
     execFile('wpctl', ['set-default', `${sink.id}`], (error) => (error ? reject(error) : resolve()));
   });
+}
+
+export function appCaptureRecordArgs(node, layout) {
+  const serial = nodeProps(node)['object.serial'];
+  return [
+    '--raw',
+    // Target the app's own output stream by serial: WirePlumber ignores a
+    // plain --target <id> for playback streams and falls back to the
+    // default source (the microphone), which is silence for haptics.
+    '-P', `{ target.object = ${serial ?? node.id} }`,
+    '--format', 'f32', '--rate', `${SAMPLE_RATE}`,
+    '--channels', `${layout.channels}`,
+    '--channel-map', layout.position.join(','),
+    '--latency', '256',
+    '-'
+  ];
 }
 
 export function matchAppStreamNode(objects, { processId, executableName, processPath }) {

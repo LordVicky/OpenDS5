@@ -117,7 +117,29 @@ describe('HapticsProcessor layouts', () => {
   });
 });
 
-import { matchAppStreamNode } from '../../native/audio-helper-linux.mjs';
+import { appCaptureRecordArgs, matchAppStreamNode } from '../../native/audio-helper-linux.mjs';
+
+describe('appCaptureRecordArgs', () => {
+  it('targets the app stream by object.serial, not by --target id (mic fallback)', () => {
+    const node = { id: 297, info: { props: { 'object.serial': 48540 } } };
+    const args = appCaptureRecordArgs(node, { channels: 4, position: ['FL', 'FR', 'RL', 'RR'] });
+    const pIndex = args.indexOf('-P');
+    expect(pIndex).toBeGreaterThanOrEqual(0);
+    expect(args[pIndex + 1]).toBe('{ target.object = 48540 }');
+    const channelsIndex = args.indexOf('--channels');
+    expect(args[channelsIndex + 1]).toBe('4');
+    const mapIndex = args.indexOf('--channel-map');
+    expect(args[mapIndex + 1]).toBe('FL,FR,RL,RR');
+    expect(args).not.toContain('--target');
+  });
+
+  it('falls back to node.id when object.serial is missing', () => {
+    const node = { id: 297, info: { props: {} } };
+    const args = appCaptureRecordArgs(node, { channels: 4, position: ['FL', 'FR', 'RL', 'RR'] });
+    const pIndex = args.indexOf('-P');
+    expect(args[pIndex + 1]).toBe('{ target.object = 297 }');
+  });
+});
 
 function streamNode(id: number, props: Record<string, unknown>, state = 'running') {
   return {
