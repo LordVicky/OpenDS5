@@ -17,6 +17,8 @@ function event(type: number, code: number, value: number): Buffer {
 const EV_SYN = 0;
 const EV_KEY = 1;
 const EV_ABS = 3;
+const ABS_X = 0;
+const ABS_Y = 1;
 const ABS_RZ = 5;
 const ABS_HAT0X = 16;
 const ABS_HAT0Y = 17;
@@ -65,8 +67,8 @@ describe('EvdevInputReader', () => {
     reader.start();
     const pending = collect(reader, 1);
     stream.write(Buffer.concat([
-      event(EV_ABS, 0, 255),
-      event(EV_ABS, 1, 10),
+      event(EV_ABS, ABS_X, 255),
+      event(EV_ABS, ABS_Y, 10),
       event(EV_SYN, 0, 0)
     ]));
     const [state] = await pending;
@@ -126,11 +128,18 @@ describe('EvdevInputReader', () => {
     });
     reader.start();
     const pending = collect(reader, 2);
-    gamepad.write(Buffer.concat([event(EV_ABS, ABS_RZ, 220), event(EV_KEY, BTN_TL, 1), event(EV_SYN, 0, 0)]));
+    gamepad.write(Buffer.concat([
+      event(EV_ABS, ABS_RZ, 220),
+      event(EV_ABS, ABS_X, 255),
+      event(EV_KEY, BTN_TL, 1),
+      event(EV_SYN, 0, 0)
+    ]));
     touchpad.write(Buffer.concat([event(EV_KEY, 272, 1), event(EV_SYN, 0, 0)]));
     const [, auxiliary] = await pending;
     expect(auxiliary.sourceId).toBe('physical-A');
     expect(auxiliary.r2).toBe(220);
+    expect(auxiliary.lx).toBe(255);
+    expect(auxiliary.ly).toBe(128);
     expect(auxiliary.buttons).toEqual(new Set(['l1', 'touchpad']));
     reader.stop();
   });

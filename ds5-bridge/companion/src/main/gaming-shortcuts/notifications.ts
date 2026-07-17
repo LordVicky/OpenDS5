@@ -32,8 +32,8 @@ const BUTTON_LABELS: Record<ControllerButton, string> = {
 const ACTION_LABELS: Record<string, string> = {
   screenshot: 'Screenshot', 'recording-toggle': 'Recording', 'performance-hud-toggle': 'HUD',
   'microphone-mute-toggle': 'Microphone', 'on-screen-keyboard': 'Keyboard',
-  'switch-application': 'Switch app', volume: 'Volume', 'open-opends5': 'OpenDS5',
-  'quit-active-game': 'Quit game', 'custom-executable': 'Custom action', 'launch-app': 'Launch app', 'focus-app': 'Focus app'
+  volume: 'Volume', 'open-opends5': 'OpenDS5',
+  'custom-executable': 'Custom action', 'launch-app': 'Launch app'
 };
 
 export function buttonLabel(button: ControllerButton): string {

@@ -11,15 +11,12 @@ export type GamingShortcutAction =
   | { type: 'passthrough' }
   | { type: 'open-opends5' }
   | { type: 'launch-app'; executable: string; args: string[] }
-  | { type: 'focus-app'; appId: string }
   | { type: 'volume'; direction: 'up' | 'down' | 'mute' }
   | { type: 'microphone-mute-toggle' }
   | { type: 'screenshot'; provider: CaptureProvider }
   | { type: 'recording-toggle'; provider: RecordingProvider }
   | { type: 'performance-hud-toggle'; provider: HudProvider }
   | { type: 'on-screen-keyboard'; provider: KeyboardProvider }
-  | { type: 'switch-application'; direction: 'next' | 'previous' }
-  | { type: 'quit-active-game'; confirmation: true }
   | { type: 'custom-executable'; executable: string; args: string[] };
 
 export interface GamingShortcutBindings {
@@ -108,8 +105,6 @@ export function validateGamingShortcutAction(value: unknown): GamingShortcutActi
     case 'open-opends5': return { type: 'open-opends5' };
     case 'launch-app':
       return string(value.executable) && args(value.args) ? { type: 'launch-app', executable: value.executable, args: value.args } : { type: 'none' };
-    case 'focus-app':
-      return string(value.appId) ? { type: 'focus-app', appId: value.appId } : { type: 'none' };
     case 'volume':
       return value.direction === 'up' || value.direction === 'down' || value.direction === 'mute' ? { type: 'volume', direction: value.direction } : { type: 'none' };
     case 'microphone-mute-toggle': return { type: 'microphone-mute-toggle' };
@@ -120,11 +115,6 @@ export function validateGamingShortcutAction(value: unknown): GamingShortcutActi
       return member(RECORDING_PROVIDERS, value.provider) ? { type: 'recording-toggle', provider: value.provider } : { type: 'none' };
     case 'performance-hud-toggle':
       return member(HUD_PROVIDERS, value.provider) ? { type: 'performance-hud-toggle', provider: value.provider } : { type: 'none' };
-    case 'on-screen-keyboard':
-      return member(KEYBOARD_PROVIDERS, value.provider) ? { type: 'on-screen-keyboard', provider: value.provider } : { type: 'none' };
-    case 'switch-application':
-      return value.direction === 'next' || value.direction === 'previous' ? { type: 'switch-application', direction: value.direction } : { type: 'none' };
-    case 'quit-active-game': return value.confirmation === true ? { type: 'quit-active-game', confirmation: true } : { type: 'none' };
     case 'custom-executable':
       return string(value.executable) && args(value.args) ? { type: 'custom-executable', executable: value.executable, args: value.args } : { type: 'none' };
     default: return { type: 'none' };

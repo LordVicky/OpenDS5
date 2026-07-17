@@ -11,7 +11,6 @@ export type ActionExecutionResult =
 export interface ActionExecutorOptions {
   runner?: ProcessRunner;
   openOpenDS5?: () => Promise<void> | void;
-  quitActiveGame?: () => Promise<ActionExecutionResult> | ActionExecutionResult;
   linuxProvider?: LinuxActionProvider;
   screenshotProvider?: ScreenshotProvider;
   recordingProvider?: GpuScreenRecorderProvider;
@@ -21,7 +20,6 @@ export interface ActionExecutorOptions {
 export class ActionExecutor {
   private readonly runner: ProcessRunner;
   private readonly openOpenDS5: (() => Promise<void> | void) | null;
-  private readonly quitActiveGame: (() => Promise<ActionExecutionResult> | ActionExecutionResult) | null;
   private readonly linuxProvider: LinuxActionProvider;
   private readonly screenshotProvider: ScreenshotProvider;
   private readonly recordingProvider: GpuScreenRecorderProvider;
@@ -29,7 +27,6 @@ export class ActionExecutor {
   constructor(options: ActionExecutorOptions = {}) {
     this.runner = options.runner ?? createProcessRunner();
     this.openOpenDS5 = options.openOpenDS5 ?? null;
-    this.quitActiveGame = options.quitActiveGame ?? null;
     this.linuxProvider = options.linuxProvider ?? new LinuxActionProvider();
     this.screenshotProvider = options.screenshotProvider ?? new ScreenshotProvider();
     this.recordingProvider = options.recordingProvider ?? new GpuScreenRecorderProvider();
@@ -78,8 +75,6 @@ export class ActionExecutor {
         }
         case 'recording-toggle':
           return this.recordingProvider.toggle(action.provider);
-        case 'quit-active-game':
-          return this.quitActiveGame ? await this.quitActiveGame() : { ok: false, reason: 'unavailable' };
         default:
           return { ok: false, reason: 'unavailable' };
       }

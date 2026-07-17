@@ -115,12 +115,6 @@ describe('ActionExecutor', () => {
     await expect(new ActionExecutor().execute({ type: 'open-opends5' })).resolves.toEqual({ ok: false, reason: 'unavailable' });
   });
 
-  it('routes confirmed quit requests through the guarded callback', async () => {
-    const quitActiveGame = vi.fn().mockResolvedValue({ ok: true });
-    await expect(new ActionExecutor({ quitActiveGame }).execute({ type: 'quit-active-game', confirmation: true })).resolves.toEqual({ ok: true });
-    expect(quitActiveGame).toHaveBeenCalledOnce();
-  });
-
   it('starts and stops only its owned GPU Screen Recorder process', async () => {
     const kill = vi.fn();
     const child = { kill, once: vi.fn((event: string, listener: () => void) => { if (event === 'exit') void listener; return child; }) } as never;

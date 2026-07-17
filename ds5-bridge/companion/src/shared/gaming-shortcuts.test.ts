@@ -14,7 +14,9 @@ describe('validateGamingShortcutAction', () => {
     { type: 'launch-app', executable: 'bad\0name', args: [] },
     { type: 'volume', direction: 'sideways' },
     { type: 'screenshot', provider: 'missing' },
-    { type: 'quit-active-game', confirmation: false },
+    { type: 'focus-app', appId: 'org.example.App' },
+    { type: 'switch-application', direction: 'next' },
+    { type: 'quit-active-game', confirmation: true },
     { type: 'custom-executable', executable: 'tool', args: ['bad\0arg'] }
   ])('repairs malformed data to none: %j', (value) => {
     expect(validateGamingShortcutAction(value)).toEqual({ type: 'none' });

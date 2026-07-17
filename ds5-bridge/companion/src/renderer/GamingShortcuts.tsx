@@ -21,10 +21,9 @@ const BUTTONS: Array<{ value: Exclude<ControllerButton, 'ps'>; label: string }> 
 type ActionKind = GamingShortcutAction['type'];
 const ACTIONS: Array<{ value: ActionKind; label: string }> = [
   { value: 'none', label: 'No action' }, { value: 'passthrough', label: 'Pass through only' }, { value: 'open-opends5', label: 'Open or focus OpenDS5' },
-  { value: 'launch-app', label: 'Open or focus an application' }, { value: 'focus-app', label: 'Focus application by ID' }, { value: 'screenshot', label: 'Take screenshot' },
+  { value: 'launch-app', label: 'Open or focus an application' }, { value: 'screenshot', label: 'Take screenshot' },
   { value: 'recording-toggle', label: 'Toggle recording' }, { value: 'performance-hud-toggle', label: 'Toggle performance HUD' }, { value: 'volume', label: 'Volume' },
-  { value: 'microphone-mute-toggle', label: 'Toggle microphone mute' }, { value: 'on-screen-keyboard', label: 'Open on-screen keyboard' }, { value: 'switch-application', label: 'Switch application' },
-  { value: 'quit-active-game', label: 'Quit active game (confirm)' }, { value: 'custom-executable', label: 'Custom executable' }
+  { value: 'microphone-mute-toggle', label: 'Toggle microphone mute' }, { value: 'on-screen-keyboard', label: 'Open on-screen keyboard' }, { value: 'custom-executable', label: 'Custom executable' }
 ];
 
 const GESTURES = [
@@ -37,13 +36,10 @@ function actionForKind(kind: ActionKind): GamingShortcutAction {
   switch (kind) {
     case 'volume': return { type: 'volume', direction: 'up' };
     case 'launch-app': return { type: 'launch-app', executable: '', args: [] };
-    case 'focus-app': return { type: 'focus-app', appId: '' };
     case 'screenshot': return { type: 'screenshot', provider: 'auto' };
     case 'recording-toggle': return { type: 'recording-toggle', provider: 'auto' };
     case 'performance-hud-toggle': return { type: 'performance-hud-toggle', provider: 'auto' };
     case 'on-screen-keyboard': return { type: 'on-screen-keyboard', provider: 'auto' };
-    case 'switch-application': return { type: 'switch-application', direction: 'next' };
-    case 'quit-active-game': return { type: 'quit-active-game', confirmation: true };
     case 'custom-executable': return { type: 'custom-executable', executable: '', args: [] };
     default: return { type: kind } as GamingShortcutAction;
   }
@@ -51,7 +47,6 @@ function actionForKind(kind: ActionKind): GamingShortcutAction {
 
 function actionLabel(action: GamingShortcutAction): string {
   if (action.type === 'volume') return `Volume ${action.direction}`;
-  if (action.type === 'switch-application') return `Switch ${action.direction}`;
   return ACTIONS.find((item) => item.value === action.type)?.label ?? 'No action';
 }
 
@@ -65,10 +60,8 @@ function ActionEditor({ action, onChange, capabilities }: { action: GamingShortc
   return <div className="gaming-shortcut-action-editor">
     <select aria-label="Shortcut action" value={action.type} onChange={(event) => onChange(actionForKind(event.target.value as ActionKind))}>{ACTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
     {action.type === 'volume' && <select aria-label="Volume direction" value={action.direction} onChange={(event) => onChange({ type: 'volume', direction: event.target.value as 'up' | 'down' | 'mute' })}><option value="up">Up</option><option value="down">Down</option><option value="mute">Mute</option></select>}
-    {action.type === 'switch-application' && <select aria-label="Application direction" value={action.direction} onChange={(event) => onChange({ type: 'switch-application', direction: event.target.value as 'next' | 'previous' })}><option value="next">Next</option><option value="previous">Previous</option></select>}
     {isProviderAction(action) && <select aria-label="Provider" value={action.provider} onChange={(event) => onChange({ ...action, provider: event.target.value } as GamingShortcutAction)}><option value="auto">Automatic</option>{providerOptions.map((provider) => <option key={provider} value={provider}>{provider}</option>)}</select>}
     {(action.type === 'launch-app' || action.type === 'custom-executable') && <>{textInput('Executable', action.executable, (executable) => onChange({ ...action, executable }))}{textInput('Arguments', action.args.join(' '), (value) => onChange({ ...action, args: value.trim() ? value.trim().split(/\s+/) : [] }))}</>}
-    {action.type === 'focus-app' && textInput('Application ID', action.appId, (appId) => onChange({ ...action, appId }))}
   </div>;
 }
 
@@ -111,7 +104,7 @@ export function GamingShortcuts({ active, profiles, activeProfileId, snapshot = 
   const selectedOverride = selectedGameId ? settings.perGameOverrides[selectedGameId] : undefined;
   const setGameOverride = (next: NonNullable<typeof selectedOverride>) => { if (selectedGameId) update({ ...settings, perGameOverrides: { ...settings.perGameOverrides, [selectedGameId]: next } }); };
   const clearGameOverride = () => { if (selectedGameId) { const perGameOverrides = { ...settings.perGameOverrides }; delete perGameOverrides[selectedGameId]; update({ ...settings, perGameOverrides }); } };
-  const defaultPreset = useMemo(() => ({ ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true, psPressAction: 'enter-shortcut-mode' as const, directChordsEnabled: true, shortcutModeEnabled: true, doublePress: { type: 'switch-application', direction: 'previous' } as GamingShortcutAction, chords: [{ button: 'create' as const, action: { type: 'screenshot', provider: 'auto' } as GamingShortcutAction }, { button: 'triangle' as const, action: { type: 'performance-hud-toggle', provider: 'auto' } as GamingShortcutAction }, { button: 'mute' as const, action: { type: 'microphone-mute-toggle' } as GamingShortcutAction }, { button: 'dpad-up' as const, action: { type: 'volume', direction: 'up' } as GamingShortcutAction }, { button: 'dpad-down' as const, action: { type: 'volume', direction: 'down' } as GamingShortcutAction }, { button: 'dpad-left' as const, action: { type: 'switch-application', direction: 'previous' } as GamingShortcutAction }, { button: 'dpad-right' as const, action: { type: 'switch-application', direction: 'next' } as GamingShortcutAction }] }), []);
+  const defaultPreset = useMemo(() => ({ ...DEFAULT_GAMING_SHORTCUTS_SETTINGS, enabled: true, psPressAction: 'enter-shortcut-mode' as const, directChordsEnabled: true, shortcutModeEnabled: true, doublePress: { type: 'none' } as const, chords: [{ button: 'create' as const, action: { type: 'screenshot', provider: 'auto' } as GamingShortcutAction }, { button: 'triangle' as const, action: { type: 'performance-hud-toggle', provider: 'auto' } as GamingShortcutAction }, { button: 'mute' as const, action: { type: 'microphone-mute-toggle' } as GamingShortcutAction }, { button: 'dpad-up' as const, action: { type: 'volume', direction: 'up' } as GamingShortcutAction }, { button: 'dpad-down' as const, action: { type: 'volume', direction: 'down' } as GamingShortcutAction }] }), []);
   const selectedGameName = gameProfiles.find((profile) => profile.id === selectedGameId)?.name;
   return <div className={`control-page gaming-shortcuts-page ${active ? 'active' : ''}`} role="tabpanel" id="control-panel-gaming-shortcuts" aria-labelledby="control-tab-gaming-shortcuts" aria-hidden={!active}>
     <div className="feature-heading system-heading"><div><span className="eyebrow">Controller customization</span><h2>Gaming Shortcuts</h2><p>Turn the PS button into a configurable Linux gaming shortcut layer.</p></div><span className="gaming-shortcuts-save-status" role="status" aria-live="polite">{status}</span></div>

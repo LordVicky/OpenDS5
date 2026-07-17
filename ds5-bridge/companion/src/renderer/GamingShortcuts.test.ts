@@ -27,10 +27,12 @@ describe('Gaming Shortcuts page', () => {
   });
 
   it('renders every supported shortcut action and secondary controller button', () => {
-    expect(component).toContain("value: 'quit-active-game'");
     expect(component).toContain("value: 'custom-executable'");
     expect(component).toContain("value: 'l1'");
     expect(component).toContain("value: 'r3'");
+    expect(component).not.toContain("value: 'focus-app'");
+    expect(component).not.toContain("value: 'switch-application'");
+    expect(component).not.toContain("value: 'quit-active-game'");
   });
 
   it('has a responsive rail, sticky preview, and reduced-motion fallback', () => {

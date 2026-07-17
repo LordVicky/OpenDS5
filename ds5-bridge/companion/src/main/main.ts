@@ -1361,6 +1361,9 @@ function registerIpc(
     }
   });
   ipcMain.handle('bridge:getTriggerProfileEngineStatus', () => triggerProfileEngine.getStatus());
+  ipcMain.handle('bridge:selectTriggerProfileState', (_event, name: string) => (
+    triggerProfileEngine.selectState(name)
+  ));
   ipcMain.handle('bridge:previewTriggerProfileDraft', async (_event, triggers: DraftPreviewTriggers | null) => {
     await triggerProfileEngine.setDraftPreview(triggers);
     return triggerProfileEngine.getStatus();
@@ -1726,12 +1729,7 @@ app.whenReady().then(async () => {
       settingsStore,
       activeGameId: () => triggerProfileEngine?.getActiveGameId() ?? null,
       executor: new ActionExecutor({
-        quitActiveGame: () => {
-          const processName = triggerProfileEngine?.getStatus().matchedName;
-          if (!processName || processName === 'OpenDS5') return { ok: false, reason: 'unavailable' as const };
-          const result = spawnSync('pkill', ['-TERM', '-x', processName], { stdio: 'ignore', timeout: 1000 });
-          return result.status === 0 ? { ok: true as const } : { ok: false, reason: 'unavailable' as const };
-        }
+        openOpenDS5: showMainWindow
       }),
       notifications: gamingShortcutNotifications(bridgeService),
       controllerIdForSource: (sourceId) => bridgeService?.getGamingShortcutControllerIdForInputSource(sourceId) ?? null

@@ -10,6 +10,8 @@ const EV_KEY = 1;
 const EV_ABS = 3;
 const ABS_Z = 2;
 const ABS_RZ = 5;
+const ABS_X = 0;
+const ABS_Y = 1;
 const ABS_HAT0X = 16;
 const ABS_HAT0Y = 17;
 
@@ -148,7 +150,15 @@ export class EvdevInputReader extends EventEmitter {
       const sourceId = this.sourceIdentity(devicePath) ?? `evdev:${devicePath}`;
       const group = groups.get(sourceId) ?? { sourceId, nodes: new Set<NodeInputState>() };
       groups.set(sourceId, group);
-      const state: NodeInputState = { l2: 0, r2: 0, dpadX: 0, dpadY: 0, buttons: new Set<ControllerButton>() };
+      const state: NodeInputState = {
+        l2: 0,
+        r2: 0,
+        lx: 128,
+        ly: 128,
+        dpadX: 0,
+        dpadY: 0,
+        buttons: new Set<ControllerButton>()
+      };
       group.nodes.add(state);
       const source = { stream, pending: Buffer.alloc(0), removed: false, intentionalStop: false, group, state };
       this.streams.push(source);
@@ -197,6 +207,8 @@ export class EvdevInputReader extends EventEmitter {
 
   private handleEvent(source: (typeof this.streams)[number], type: number, code: number, value: number): void {
     if (type === EV_ABS) {
+      if (code === ABS_X) source.state.lx = value;
+      if (code === ABS_Y) source.state.ly = value;
       if (code === ABS_Z) source.state.l2 = value;
       if (code === ABS_RZ) source.state.r2 = value;
       if (code === ABS_HAT0X || code === ABS_HAT0Y) {
@@ -228,8 +240,8 @@ export class EvdevInputReader extends EventEmitter {
       sourceId: group.sourceId,
       l2: Math.max(...[...group.nodes].map((node) => node.l2), 0),
       r2: Math.max(...[...group.nodes].map((node) => node.r2), 0),
-      lx: 128,
-      ly: 128,
+      lx: aggregateStickAxis(group.nodes, 'lx'),
+      ly: aggregateStickAxis(group.nodes, 'ly'),
       buttons: new Set([...group.nodes].flatMap((node) => [...node.buttons]))
     };
   }
@@ -243,7 +255,18 @@ type InputGroup = {
 type NodeInputState = {
   l2: number;
   r2: number;
+  lx: number;
+  ly: number;
   dpadX: number;
   dpadY: number;
   buttons: Set<ControllerButton>;
 };
+
+function aggregateStickAxis(nodes: Set<NodeInputState>, axis: 'lx' | 'ly'): number {
+  // Auxiliary nodes start centered and do not have stick events. Select the
+  // strongest displacement so those centered nodes cannot dilute the gamepad
+  // node's actual stick position.
+  return [...nodes].reduce((selected, node) => (
+    Math.abs(node[axis] - 128) > Math.abs(selected - 128) ? node[axis] : selected
+  ), 128);
+}
