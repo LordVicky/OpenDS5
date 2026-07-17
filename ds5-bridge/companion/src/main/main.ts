@@ -1768,6 +1768,11 @@ app.whenReady().then(async () => {
   if (persistedEngineState.enabled) {
     void triggerProfileEngine.setEnabled(true);
   }
+  triggerProfileEngine.on('stickSample', (sample: { lx: number; ly: number }) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send('bridge:stickSample', sample);
+    }
+  });
   triggerProfileEngine.on('status', (status: EngineStatus) => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send('bridge:triggerProfileEngineStatus', status);
