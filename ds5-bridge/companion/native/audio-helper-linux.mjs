@@ -228,14 +228,7 @@ async function runRenderLoopbackHaptics(args) {
   // following the system default sink.
   const captureDevice = argValue(args, '--haptics-output-device');
 
-  const play = spawn('pw-play', [
-    '--raw',
-    '--target', target,
-    '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
-    '--channel-map', 'FL,FR,RL,RR',
-    '--latency', '256',
-    '-'
-  ], { stdio: ['pipe', 'ignore', 'pipe'] });
+  const play = spawn('pw-play', hapticsPlaybackArgs(target), { stdio: ['pipe', 'ignore', 'pipe'] });
   play.stderr.on('data', (chunk) => process.stderr.write(chunk));
 
   let record = null;
@@ -493,6 +486,23 @@ async function runSetDefaultRenderBridge() {
   await new Promise((resolve, reject) => {
     execFile('wpctl', ['set-default', `${sink.id}`], (error) => (error ? reject(error) : resolve()));
   });
+}
+
+// The helper owns its output level (gain, limiter, sink-volume
+// compensation), so pin the playback stream at unity and opt out of
+// WirePlumber's stream-restore: a remembered mixer tweak on "pw-play"
+// must not silently scale the haptics.
+export function hapticsPlaybackArgs(target) {
+  return [
+    '--raw',
+    '--target', target,
+    '--volume', '1',
+    '-P', '{ state.restore-props = false }',
+    '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
+    '--channel-map', 'FL,FR,RL,RR',
+    '--latency', '256',
+    '-'
+  ];
 }
 
 export function appCaptureRecordArgs(node, layout) {

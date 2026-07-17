@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { channelIndices, HapticsProcessor, nodeChannelLayout } from '../../native/audio-helper-linux.mjs';
+import { channelIndices, hapticsPlaybackArgs, HapticsProcessor, nodeChannelLayout } from '../../native/audio-helper-linux.mjs';
 
 describe('audio-helper-linux exports', () => {
   it('imports without running main and exposes HapticsProcessor', () => {
@@ -262,5 +262,26 @@ describe('matchAppStreamNode', () => {
 
   it('returns null when nothing matches or only non-streams exist', () => {
     expect(matchAppStreamNode([music, sinkNode], { processId: 1234, executableName: 'game-bin', processPath: null })).toBeNull();
+  });
+});
+
+describe('hapticsPlaybackArgs', () => {
+  const hasPair = (args: string[], a: string, b: string) => {
+    for (let i = 0; i < args.length - 1; i += 1) {
+      if (args[i] === a && args[i + 1] === b) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  it('pins the playback stream at unity and opts out of stream-restore', () => {
+    const args = hapticsPlaybackArgs('sinkname');
+    expect(hasPair(args, '--target', 'sinkname')).toBe(true);
+    expect(hasPair(args, '--volume', '1')).toBe(true);
+    expect(hasPair(args, '-P', '{ state.restore-props = false }')).toBe(true);
+    expect(hasPair(args, '--channels', '4')).toBe(true);
+    expect(hasPair(args, '--channel-map', 'FL,FR,RL,RR')).toBe(true);
+    expect(args[args.length - 1]).toBe('-');
   });
 });
