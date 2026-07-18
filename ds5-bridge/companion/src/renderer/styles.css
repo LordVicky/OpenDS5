@@ -1200,8 +1200,7 @@ button {
   transition: background 180ms ease, opacity 180ms ease;
 }
 
-.battery-icon > span.active,
-.battery-icon > span.charging-segment {
+.battery-icon > span.active {
   background: var(--battery-color);
 }
 
@@ -1223,13 +1222,6 @@ button {
 
 .compact-battery-row .battery-icon:not(.charging) {
   --battery-color: var(--text-control);
-}
-
-/* Static charging indicator: the next segment reads as partially filled.
-   A continuous pulse forces a full-surface recomposite every frame on
-   Wayland/NVIDIA (20-40% idle GPU), so the segment is held at a fixed dim. */
-.battery-icon > span.charging-segment {
-  opacity: 0.6;
 }
 
 .battery-icon > span.critical-segment {

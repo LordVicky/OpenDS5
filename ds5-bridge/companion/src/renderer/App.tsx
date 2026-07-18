@@ -3928,9 +3928,11 @@ export function App() {
           ? 1
           : 0
     : 0;
-  const batteryChargingSegment = connected && batteryCharging && batteryPercent < 100
-    ? Math.min(2, batterySegmentCount)
-    : -1;
+  // The DS5 does not report an accurate percentage while charging, so show a
+  // full green icon and a plain "Charging" label instead of a bogus level.
+  const batteryCharged = connected && controllerConnected && batteryCharging;
+  const batteryDisplayTone = batteryCharged ? 'healthy' : batteryLevelTone;
+  const batteryDisplaySegmentCount = batteryCharged ? 3 : batterySegmentCount;
   const batteryCritical = connected && !batteryCharging && batteryPercent > 0 && batteryPercent <= 20;
   const statusTone = personaTransitionActive
     ? 'warn'
@@ -4230,7 +4232,7 @@ export function App() {
   const sidebarBatteryLabel = personaTransitionActive
     ? 'Reconnecting'
     : connected && controllerConnected
-    ? `Battery ${batteryPercentLabel}`
+    ? (batteryCharging ? 'Charging' : `Battery ${batteryPercentLabel}`)
     : 'Battery unavailable';
   const pollingRateLabel = POLLING_RATE_OPTIONS.find(([, mode]) => mode === snapshot?.settings.pollingRateMode)?.[0]
     .replace(' / Real-time', '')
@@ -6866,15 +6868,14 @@ export function App() {
               <div className="battery-row compact-battery-row">
                 {connected && controllerConnected && (
                   <span
-                    className={`battery-icon ${batteryLevelTone} ${batteryCharging ? 'charging' : ''}`}
+                    className={`battery-icon ${batteryDisplayTone} ${batteryCharging ? 'charging' : ''}`}
                     aria-hidden="true"
                   >
                     {[0, 1, 2].map((segment) => (
                       <span
                         key={segment}
                         className={[
-                          segment < batterySegmentCount ? 'active' : '',
-                          segment === batteryChargingSegment ? 'charging-segment' : '',
+                          segment < batteryDisplaySegmentCount ? 'active' : '',
                           segment === 0 && batteryCritical ? 'critical-segment' : ''
                         ].filter(Boolean).join(' ')}
                       />
