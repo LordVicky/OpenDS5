@@ -9432,34 +9432,11 @@ button.trigger-lab-chip {
 }
 
 /* The running game breathes: accent border with a soft layered glow. */
+/* Static accent outline for the running game: no glow animation (a continuous
+   box-shadow pulse pegs idle GPU on Wayland/NVIDIA). */
 .game-tile.playing {
   border-color: var(--accent-border);
-  box-shadow:
-    0 0 0 1px var(--accent-border),
-    0 0 14px rgba(40, 124, 255, 0.35),
-    0 0 34px rgba(40, 124, 255, 0.16);
-  animation: game-tile-glow 2.6s ease-in-out infinite;
-}
-
-@keyframes game-tile-glow {
-  0%, 100% {
-    box-shadow:
-      0 0 0 1px var(--accent-border),
-      0 0 14px rgba(40, 124, 255, 0.35),
-      0 0 34px rgba(40, 124, 255, 0.16);
-  }
-  50% {
-    box-shadow:
-      0 0 0 1px var(--accent-border),
-      0 0 20px rgba(40, 124, 255, 0.48),
-      0 0 44px rgba(40, 124, 255, 0.22);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .game-tile.playing {
-    animation: none;
-  }
+  box-shadow: 0 0 0 1px var(--accent-border);
 }
 
 .game-tile:hover {
