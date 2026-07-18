@@ -1225,21 +1225,15 @@ button {
   --battery-color: var(--text-control);
 }
 
+/* Static charging indicator: the next segment reads as partially filled.
+   A continuous pulse forces a full-surface recomposite every frame on
+   Wayland/NVIDIA (20-40% idle GPU), so the segment is held at a fixed dim. */
 .battery-icon > span.charging-segment {
-  animation: battery-segment-pulse 1.55s ease-in-out infinite;
+  opacity: 0.6;
 }
 
 .battery-icon > span.critical-segment {
   animation: battery-critical-pulse 1.05s ease-in-out infinite;
-}
-
-@keyframes battery-segment-pulse {
-  0%, 100% {
-    opacity: 0.34;
-  }
-  50% {
-    opacity: 1;
-  }
 }
 
 @keyframes battery-critical-pulse {
