@@ -1224,17 +1224,10 @@ button {
   --battery-color: var(--text-control);
 }
 
+/* Static critical segment: no pulse (a continuous animation pegs idle GPU on
+   Wayland/NVIDIA). The low tone already renders it red for the warning cue. */
 .battery-icon > span.critical-segment {
-  animation: battery-critical-pulse 1.05s ease-in-out infinite;
-}
-
-@keyframes battery-critical-pulse {
-  0%, 100% {
-    opacity: 0.2;
-  }
-  50% {
-    opacity: 1;
-  }
+  opacity: 1;
 }
 
 .battery-track {
