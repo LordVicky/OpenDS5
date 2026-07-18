@@ -83,7 +83,7 @@ describe('SystemAudioHapticsEngine app source', () => {
       attack: 'fast',
       release: 'smooth',
       volumeSync: true
-    }, 'xbox');
+    });
 
     const helper = childProcessMock.processes[0]!;
     helper.stderr.emit('data', Buffer.from('status: recording-started\n'));
@@ -97,8 +97,6 @@ describe('SystemAudioHapticsEngine app source', () => {
     expect(args).toContain('C:\\Games\\Game.exe');
     expect(args).toContain('--haptics-app-executable');
     expect(args).toContain('Game.exe');
-    expect(args).toContain('--bridge-persona');
-    expect(args).toContain('xbox');
     expect(args).toContain('--haptics-volume-sync');
     expect(args[args.indexOf('--haptics-volume-sync') + 1]).toBe('1');
     expect(args).not.toContain('--device-name');
@@ -151,8 +149,8 @@ describe('SystemAudioHapticsEngine app source', () => {
 });
 
 describe('bridge haptics test', () => {
-  it('launches the helper against the persona bridge endpoint with clamped haptics gain', async () => {
-    const play = playBridgeHapticsTestPattern(500, 'ds4');
+  it('launches the helper with clamped haptics gain', async () => {
+    const play = playBridgeHapticsTestPattern(500);
     const helper = childProcessMock.processes[0]!;
 
     helper.emit('exit', 0, null);
@@ -163,8 +161,6 @@ describe('bridge haptics test', () => {
     const args = process.platform === 'win32' ? rawArgs : rawArgs.slice(1);
     expect(args).toEqual([
       '--play-test-haptics',
-      '--bridge-persona',
-      'ds4',
       '--haptics-gain',
       '200'
     ]);
@@ -172,8 +168,8 @@ describe('bridge haptics test', () => {
 });
 
 describe('bridge speaker test', () => {
-  it('launches the helper against the persona bridge endpoint', async () => {
-    const play = playBridgeSpeakerTestTone(65, 'xbox');
+  it('launches the helper against the bridge endpoint', async () => {
+    const play = playBridgeSpeakerTestTone(65);
     const helper = childProcessMock.processes[0]!;
 
     helper.emit('exit', 0, null);
@@ -184,8 +180,6 @@ describe('bridge speaker test', () => {
     const args = process.platform === 'win32' ? rawArgs : rawArgs.slice(1);
     expect(args).toEqual([
       '--play-test-tone',
-      '--bridge-persona',
-      'xbox',
       '--test-audio-path',
       expect.stringContaining('test-speaker-tone-silence-tail.mp3'),
       '--speaker-volume',

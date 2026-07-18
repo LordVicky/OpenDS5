@@ -10,7 +10,6 @@ import type {
   AudioReactiveHapticsBassFocus,
   AudioReactiveHapticsRelease,
   AudioReactiveHapticsResponse,
-  HostPersonaMode
 } from '../shared/protocol';
 import type { AudioHapticsSession } from '../shared/types';
 
@@ -77,21 +76,9 @@ export type AudioHelperCommand = {
   label: string;
 };
 
-function normalizeBridgePersonaMode(mode: HostPersonaMode): HostPersonaMode {
-  if (mode === 'xbox' || mode === 'ds4') {
-    return mode;
-  }
-  return 'dualsense';
-}
-
-function bridgePersonaArgs(mode: HostPersonaMode): string[] {
-  return ['--bridge-persona', normalizeBridgePersonaMode(mode)];
-}
-
 export class SystemAudioHapticsEngine extends EventEmitter {
   private process: ChildProcessWithoutNullStreams | null = null;
   private starting: Promise<void> | null = null;
-  private activeHostPersonaMode: HostPersonaMode = 'dualsense';
   private activeConfig: SystemAudioHapticsConfig = {
     source: 'system-audio',
     gainPercent: 100,
@@ -102,16 +89,14 @@ export class SystemAudioHapticsEngine extends EventEmitter {
     volumeSync: true
   };
 
-  async start(config: SystemAudioHapticsConfig, hostPersonaMode: HostPersonaMode = 'dualsense'): Promise<void> {
+  async start(config: SystemAudioHapticsConfig): Promise<void> {
     const nextConfig = normalizeSystemAudioHapticsConfig(config);
-    const nextHostPersonaMode = normalizeBridgePersonaMode(hostPersonaMode);
     if (this.process) {
       if (
         audioReactiveHapticsSourceKey(this.activeConfig.source) !== audioReactiveHapticsSourceKey(nextConfig.source)
-        || this.activeHostPersonaMode !== nextHostPersonaMode
       ) {
         await this.stop();
-        return this.start(nextConfig, nextHostPersonaMode);
+        return this.start(nextConfig);
       }
       this.setConfig(nextConfig);
       return;
@@ -121,17 +106,16 @@ export class SystemAudioHapticsEngine extends EventEmitter {
       if (this.process) {
         if (
           audioReactiveHapticsSourceKey(this.activeConfig.source) === audioReactiveHapticsSourceKey(nextConfig.source)
-          && this.activeHostPersonaMode === nextHostPersonaMode
         ) {
           this.setConfig(nextConfig);
           return;
         }
         await this.stop();
       }
-      return this.start(nextConfig, nextHostPersonaMode);
+      return this.start(nextConfig);
     }
 
-    this.starting = this.startInternal(nextConfig, nextHostPersonaMode).finally(() => {
+    this.starting = this.startInternal(nextConfig).finally(() => {
       this.starting = null;
     });
     return this.starting;
@@ -191,11 +175,9 @@ export class SystemAudioHapticsEngine extends EventEmitter {
     return this.process !== null;
   }
 
-  private async startInternal(config: SystemAudioHapticsConfig, hostPersonaMode: HostPersonaMode): Promise<void> {
+  private async startInternal(config: SystemAudioHapticsConfig): Promise<void> {
     this.activeConfig = config;
-    this.activeHostPersonaMode = hostPersonaMode;
     const args = [
-      ...bridgePersonaArgs(hostPersonaMode),
       '--source',
       'render-loopback',
       '--haptics-only',
@@ -842,14 +824,10 @@ export async function listAudioOutputDevices(): Promise<AudioOutputDevice[]> {
   });
 }
 
-export async function playBridgeSpeakerTestTone(
-  speakerVolumePercent = 100,
-  hostPersonaMode: HostPersonaMode = 'dualsense'
-): Promise<void> {
+export async function playBridgeSpeakerTestTone(speakerVolumePercent = 100): Promise<void> {
   const testAudioPath = resolveHelperTestAudioPath(resolveHelperPath());
   const launch = helperLaunch([
     '--play-test-tone',
-    ...bridgePersonaArgs(hostPersonaMode),
     '--test-audio-path',
     testAudioPath,
     '--speaker-volume',
@@ -901,13 +879,9 @@ export async function playBridgeSpeakerTestTone(
   });
 }
 
-export async function playBridgeHapticsTestPattern(
-  hapticsGainPercent = 100,
-  hostPersonaMode: HostPersonaMode = 'dualsense'
-): Promise<void> {
+export async function playBridgeHapticsTestPattern(hapticsGainPercent = 100): Promise<void> {
   const launch = helperLaunch([
     '--play-test-haptics',
-    ...bridgePersonaArgs(hostPersonaMode),
     '--haptics-gain',
     `${normalizeTestHapticsGainPercent(hapticsGainPercent)}`
   ]);
@@ -962,12 +936,8 @@ export async function getDefaultRenderEndpointStatus(): Promise<DefaultRenderEnd
   return parseDefaultRenderEndpointStatus(result.stdout);
 }
 
-export async function setDefaultRenderBridgeEndpoint(mode: HostPersonaMode): Promise<void> {
-  await runAudioHelperCommand([
-    '--set-default-render-bridge',
-    '--bridge-persona',
-    mode
-  ]);
+export async function setDefaultRenderBridgeEndpoint(): Promise<void> {
+  await runAudioHelperCommand(['--set-default-render-bridge']);
 }
 
 export class MicKeepaliveEngine extends EventEmitter {

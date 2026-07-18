@@ -3063,93 +3063,7 @@ button {
   opacity: 0.46;
   border-color: var(--surface-divider);
   background: var(--surface-control-muted);
-}
-
-.overview-persona-grid {
-  min-height: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: minmax(0, 1fr);
-  align-self: stretch;
-  gap: 6px;
-}
-
-.overview-persona-button {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  border: 1px solid var(--surface-border-strong);
-  border-radius: var(--control-radius);
-  padding: 10px 6px 8px;
-  display: grid;
-  grid-template-rows: 24px auto;
-  place-items: center;
-  gap: 5px;
-  color: var(--text-control);
-  background: var(--surface-control-soft);
-  font-size: 12px;
-  font-weight: 760;
-  line-height: 1.05;
-  text-align: center;
-  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
-}
-
-.overview-persona-logo {
-  width: 24px;
-  height: 24px;
-  display: block;
-  color: currentColor;
-}
-
-.overview-persona-logo.playstation {
-  background: currentColor;
-  -webkit-mask: var(--overview-persona-logo-mask) center / contain no-repeat;
-  mask: var(--overview-persona-logo-mask) center / contain no-repeat;
-}
-
-.overview-persona-button span:last-child {
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
-.overview-persona-button:hover {
-  border-color: var(--surface-border-strong);
-  background: var(--surface-control-hover);
-}
-
-.overview-persona-button.active {
-  border-color: var(--accent-border-strong);
-  color: var(--accent-text);
-  background:
-    var(--overview-accent-gradient-hover),
-    var(--accent-selected);
-  box-shadow: inset 0 -2px 0 var(--accent-border);
-}
-
-.overview-persona-button.persona-xbox.active {
-  border-color: var(--success-border-strong);
-  color: var(--accent-text);
-  background:
-    radial-gradient(circle at 50% 0%, var(--success-glow), transparent 72%),
-    var(--success-selected);
-  box-shadow: inset 0 -2px 0 var(--success-border);
-}
-
-.shell[data-theme="kiwi"] .overview-persona-button.persona-xbox.active {
-  color: var(--text-strong);
-}
-
-.overview-persona-button:disabled {
-  cursor: default;
-  opacity: var(--disabled-opacity);
-  color: var(--text-secondary);
-  border-color: var(--surface-divider);
-  background: var(--surface-control-muted);
-  box-shadow: none;
-}
-
-.overview-slider-list {
+}.overview-slider-list {
   border: 1px solid var(--surface-border);
   border-radius: var(--card-radius);
   padding: 16px 18px 12px;
@@ -7080,14 +6994,7 @@ button.feature-icon {
 .device-control-row .custom-select {
   width: min(100%, 320px);
   justify-self: end;
-}
-
-.device-control-row .host-persona-selector {
-  width: min(100%, 270px);
-  justify-self: end;
-}
-
-.health-label {
+}.health-label {
   justify-content: flex-end;
   gap: 10px;
   white-space: nowrap;
@@ -7421,76 +7328,15 @@ button.feature-icon {
   color: var(--accent-text);
   background: var(--accent-selected);
 }
-
 .custom-select-menu button.selected span,
 .custom-select-menu button.selected strong,
-.custom-select-menu button.selected small,
-.custom-select-menu button.selected .host-persona-option {
+.custom-select-menu button.selected small {
   color: inherit;
 }
 
 .custom-select-menu button.selected > svg {
   justify-self: end;
-}
-
-.host-persona-option {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--text-control);
-  line-height: 1;
-}
-
-.host-persona-option img,
-.host-persona-option svg,
-.host-persona-brand-icon {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
-  object-fit: contain;
-  display: block;
-}
-
-.host-persona-brand-icon {
-  background: currentColor;
-  -webkit-mask: var(--host-persona-brand-mask) center / contain no-repeat;
-  mask: var(--host-persona-brand-mask) center / contain no-repeat;
-}
-
-.host-persona-option img {
-  filter: var(--glyph-filter);
-}
-
-.host-persona-option svg {
-  color: currentColor;
-}
-
-.host-persona-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1;
-}
-
-.host-persona-selector .custom-select-button > span,
-.host-persona-selector .custom-select-menu button > span {
-  min-height: 100%;
-  display: flex;
-  align-items: center;
-}
-
-.host-persona-selector .custom-select-menu button {
-  min-height: 38px;
-}
-
-.host-persona-selector .custom-select-menu button.host-persona-platform-break {
-  margin-top: 5px;
-  box-shadow: inset 0 1px 0 var(--surface-border);
-}
-
-.system-page .custom-select-button,
+}.system-page .custom-select-button,
 .system-page .custom-select-menu button {
   font-size: 14px;
 }

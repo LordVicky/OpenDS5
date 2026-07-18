@@ -34,7 +34,6 @@ import type {
   ChordFunction,
   ChordMediaAction,
   ChordStarterId,
-  HostPersonaMode,
   RemapButtonId
 } from '../shared/protocol';
 import type { CompanionSettings, UiScalePercent, UiThemePreset } from '../shared/types';
@@ -74,7 +73,6 @@ const DEFAULT_CONTROLLER_PROFILE_SETTINGS: ControllerProfileSettings = {
   sleepKeybindEnabled: false,
   speakerVolumeShortcutEnabled: false,
   pollingRateMode: '1000',
-  hostPersonaMode: 'dualsense',
   duplexMicEnabled: true,
   controllerPowerSavingEnabled: false
 };
@@ -132,7 +130,6 @@ const CONTROLLER_PROFILE_SETTING_KEYS = new Set<keyof ControllerProfileSettings>
   'sleepKeybindEnabled',
   'speakerVolumeShortcutEnabled',
   'pollingRateMode',
-  'hostPersonaMode',
   'duplexMicEnabled',
   'controllerPowerSavingEnabled'
 ]);
@@ -190,7 +187,6 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
   sleepKeybindEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.sleepKeybindEnabled,
   speakerVolumeShortcutEnabled: DEFAULT_CONTROLLER_PROFILE_SETTINGS.speakerVolumeShortcutEnabled,
   pollingRateMode: DEFAULT_CONTROLLER_PROFILE_SETTINGS.pollingRateMode,
-  hostPersonaMode: 'dualsense',
   notifyControllerConnection: false,
   notifyLowBattery: false,
   touchpadMouseEnabled: true,
@@ -225,16 +221,6 @@ function normalizePollingRateMode(value: unknown): CompanionSettings['pollingRat
       return value;
     default:
       return DEFAULT_SETTINGS.pollingRateMode;
-  }
-}
-
-function normalizeHostPersonaMode(value: unknown): HostPersonaMode {
-  switch (value) {
-    case 'xbox':
-    case 'ds4':
-      return value;
-    default:
-      return 'dualsense';
   }
 }
 
@@ -397,7 +383,6 @@ export function controllerProfileSettingsFrom(settings: CompanionSettings): Cont
     sleepKeybindEnabled: settings.sleepKeybindEnabled,
     speakerVolumeShortcutEnabled: settings.speakerVolumeShortcutEnabled,
     pollingRateMode: settings.pollingRateMode,
-    hostPersonaMode: settings.hostPersonaMode,
     duplexMicEnabled: settings.duplexMicEnabled,
     controllerPowerSavingEnabled: settings.controllerPowerSavingEnabled
   };
@@ -490,7 +475,6 @@ function normalizeControllerProfileSettings(value: unknown): ControllerProfileSe
       ? candidate.speakerVolumeShortcutEnabled
       : DEFAULT_CONTROLLER_PROFILE_SETTINGS.speakerVolumeShortcutEnabled,
     pollingRateMode: normalizePollingRateMode(candidate.pollingRateMode),
-    hostPersonaMode: normalizeHostPersonaMode(candidate.hostPersonaMode),
     duplexMicEnabled: typeof candidate.duplexMicEnabled === 'boolean'
       ? candidate.duplexMicEnabled
       : DEFAULT_CONTROLLER_PROFILE_SETTINGS.duplexMicEnabled,
@@ -652,9 +636,6 @@ const CHORD_CONTROLLER_SETTING_ACTIONS = new Set<ChordControllerSettingAction>([
   'toggle-lightbar-override',
   'toggle-mic-mute',
   'sleep-controller',
-  'persona-dualsense',
-  'persona-ds4',
-  'persona-xbox',
   'speaker-down',
   'speaker-up',
   'mic-down',
@@ -1014,7 +995,6 @@ function normalizeSettings(value: Partial<CompanionSettings> | null | undefined)
       ? value.speakerVolumeShortcutEnabled
       : DEFAULT_SETTINGS.speakerVolumeShortcutEnabled,
     pollingRateMode: normalizePollingRateMode(value?.pollingRateMode),
-    hostPersonaMode: normalizeHostPersonaMode(value?.hostPersonaMode),
     notifyControllerConnection: typeof value?.notifyControllerConnection === 'boolean'
       ? value.notifyControllerConnection
       : DEFAULT_SETTINGS.notifyControllerConnection,

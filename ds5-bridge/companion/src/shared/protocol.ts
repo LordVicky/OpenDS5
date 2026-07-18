@@ -82,6 +82,8 @@ export const COMMAND_ID = {
   SET_BUTTON_REMAP: 0x1E,
   PREVIEW_ADAPTIVE_TRIGGER_EFFECT: 0x1F,
   APPLY_ADAPTIVE_TRIGGER_EFFECT: 0x20,
+  // Reserved: the daemon still handles 0x21, so the id must not be reused
+  // even though this app no longer switches host persona.
   SET_HOST_PERSONA: 0x21,
   SET_AUDIO_REACTIVE_HAPTICS: 0x22,
   SET_CHORD_BINDINGS: 0x23,
@@ -136,7 +138,6 @@ export interface AdaptiveTriggerPreviewEffect {
   forcePercent: number;
 }
 export type PollingRateMode = '250' | '500' | '1000';
-export type HostPersonaMode = 'dualsense' | 'xbox' | 'ds4';
 export const CHORD_FUNCTION_EVENT_BASE = 0x20;
 export const MAX_CHORD_ASSIGNMENTS = 16;
 export const MAX_CHORD_FUNCTION_NAME_LENGTH = 16;
@@ -242,9 +243,6 @@ export type ChordControllerSettingAction =
   | 'toggle-lightbar-override'
   | 'toggle-mic-mute'
   | 'sleep-controller'
-  | 'persona-dualsense'
-  | 'persona-ds4'
-  | 'persona-xbox'
   | 'speaker-down'
   | 'speaker-up'
   | 'mic-down'
@@ -326,7 +324,6 @@ export interface ControllerProfileSettings {
   sleepKeybindEnabled: boolean;
   speakerVolumeShortcutEnabled: boolean;
   pollingRateMode: PollingRateMode;
-  hostPersonaMode: HostPersonaMode;
   duplexMicEnabled: boolean;
   controllerPowerSavingEnabled: boolean;
 }
@@ -491,11 +488,8 @@ export interface BridgeStatusPayload {
     usbSuspendDisconnectControl: boolean;
     sleepControllerControl: boolean;
     pollingRateControl: boolean;
-    hostPersonaControl: boolean;
     audioReactiveHapticsControl: boolean;
   };
-  hostPersonaMode: HostPersonaMode;
-  supportedHostPersonaModes: HostPersonaMode[];
   protocolVersion: string;
 }
 
@@ -696,31 +690,6 @@ export function pollingRateModeValue(mode: PollingRateMode): number {
   return 2;
 }
 
-export function hostPersonaModeValue(mode: HostPersonaMode): number {
-  if (mode === 'xbox') return 1;
-  if (mode === 'ds4') return 2;
-  return 0;
-}
-
-function hostPersonaMode(value: number): HostPersonaMode {
-  if (value === 2) return 'ds4';
-  return value === 1 ? 'xbox' : 'dualsense';
-}
-
-function supportedHostPersonaModes(mask: number): HostPersonaMode[] {
-  const modes: HostPersonaMode[] = [];
-  if ((mask & 0x01) !== 0) {
-    modes.push('dualsense');
-  }
-  if ((mask & 0x02) !== 0) {
-    modes.push('xbox');
-  }
-  if ((mask & 0x04) !== 0) {
-    modes.push('ds4');
-  }
-  return modes.length === 0 ? ['dualsense'] : modes;
-}
-
 export function parseStatusReport(report: ArrayLike<number>): BridgeStatusPayload {
   assertReport(report, REPORT_ID.STATUS);
   assertVersion(report);
@@ -799,11 +768,8 @@ export function parseStatusReport(report: ArrayLike<number>): BridgeStatusPayloa
       usbSuspendDisconnectControl: (statusFlags & 0x20) !== 0,
       sleepControllerControl: (statusFlags & 0x80) !== 0,
       pollingRateControl: true,
-      hostPersonaControl: report[49] !== 0,
       audioReactiveHapticsControl: report[6] >= 7
     },
-    hostPersonaMode: hostPersonaMode(report[48]),
-    supportedHostPersonaModes: supportedHostPersonaModes(report[49]),
     protocolVersion: `${report[5]}.${report[6]}`
   };
 }

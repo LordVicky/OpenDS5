@@ -44,7 +44,6 @@ import type {
   BridgePresetId,
   ChordAssignment,
   ChordFunction,
-  HostPersonaMode,
   MuteButtonMode,
   MuteKeyboardBehavior,
   PollingRateMode,
@@ -1499,9 +1498,6 @@ function registerIpc(
   ));
   ipcMain.handle('bridge:setPollingRateMode', (_event, value: PollingRateMode) => (
     service.setPollingRateMode(value)
-  ));
-  ipcMain.handle('bridge:setHostPersonaMode', (_event, value: HostPersonaMode) => (
-    service.setHostPersonaMode(value)
   ));
   ipcMain.handle('bridge:sleepController', () => service.sleepController());
   ipcMain.handle('bridge:mountPicoBootloader', () => runPicoFirmwareIpcAction(

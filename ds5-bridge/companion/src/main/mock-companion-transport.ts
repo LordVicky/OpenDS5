@@ -64,7 +64,7 @@ export class MockCompanionTransport extends EventEmitter implements CompanionTra
     report[27] = 3; // firmware patch -> 1.6.3 (>= MIN_SUPPORTED_FIRMWARE_VERSION)
     report[28] = 0xff; // firmwareFlags: advertise every supported capability
     writeU16(report, 29, 30); // speakerVolumePercent
-    report[49] = 0x07; // supported personas mask + hostPersonaControl
+    report[49] = 0x01; // DualSense is the only supported host persona
     report[57] = 4; // speakerGainLevel
     return report;
   }

@@ -9,7 +9,6 @@ import type {
   ControllerProfile,
   AudioStatusPayload,
   BridgePresetId,
-  HostPersonaMode,
   AudioReactiveHapticsSource,
   AudioReactiveHapticsBassFocus,
   AudioReactiveHapticsMode,
@@ -79,7 +78,6 @@ export interface CompanionSettings {
   sleepKeybindEnabled: boolean;
   speakerVolumeShortcutEnabled: boolean;
   pollingRateMode: PollingRateMode;
-  hostPersonaMode: HostPersonaMode;
   notifyControllerConnection: boolean;
   notifyLowBattery: boolean;
   touchpadMouseEnabled: boolean;
@@ -123,7 +121,6 @@ export interface AudioHapticsSession {
 export type BridgeStateKind =
   | 'no-bridge'
   | 'normal-firmware'
-  | 'transitioning'
   | 'connected'
   | 'incompatible'
   | 'error';
@@ -183,14 +180,6 @@ export interface BridgeSnapshot {
   status: BridgeStatusPayload | null;
   settings: CompanionSettings;
   diagnostics: BridgeDiagnostics;
-  personaTransition?: HostPersonaTransition | null;
-}
-
-export interface HostPersonaTransition {
-  from: HostPersonaMode;
-  to: HostPersonaMode;
-  startedAt: number;
-  deadlineAt: number;
 }
 
 export interface WindowsDeviceCleanupResult {

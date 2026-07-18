@@ -16,7 +16,6 @@ import {
   buildButtonRemapPayload,
   buildChordBindingsPayload,
   buildCommandReport,
-  hostPersonaModeValue,
   isChordBindingAllowed,
   normalizeBridgePresetId,
   parseAudioDebugReport,
@@ -162,9 +161,6 @@ describe('companion protocol', () => {
     expect(status.muteKeyboardBehavior).toBe('hold');
     expect(status.muteKeyboardChordStarterEnabled).toBe(true);
     expect(status.quietModeEnabled).toBe(true);
-    expect(status.firmwareFlags.hostPersonaControl).toBe(true);
-    expect(status.hostPersonaMode).toBe('ds4');
-    expect(status.supportedHostPersonaModes).toEqual(['dualsense', 'xbox', 'ds4']);
   });
 
   it('parses chord mute button mode', () => {
@@ -173,12 +169,6 @@ describe('companion protocol', () => {
 
     const status = parseStatusReport(report);
     expect(status.muteButtonMode).toBe('chord');
-  });
-
-  it('encodes host persona command values', () => {
-    expect(hostPersonaModeValue('dualsense')).toBe(0);
-    expect(hostPersonaModeValue('xbox')).toBe(1);
-    expect(hostPersonaModeValue('ds4')).toBe(2);
   });
 
   it('parses an ACK report', () => {

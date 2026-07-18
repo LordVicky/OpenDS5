@@ -6,7 +6,6 @@ import type {
   BridgePresetId,
   ChordAssignment,
   ChordFunction,
-  HostPersonaMode,
   MuteButtonMode,
   MuteKeyboardBehavior,
   PollingRateMode,
@@ -178,9 +177,6 @@ const api = {
   ),
   setPollingRateMode: (value: PollingRateMode): Promise<BridgeSnapshot> => (
     ipcRenderer.invoke('bridge:setPollingRateMode', value)
-  ),
-  setHostPersonaMode: (value: HostPersonaMode): Promise<BridgeSnapshot> => (
-    ipcRenderer.invoke('bridge:setHostPersonaMode', value)
   ),
   sleepController: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:sleepController'),
   mountPicoBootloader: (): Promise<PicoFirmwareActionResult> => (

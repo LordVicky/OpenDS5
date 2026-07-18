@@ -98,8 +98,6 @@ type StatusOverrides = {
   firmwarePatch?: number;
   firmwareFlags?: number;
   statusFlags?: number;
-  hostPersonaMode?: 'dualsense' | 'xbox' | 'ds4';
-  supportedHostPersonaModesMask?: number;
   micMuted?: boolean;
 };
 
@@ -128,8 +126,7 @@ const FULL_REAPPLY_COMMANDS = [
   COMMAND_ID.SET_SPEAKER_VOLUME_SHORTCUT_ENABLED,
   COMMAND_ID.SET_BUTTON_REMAP,
   COMMAND_ID.SET_CHORD_BINDINGS,
-  COMMAND_ID.SET_POLLING_RATE_MODE,
-  COMMAND_ID.SET_HOST_PERSONA
+  COMMAND_ID.SET_POLLING_RATE_MODE
 ];
 
 class MockHidDevice extends EventEmitter {
@@ -308,8 +305,6 @@ function statusReport(overrides: StatusOverrides = {}): number[] {
   report[28] = overrides.firmwareFlags ?? 1;
   writeU16(report, 29, overrides.speakerVolumePercent ?? 30);
   writeU16(report, 43, overrides.idleDisconnectTimeoutMinutes ?? 15);
-  report[48] = overrides.hostPersonaMode === 'xbox' ? 1 : overrides.hostPersonaMode === 'ds4' ? 2 : 0;
-  report[49] = overrides.supportedHostPersonaModesMask ?? 0;
   report[51] = overrides.micMuted ? 1 : 0;
   report[57] = overrides.speakerGainLevel ?? 4;
   return report;
@@ -766,7 +761,6 @@ describe('BridgeService', () => {
     device.settingsRevision = 4;
     device.status = statusReport({
       controllerConnected: true,
-      hostPersonaMode: 'dualsense',
       settingsRevision: 4,
       uptimeSeconds: 30
     });
@@ -794,7 +788,7 @@ describe('BridgeService', () => {
     expect(start).toHaveBeenCalledWith(expect.objectContaining({
       source: appSource,
       gainPercent: 100
-    }), 'dualsense');
+    }));
   });
 
   it('ignores firmware-reported mic unmute when duplex mic is disabled', async () => {
@@ -884,76 +878,14 @@ describe('BridgeService', () => {
     await poll(service);
     const snapshot = await service.testHaptics();
 
-    expect(audioHelperMock.playBridgeHapticsTestPattern).toHaveBeenCalledWith(130, 'dualsense');
+    expect(audioHelperMock.playBridgeHapticsTestPattern).toHaveBeenCalledWith(130);
     expect(device.sentReports.some((report) => report[7] === COMMAND_ID.TEST_HAPTICS)).toBe(false);
     expect(snapshot.settings.hapticsGainPercent).toBe(130);
   });
 
-  it.each([
-    ['ds4' as const],
-    ['xbox' as const]
-  ])('plays test haptics through the %s persona audio endpoint', async (hostPersonaMode) => {
-    const service = serviceFixture({ hapticsGainPercent: 130 });
-    const device = new MockHidDevice();
-    device.status = statusReport({ hostPersonaMode, supportedHostPersonaModesMask: 0x07 });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
 
-    await poll(service);
-    await service.testHaptics();
 
-    expect(audioHelperMock.playBridgeHapticsTestPattern).toHaveBeenCalledWith(130, hostPersonaMode);
-  });
 
-  it('skips test haptics while a host persona transition is active', async () => {
-    const service = serviceFixture({ hapticsGainPercent: 130 });
-    const device = new MockHidDevice();
-    device.status = statusReport({
-      controllerConnected: false,
-      hostPersonaMode: 'dualsense',
-      supportedHostPersonaModesMask: 0x07
-    });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
-
-    await poll(service);
-    await service.setHostPersonaMode('xbox');
-    const snapshot = await service.testHaptics();
-
-    expect(audioHelperMock.playBridgeHapticsTestPattern).not.toHaveBeenCalled();
-    expect(snapshot.personaTransition?.to).toBe('xbox');
-    expect(snapshot.state).toBe('transitioning');
-  });
-
-  it('does not reject test haptics when the persona audio endpoint is still reconnecting', async () => {
-    const service = serviceFixture({ hapticsGainPercent: 130 });
-    const device = new MockHidDevice();
-    device.status = statusReport({ hostPersonaMode: 'xbox', supportedHostPersonaModesMask: 0x07 });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
-    audioHelperMock.playBridgeHapticsTestPattern.mockRejectedValueOnce(new Error(
-      "Unhandled exception. System.InvalidOperationException: Render endpoint matching persona 'xbox' ('Xbox 360 Controller for Windows') was not found."
-    ));
-
-    await poll(service);
-    const snapshot = await service.testHaptics();
-
-    expect(audioHelperMock.playBridgeHapticsTestPattern).toHaveBeenCalledWith(130, 'xbox');
-    expect(snapshot.settings.hapticsGainPercent).toBe(130);
-  });
-
-  it('plays test speaker through the current persona audio endpoint', async () => {
-    const service = serviceFixture({ speakerVolumePercent: 65 });
-    const device = new MockHidDevice();
-    device.status = statusReport({ hostPersonaMode: 'xbox', supportedHostPersonaModesMask: 0x07 });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
-
-    await poll(service);
-    await service.testSpeaker();
-
-    expect(audioHelperMock.playBridgeSpeakerTestTone).toHaveBeenCalledWith(65, 'xbox');
-  });
 
   it('sends rumble test commands without rejecting busy ACKs', async () => {
     const service = serviceFixture();
@@ -1298,7 +1230,6 @@ describe('BridgeService', () => {
     device.settingsRevision = 4;
     device.status = statusReport({
       controllerConnected: true,
-      hostPersonaMode: 'dualsense',
       settingsRevision: 4,
       uptimeSeconds: 30
     });
@@ -1335,7 +1266,7 @@ describe('BridgeService', () => {
       audioReactiveHapticsEnabled: true
     });
     const device = new MockHidDevice();
-    device.status = statusReport({ hostPersonaMode: 'ds4', supportedHostPersonaModesMask: 0x07 });
+    device.status = statusReport({});
     hidMock.state.devicesList = [companionDeviceInfo()];
     hidMock.state.openDevices.set('companion-path', device);
 
@@ -1364,62 +1295,9 @@ describe('BridgeService', () => {
     expect(start).toHaveBeenCalledWith(expect.objectContaining({
       source: 'system-audio',
       gainPercent: 100
-    }), 'ds4');
-  });
-
-  it('restarts system audio haptics after a host persona transition completes', async () => {
-    const service = serviceFixture({
-      audioReactiveHapticsEnabled: true
-    });
-    const device = new MockHidDevice();
-    device.status = statusReport({
-      controllerConnected: false,
-      hostPersonaMode: 'dualsense',
-      supportedHostPersonaModesMask: 0x07
-    });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
-
-    await poll(service);
-
-    const start = vi.fn(async () => undefined);
-    const stop = vi.fn(async () => undefined);
-    const getDefaultRenderEndpointStatus = vi.fn(async () => ({
-      deviceName: 'Speakers (Yeti Classic)',
-      isBridgeEndpoint: false
     }));
-    const internals = service as unknown as {
-      systemAudioHapticsEngine: {
-        start: typeof start;
-        stop: typeof stop;
-        isActive(): boolean;
-      };
-      getDefaultRenderEndpointStatus: typeof getDefaultRenderEndpointStatus;
-    };
-    internals.systemAudioHapticsEngine = {
-      start,
-      stop,
-      isActive: () => false
-    };
-    internals.getDefaultRenderEndpointStatus = getDefaultRenderEndpointStatus;
-
-    await service.setHostPersonaMode('xbox');
-    expect(stop).toHaveBeenCalledOnce();
-
-    stop.mockClear();
-    device.status = statusReport({
-      controllerConnected: true,
-      hostPersonaMode: 'xbox',
-      supportedHostPersonaModesMask: 0x07
-    });
-    await poll(service);
-
-    expect(stop).toHaveBeenCalledOnce();
-    expect(start).toHaveBeenCalledWith(expect.objectContaining({
-      source: 'system-audio',
-      gainPercent: 100
-    }), 'xbox');
   });
+
 
   it('preserves selected audio haptics app source on partial config updates', async () => {
     const appSource = {
@@ -1687,40 +1565,6 @@ describe('BridgeService', () => {
     expect(hapticsCommand?.[9]).toBe(33);
   });
 
-  it('applies host persona chord functions through the normal persona command path', async () => {
-    const service = serviceFixture({ hostPersonaMode: 'dualsense' });
-    const device = new MockHidDevice();
-    device.status = statusReport({
-      controllerConnected: false,
-      hostPersonaMode: 'dualsense',
-      supportedHostPersonaModesMask: 0x07
-    });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
-
-    await poll(service);
-    await service.setChordConfiguration([{
-      id: 'persona-xbox',
-      name: 'Xbox Persona',
-      type: 'controller-setting',
-      action: 'persona-xbox',
-      stepPercent: 10
-    }], [{
-      id: 'ps-options',
-      kind: 'chord',
-      starter: 'ps',
-      button: 'options',
-      functionId: 'persona-xbox'
-    }]);
-
-    device.queueShortcutEvent(CHORD_FUNCTION_EVENT_BASE);
-    await pollShortcut(service);
-    await flushShortcutActions(service);
-
-    expect(service.getSnapshot().settings.hostPersonaMode).toBe('xbox');
-    const personaCommand = device.sentReports.filter((report) => report[7] === COMMAND_ID.SET_HOST_PERSONA).at(-1);
-    expect(personaCommand?.[9]).toBe(1);
-  });
 
   it('applies controller mic mute events without waiting for a status poll', async () => {
     const service = serviceFixture({
@@ -1942,257 +1786,13 @@ describe('BridgeService', () => {
     expect(snapshot.settings.pollingRateMode).toBe('500');
   });
 
-  it('sends and stores host persona settings', async () => {
-    const service = serviceFixture();
-    const device = new MockHidDevice();
-    device.status = statusReport({ controllerConnected: false, supportedHostPersonaModesMask: 0x07 });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
 
-    await poll(service);
-    const snapshot = await service.setHostPersonaMode('xbox');
 
-    const command = device.sentReports.at(-1);
-    expect(command?.[7]).toBe(COMMAND_ID.SET_HOST_PERSONA);
-    expect(command?.[9]).toBe(1);
-    expect(snapshot.settings.hostPersonaMode).toBe('xbox');
-  });
 
-  it('sends and stores DS4 host persona settings', async () => {
-    const service = serviceFixture();
-    const device = new MockHidDevice();
-    device.status = statusReport({ controllerConnected: false, supportedHostPersonaModesMask: 0x07 });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
 
-    await poll(service);
-    const snapshot = await service.setHostPersonaMode('ds4');
 
-    const command = device.sentReports.at(-1);
-    expect(command?.[7]).toBe(COMMAND_ID.SET_HOST_PERSONA);
-    expect(command?.[9]).toBe(2);
-    expect(snapshot.settings.hostPersonaMode).toBe('ds4');
-    expect(snapshot.message).toBe('Switching to DualShock 4 mode');
-    expect(snapshot.personaTransition?.to).toBe('ds4');
-  });
 
-  it('restores controller default output after a host persona transition reconnects', async () => {
-    const service = serviceFixture();
-    const device = new MockHidDevice();
-    device.status = statusReport({
-      controllerConnected: false,
-      hostPersonaMode: 'dualsense',
-      supportedHostPersonaModesMask: 0x07
-    });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
-    await poll(service);
 
-    const getDefaultRenderEndpointStatus = vi.fn(async () => ({
-      deviceName: 'Speakers (DualSense Wireless Controller)',
-      isBridgeEndpoint: true
-    }));
-    const setDefaultRenderBridgeEndpoint = vi.fn(async () => undefined);
-    const internals = service as unknown as {
-      getDefaultRenderEndpointStatus: typeof getDefaultRenderEndpointStatus;
-      setDefaultRenderBridgeEndpoint(mode: 'dualsense' | 'xbox' | 'ds4'): Promise<void>;
-    };
-    internals.getDefaultRenderEndpointStatus = getDefaultRenderEndpointStatus;
-    internals.setDefaultRenderBridgeEndpoint = setDefaultRenderBridgeEndpoint;
-
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
-    try {
-      await service.setHostPersonaMode('ds4');
-      expect(getDefaultRenderEndpointStatus).toHaveBeenCalledOnce();
-      expect(setDefaultRenderBridgeEndpoint).not.toHaveBeenCalled();
-
-      device.status = statusReport({
-        controllerConnected: false,
-        hostPersonaMode: 'ds4',
-        supportedHostPersonaModesMask: 0x07
-      });
-      nowSpy.mockReturnValue(1_000_050);
-      await poll(service);
-      expect(setDefaultRenderBridgeEndpoint).toHaveBeenCalledOnce();
-      expect(setDefaultRenderBridgeEndpoint).toHaveBeenCalledWith('ds4');
-
-      nowSpy.mockReturnValue(1_001_251);
-      await poll(service);
-      expect(setDefaultRenderBridgeEndpoint).toHaveBeenCalledOnce();
-    } finally {
-      nowSpy.mockRestore();
-    }
-  });
-
-  it('masks transient bridge loss during host persona re-enumeration', async () => {
-    const service = serviceFixture();
-    const device = new MockHidDevice();
-    device.status = statusReport({
-      controllerConnected: false,
-      hostPersonaMode: 'dualsense',
-      supportedHostPersonaModesMask: 0x07
-    });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
-
-    await poll(service);
-    const switchingSnapshot = await service.setHostPersonaMode('xbox');
-
-    expect(switchingSnapshot.state).toBe('transitioning');
-    expect(switchingSnapshot.message).toBe('Switching to Xbox Controller mode');
-    expect(switchingSnapshot.personaTransition).toMatchObject({
-      from: 'dualsense',
-      to: 'xbox'
-    });
-    expect(switchingSnapshot.diagnostics.lastError).toBeNull();
-
-    device.statusReadError = new Error('No WinUSB bridge transport');
-    await poll(service);
-
-    const maskedSnapshot = service.getSnapshot();
-    expect(maskedSnapshot.state).toBe('transitioning');
-    expect(maskedSnapshot.message).toBe('Switching to Xbox Controller mode');
-    expect(maskedSnapshot.diagnostics.lastError).toBeNull();
-    expect(maskedSnapshot.personaTransition?.to).toBe('xbox');
-  });
-
-  it('keeps transition status when the WinUSB helper closes during host persona re-enumeration', async () => {
-    const service = serviceFixture();
-    const device = new MockHidDevice();
-    device.status = statusReport({
-      controllerConnected: false,
-      hostPersonaMode: 'dualsense',
-      supportedHostPersonaModesMask: 0x07
-    });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('companion-path', device);
-
-    await poll(service);
-    await service.setHostPersonaMode('xbox');
-    device.emit('close');
-    await flushImmediate();
-
-    const maskedSnapshot = service.getSnapshot();
-    expect(maskedSnapshot.state).toBe('transitioning');
-    expect(maskedSnapshot.message).toBe('Switching to Xbox Controller mode');
-    expect(maskedSnapshot.diagnostics.lastError).toBeNull();
-    expect(maskedSnapshot.personaTransition?.to).toBe('xbox');
-  });
-
-  it('uses a short rediscovery retry while a host persona transition is active', async () => {
-    const service = serviceFixture();
-    const device = new MockHidDevice();
-    device.status = statusReport({
-      controllerConnected: false,
-      hostPersonaMode: 'dualsense',
-      supportedHostPersonaModesMask: 0x07
-    });
-    hidMock.state.devicesList = [companionDeviceInfo()];
-    hidMock.state.openDevices.set('xbox-path', device);
-
-    await poll(service);
-    await service.setHostPersonaMode('xbox');
-    device.statusReadError = new Error('WinUSB path vanished');
-    await poll(service);
-
-    device.statusReadError = null;
-    hidMock.state.devicesList = [companionDeviceInfo('xbox-path')];
-    await poll(service);
-
-    expect(winUsbTransportMock.open).toHaveBeenLastCalledWith({ retryTimeoutMs: 250 });
-    expect(service.getSnapshot().state).toBe('transitioning');
-  });
-
-  it('keeps a reconnecting grace state before reporting no bridge after a host persona switch', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
-    try {
-      const service = serviceFixture();
-      const device = new MockHidDevice();
-      device.status = statusReport({
-        controllerConnected: false,
-        hostPersonaMode: 'dualsense',
-        supportedHostPersonaModesMask: 0x07
-      });
-      hidMock.state.devicesList = [companionDeviceInfo()];
-      hidMock.state.openDevices.set('companion-path', device);
-
-      await poll(service);
-      const switchingSnapshot = await service.setHostPersonaMode('xbox');
-      const deadlineAt = switchingSnapshot.personaTransition?.deadlineAt ?? 1_008_000;
-
-      device.statusReadError = new Error('WinUSB path vanished');
-      nowSpy.mockReturnValue(deadlineAt + 1);
-      await poll(service);
-
-      const reconnectingSnapshot = service.getSnapshot();
-      expect(reconnectingSnapshot.state).toBe('transitioning');
-      expect(reconnectingSnapshot.message).toBe('Please wait, reconnecting to Xbox Controller mode');
-      expect(reconnectingSnapshot.diagnostics.lastError).toBeNull();
-      expect(reconnectingSnapshot.personaTransition?.to).toBe('xbox');
-
-      nowSpy.mockReturnValue(deadlineAt + 5001);
-      await poll(service);
-
-      expect(service.getSnapshot().state).toBe('no-bridge');
-      expect(service.getSnapshot().message).toBe('No bridge detected');
-    } finally {
-      nowSpy.mockRestore();
-    }
-  });
-
-  it('keeps reconnecting grace if the bridge drops after the target persona was seen', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
-    try {
-      const service = serviceFixture();
-      const device = new MockHidDevice();
-      device.status = statusReport({
-        controllerConnected: false,
-        hostPersonaMode: 'dualsense',
-        supportedHostPersonaModesMask: 0x07
-      });
-      hidMock.state.devicesList = [companionDeviceInfo()];
-      hidMock.state.openDevices.set('companion-path', device);
-
-      await poll(service);
-      await flushReapply();
-      await service.setHostPersonaMode('xbox');
-
-      device.status = statusReport({
-        controllerConnected: false,
-        hostPersonaMode: 'xbox',
-        supportedHostPersonaModesMask: 0x07
-      });
-      nowSpy.mockReturnValue(1_000_500);
-      await poll(service);
-
-      expect(service.getSnapshot().state).toBe('connected');
-      expect(service.getSnapshot().message).toBe('Companion firmware connected');
-
-      nowSpy.mockReturnValue(1_001_701);
-      await poll(service);
-
-      expect(service.getSnapshot().state).toBe('connected');
-      expect(service.getSnapshot().personaTransition).toBeNull();
-
-      device.statusReadError = new Error('WinUSB path vanished after target persona was seen');
-      nowSpy.mockReturnValue(1_001_800);
-      await poll(service);
-
-      const reconnectingSnapshot = service.getSnapshot();
-      expect(reconnectingSnapshot.state).toBe('transitioning');
-      expect(reconnectingSnapshot.message).toBe('Please wait, reconnecting to Xbox Controller mode');
-      expect(reconnectingSnapshot.diagnostics.lastError).toBeNull();
-      expect(reconnectingSnapshot.personaTransition?.to).toBe('xbox');
-
-      nowSpy.mockReturnValue(1_006_702);
-      await poll(service);
-
-      expect(service.getSnapshot().state).toBe('no-bridge');
-      expect(service.getSnapshot().message).toBe('No bridge detected');
-    } finally {
-      nowSpy.mockRestore();
-    }
-  });
 
   it('sends manual sleep command without requiring a settings revision change', async () => {
     const service = serviceFixture();

@@ -305,12 +305,6 @@ describe('SettingsStore', () => {
       type: 'controller-setting',
       action: 'triggers-down',
       stepPercent: 25
-    }, {
-      id: 'persona-xbox',
-      name: 'Xbox Persona',
-      type: 'controller-setting',
-      action: 'persona-xbox',
-      stepPercent: 10
     }];
 
     const updated = store.setChordFunctions(functions);

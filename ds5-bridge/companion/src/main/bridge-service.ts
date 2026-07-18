@@ -30,7 +30,6 @@ import {
   readReportProtocolVersion,
   SHORTCUT_EVENT,
   buildButtonRemapPayload,
-  hostPersonaModeValue,
   normalizeChordControllerSettingStepPercent,
   normalizeBridgePresetId,
   pollingRateModeValue
@@ -54,7 +53,6 @@ import type {
   ChordAssignment,
   ChordFunction,
   RemapButtonId,
-  HostPersonaMode,
   AudioStatusPayload,
   TriggerTraceEventPayload,
   FeedbackTraceEventPayload,
@@ -72,7 +70,6 @@ import type {
   BridgeSnapshot,
   CompanionSettings,
   AudioHapticsSession,
-  HostPersonaTransition,
   HidDeviceSummary,
   UiScalePercent,
   UiThemePreset,
@@ -136,13 +133,6 @@ const FEEDBACK_TRACE_LOG_LINE_LIMIT = 300;
 const FEEDBACK_TRACE_MAX_READS_PER_POLL = 32;
 const STARTUP_REAPPLY_MIN_SETTLE_MS = 0;
 const STARTUP_REAPPLY_RETRY_DELAYS_MS = [250, 650, 1300] as const;
-const HOST_PERSONA_TRANSITION_TIMEOUT_MS = 8000;
-const HOST_PERSONA_TRANSITION_SETTLE_MS = 0;
-const HOST_PERSONA_TRANSITION_REDISCOVERY_POLL_MS = 50;
-const HOST_PERSONA_TRANSITION_OPEN_RETRY_MS = 250;
-const HOST_PERSONA_RECONNECT_GRACE_MS = 5000;
-const HOST_PERSONA_DEFAULT_RENDER_RESTORE_RETRY_MS = 500;
-const HOST_PERSONA_DEFAULT_RENDER_RESTORE_GRACE_MS = 4000;
 const MIN_IDLE_DISCONNECT_TIMEOUT_MINUTES = 1;
 const MAX_IDLE_DISCONNECT_TIMEOUT_MINUTES = 120;
 const CONTROLLER_POWER_SAVING_CAP_PERCENT = 60;
@@ -179,20 +169,6 @@ type CommandOptions = {
   extraPayload?: ArrayLike<number>;
   allowAckTransportLoss?: boolean;
   allowProtocolMismatch?: boolean;
-};
-
-type HostPersonaTransitionState = HostPersonaTransition & {
-  settlingUntil: number | null;
-  reconnectingUntil: number;
-  completedAt: number | null;
-};
-
-type HostPersonaDefaultRenderRestore = {
-  to: HostPersonaMode;
-  deadlineAt: number;
-  nextAttemptAt: number;
-  attempts: number;
-  inFlight: boolean;
 };
 
 export type BridgeToast = {
@@ -956,18 +932,6 @@ function formatUsbDebugEvent(prefix: string, args: number[]): string {
   }
 }
 
-function normalizeHostPersonaMode(mode: HostPersonaMode): HostPersonaMode {
-  if (mode === 'xbox' || mode === 'ds4') {
-    return mode;
-  }
-  return 'dualsense';
-}
-
-function hostPersonaModeLabel(mode: HostPersonaMode): string {
-  if (mode === 'ds4') return 'DualShock 4';
-  return mode === 'xbox' ? 'Xbox Controller' : 'DualSense';
-}
-
 function formatHidDebugEvent(prefix: string, args: number[]): string {
   const [type, reportId, reportType, len, firstByte] = args;
   switch (type) {
@@ -1389,7 +1353,6 @@ export class BridgeService extends EventEmitter {
   private device: CompanionTransport | null = null;
   private devicePath: string | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
-  private hostPersonaTransitionPollTimer: NodeJS.Timeout | null = null;
   private pollInFlight = false;
   private pollAgainRequested = false;
   private shortcutPollTimer: NodeJS.Timeout | null = null;
@@ -1441,9 +1404,6 @@ export class BridgeService extends EventEmitter {
   private lastAudioDebugReadAt = 0;
   private lastTriggerTraceReadAt = 0;
   private lastFeedbackTraceReadAt = 0;
-  private hostPersonaTransition: HostPersonaTransitionState | null = null;
-  private completedHostPersonaMode: HostPersonaMode | null = null;
-  private hostPersonaDefaultRenderRestore: HostPersonaDefaultRenderRestore | null = null;
   private controllerPowerSavingActive: boolean | null = null;
   private previousControllerConnected: boolean | null = null;
   private lowBatteryToastActive = false;
@@ -1464,8 +1424,7 @@ export class BridgeService extends EventEmitter {
       message: 'No bridge detected',
       status: null,
       settings: this.settingsStore.get(),
-      diagnostics: this.withAudioDebugDiagnostics(emptyDiagnostics([])),
-      personaTransition: null
+      diagnostics: this.withAudioDebugDiagnostics(emptyDiagnostics([]))
     };
     this.systemAudioHapticsEngine.on('error', (error: Error) => {
       this.appendAudioDebugLines([`[SystemHaptics] error: ${error.message}`]);
@@ -1558,7 +1517,6 @@ export class BridgeService extends EventEmitter {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-    this.clearHostPersonaTransitionPollTimer();
     if (this.shortcutPollTimer) {
       clearInterval(this.shortcutPollTimer);
       this.shortcutPollTimer = null;
@@ -1580,13 +1538,6 @@ export class BridgeService extends EventEmitter {
   private controllerAudioReady(status = this.snapshot.status): boolean {
     return Boolean(status?.controllerConnected);
   }
-
-  private currentHostPersonaMode(): HostPersonaMode {
-    return normalizeHostPersonaMode(
-      this.snapshot.status?.hostPersonaMode ?? this.settingsStore.get().hostPersonaMode
-    );
-  }
-
   private async stopAudioHapticsSessionPolling(): Promise<void> {
     this.audioHapticsSessionCache = null;
     this.audioHapticsSessionListInFlight = null;
@@ -1706,27 +1657,6 @@ export class BridgeService extends EventEmitter {
         this.shortcutPollInFlight = false;
       });
   }
-
-  private scheduleHostPersonaTransitionPoll(): void {
-    if (!this.pollTimer || !this.isHostPersonaTransitionActive() || this.hostPersonaTransitionPollTimer) {
-      return;
-    }
-    this.hostPersonaTransitionPollTimer = setTimeout(() => {
-      this.hostPersonaTransitionPollTimer = null;
-      if (this.isHostPersonaTransitionActive()) {
-        this.runPoll();
-      }
-    }, HOST_PERSONA_TRANSITION_REDISCOVERY_POLL_MS);
-  }
-
-  private clearHostPersonaTransitionPollTimer(): void {
-    if (!this.hostPersonaTransitionPollTimer) {
-      return;
-    }
-    clearTimeout(this.hostPersonaTransitionPollTimer);
-    this.hostPersonaTransitionPollTimer = null;
-  }
-
   private withAudioDebugDiagnostics(diagnostics: BridgeDiagnosticsWithoutAudioLog): BridgeDiagnostics {
     return {
       ...diagnostics,
@@ -1741,94 +1671,15 @@ export class BridgeService extends EventEmitter {
       audioStatus: this.audioStatus ? { ...this.audioStatus } : null
     };
   }
-
-  private expireHostPersonaTransition(now = Date.now()): HostPersonaTransitionState | null {
-    const transition = this.hostPersonaTransition;
-    if (!transition) {
-      return null;
-    }
-    if (now >= transition.reconnectingUntil) {
-      this.hostPersonaTransition = null;
-      this.clearHostPersonaTransitionPollTimer();
-      return null;
-    }
-    return transition;
-  }
-
-  private hostPersonaTransitionSnapshot(now = Date.now()): HostPersonaTransition | null {
-    const transition = this.expireHostPersonaTransition(now);
-    if (!transition || transition.completedAt !== null) {
-      return null;
-    }
-    if (transition.settlingUntil !== null && now >= transition.settlingUntil) {
-      return null;
-    }
-    return this.hostPersonaTransitionPublicSnapshot(transition);
-  }
-
-  private hostPersonaTransitionMaskSnapshot(now = Date.now()): HostPersonaTransition | null {
-    const transition = this.expireHostPersonaTransition(now);
-    if (!transition) {
-      return null;
-    }
-    return this.hostPersonaTransitionPublicSnapshot(transition);
-  }
-
-  private hostPersonaTransitionPublicSnapshot(transition: HostPersonaTransitionState): HostPersonaTransition {
-    return {
-      from: transition.from,
-      to: transition.to,
-      startedAt: transition.startedAt,
-      deadlineAt: transition.deadlineAt
-    };
-  }
-
-  private isHostPersonaTransitionActive(now = Date.now()): boolean {
-    return this.expireHostPersonaTransition(now) !== null;
-  }
-
-  private hostPersonaTransitionMessage(transition: HostPersonaTransition, forceReconnecting = false): string {
-    const activeTransition = this.hostPersonaTransition;
-    if (
-      forceReconnecting
-      || (
-        activeTransition
-        && activeTransition.to === transition.to
-        && activeTransition.settlingUntil === null
-        && Date.now() >= activeTransition.deadlineAt
-      )
-    ) {
-      return `Please wait, reconnecting to ${hostPersonaModeLabel(transition.to)} mode`;
-    }
-    return `Switching to ${hostPersonaModeLabel(transition.to)} mode`;
-  }
-
-  private beginHostPersonaTransition(to: HostPersonaMode, from: HostPersonaMode): void {
-    const now = Date.now();
-    this.hostPersonaTransition = {
-      from,
-      to,
-      startedAt: now,
-      deadlineAt: now + HOST_PERSONA_TRANSITION_TIMEOUT_MS,
-      settlingUntil: null,
-      reconnectingUntil: now + HOST_PERSONA_TRANSITION_TIMEOUT_MS + HOST_PERSONA_RECONNECT_GRACE_MS,
-      completedAt: null
-    };
-  }
-
   private async getDefaultRenderEndpointStatus(): Promise<DefaultRenderEndpointStatus> {
     return getDefaultRenderEndpointStatus();
-  }
-
-  private async setDefaultRenderBridgeEndpoint(mode: HostPersonaMode): Promise<void> {
-    await setDefaultRenderBridgeEndpoint(mode);
   }
 
   private async defaultRenderIsBridgeEndpoint(): Promise<boolean> {
     try {
       const status = await this.getDefaultRenderEndpointStatus();
       this.appendAudioDebugLines([
-        `[HostBridge] default render before persona switch device='${status.deviceName}' bridge=${status.isBridgeEndpoint}`
+        `[HostBridge] default render device='${status.deviceName}' bridge=${status.isBridgeEndpoint}`
       ]);
       return status.isBridgeEndpoint;
     } catch (error) {
@@ -1837,88 +1688,6 @@ export class BridgeService extends EventEmitter {
       return false;
     }
   }
-
-  private queueHostPersonaDefaultRenderRestore(to: HostPersonaMode): void {
-    const now = Date.now();
-    this.hostPersonaDefaultRenderRestore = {
-      to,
-      deadlineAt: now
-        + HOST_PERSONA_TRANSITION_TIMEOUT_MS
-        + HOST_PERSONA_RECONNECT_GRACE_MS
-        + HOST_PERSONA_DEFAULT_RENDER_RESTORE_GRACE_MS,
-      nextAttemptAt: 0,
-      attempts: 0,
-      inFlight: false
-    };
-  }
-
-  private async restoreHostPersonaDefaultRenderIfReady(status: BridgeStatusPayload): Promise<void> {
-    const restore = this.hostPersonaDefaultRenderRestore;
-    if (!restore || restore.inFlight || status.hostPersonaMode !== restore.to) {
-      return;
-    }
-
-    const now = Date.now();
-    if (now < restore.nextAttemptAt) {
-      return;
-    }
-    const transition = this.hostPersonaTransition;
-    if (transition && transition.to === restore.to && transition.completedAt === null) {
-      return;
-    }
-    if (now >= restore.deadlineAt) {
-      this.hostPersonaDefaultRenderRestore = null;
-      this.appendAudioDebugLines([
-        `[HostBridge] default render restore expired persona=${restore.to} attempts=${restore.attempts}`
-      ]);
-      return;
-    }
-
-    restore.inFlight = true;
-    restore.attempts += 1;
-    try {
-      await this.setDefaultRenderBridgeEndpoint(restore.to);
-      this.hostPersonaDefaultRenderRestore = null;
-      this.appendAudioDebugLines([
-        `[HostBridge] default render restored for persona=${restore.to}`
-      ]);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      restore.nextAttemptAt = Date.now() + HOST_PERSONA_DEFAULT_RENDER_RESTORE_RETRY_MS;
-      if (restore.attempts <= 3) {
-        this.appendAudioDebugLines([
-          `[HostBridge] default render restore retry persona=${restore.to} attempts=${restore.attempts} error=${message}`
-        ]);
-      }
-    } finally {
-      if (this.hostPersonaDefaultRenderRestore === restore) {
-        restore.inFlight = false;
-      }
-    }
-  }
-
-  private advanceHostPersonaTransition(status: BridgeStatusPayload, now = Date.now()): HostPersonaTransition | null {
-    const transition = this.expireHostPersonaTransition(now);
-    if (!transition) {
-      return null;
-    }
-    if (status.hostPersonaMode === transition.to) {
-      if (transition.settlingUntil === null) {
-        transition.settlingUntil = now + HOST_PERSONA_TRANSITION_SETTLE_MS;
-      }
-      if (now >= transition.settlingUntil) {
-        if (transition.completedAt === null) {
-          transition.completedAt = now;
-          transition.reconnectingUntil = now + HOST_PERSONA_RECONNECT_GRACE_MS;
-          this.completedHostPersonaMode = transition.to;
-          this.clearHostPersonaTransitionPollTimer();
-        }
-        return null;
-      }
-    }
-    return this.hostPersonaTransitionSnapshot(now);
-  }
-
   private transitionDiagnostics(rawDevices: HidDeviceSummary[]): BridgeDiagnostics {
     return this.withAudioDebugDiagnostics({
       ...this.snapshot.diagnostics,
@@ -1927,27 +1696,6 @@ export class BridgeService extends EventEmitter {
       rawDevices
     });
   }
-
-  private applyHostPersonaTransitionSnapshot(rawDevices: HidDeviceSummary[]): boolean {
-    const now = Date.now();
-    const transition = this.hostPersonaTransitionMaskSnapshot(now);
-    if (!transition) {
-      return false;
-    }
-    const activeTransition = this.hostPersonaTransition;
-    const forceReconnecting = Boolean(activeTransition?.completedAt !== null);
-    this.snapshot = {
-      ...this.snapshot,
-      state: 'transitioning',
-      message: this.hostPersonaTransitionMessage(transition, forceReconnecting),
-      settings: this.settingsStore.get(),
-      diagnostics: this.transitionDiagnostics(rawDevices),
-      personaTransition: transition
-    };
-    this.scheduleHostPersonaTransitionPoll();
-    return true;
-  }
-
   private appendAudioDebugLines(lines: string[]): void {
     if (!AUDIO_DEBUG_DIAGNOSTICS_ENABLED) {
       return;
@@ -1965,20 +1713,6 @@ export class BridgeService extends EventEmitter {
       diagnostics: this.withAudioDebugDiagnostics(this.snapshot.diagnostics)
     };
   }
-
-  private consumeCompletedHostPersonaMode(): HostPersonaMode | null {
-    const mode = this.completedHostPersonaMode;
-    this.completedHostPersonaMode = null;
-    return mode;
-  }
-
-  private async restartSystemAudioHapticsAfterPersonaTransition(mode: HostPersonaMode): Promise<void> {
-    this.systemAudioHapticsRetryAt = 0;
-    await this.systemAudioHapticsEngine.stop();
-    await this.updateSystemAudioHapticsEngine();
-    this.appendAudioDebugLines([`[SystemHaptics] restarted after persona transition persona=${mode}`]);
-  }
-
   private isBridgeRenderEndpointUnavailableError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes('Render endpoint matching') && message.includes('was not found');
@@ -2777,15 +2511,6 @@ export class BridgeService extends EventEmitter {
       case 'sleep-controller':
         await this.sleepController();
         return;
-      case 'persona-dualsense':
-        await this.setHostPersonaMode('dualsense');
-        return;
-      case 'persona-ds4':
-        await this.setHostPersonaMode('ds4');
-        return;
-      case 'persona-xbox':
-        await this.setHostPersonaMode('xbox');
-        return;
       case 'speaker-down':
         await this.stepSpeakerVolume(-step);
         return;
@@ -3074,18 +2799,12 @@ export class BridgeService extends EventEmitter {
   }
 
   async testHaptics(): Promise<BridgeSnapshot> {
-    const transition = this.hostPersonaTransitionMaskSnapshot();
-    if (transition) {
-      return this.skipBridgeHapticsTest(`switching to ${transition.to}`);
-    }
-
     const settings = this.settingsStore.get();
-    const hostPersonaMode = this.currentHostPersonaMode();
     try {
-      await playBridgeHapticsTestPattern(settings.hapticsGainPercent, hostPersonaMode);
+      await playBridgeHapticsTestPattern(settings.hapticsGainPercent);
     } catch (error) {
       if (this.isBridgeRenderEndpointUnavailableError(error)) {
-        return this.skipBridgeHapticsTest(`${hostPersonaModeLabel(hostPersonaMode)} audio endpoint unavailable`);
+        return this.skipBridgeHapticsTest('audio endpoint unavailable');
       }
       throw error;
     }
@@ -3094,7 +2813,7 @@ export class BridgeService extends EventEmitter {
 
   async testSpeaker(): Promise<BridgeSnapshot> {
     const settings = this.settingsStore.get();
-    await playBridgeSpeakerTestTone(settings.speakerVolumePercent, this.currentHostPersonaMode());
+    await playBridgeSpeakerTestTone(settings.speakerVolumePercent);
     return this.getSnapshot();
   }
 
@@ -3131,34 +2850,6 @@ export class BridgeService extends EventEmitter {
     });
     return this.getSnapshot();
   }
-
-  async setHostPersonaMode(mode: HostPersonaMode): Promise<BridgeSnapshot> {
-    const normalizedMode = normalizeHostPersonaMode(mode);
-    const previousMode = this.snapshot.status?.hostPersonaMode ?? this.snapshot.settings.hostPersonaMode;
-    const shouldRestoreDefaultRender = previousMode !== normalizedMode
-      ? await this.defaultRenderIsBridgeEndpoint()
-      : false;
-    const ack = await this.sendCommand(COMMAND_ID.SET_HOST_PERSONA, hostPersonaModeValue(normalizedMode), {
-      expectSettingsRevisionChange: true
-    });
-    if (ack.resultCode === ACK_RESULT.OK) {
-      this.snapshot.settings = this.settingsStore.update({ hostPersonaMode: normalizedMode });
-      if (previousMode !== normalizedMode) {
-        if (shouldRestoreDefaultRender) {
-          this.queueHostPersonaDefaultRenderRestore(normalizedMode);
-        } else {
-          this.hostPersonaDefaultRenderRestore = null;
-        }
-        this.beginHostPersonaTransition(normalizedMode, previousMode);
-        this.systemAudioHapticsRetryAt = 0;
-        await this.systemAudioHapticsEngine.stop();
-        this.applyHostPersonaTransitionSnapshot(this.snapshot.diagnostics.rawDevices);
-      }
-      this.emitSnapshot();
-    }
-    return this.getSnapshot();
-  }
-
   async previewAdaptiveTriggerEffect(effect: AdaptiveTriggerPreviewEffect): Promise<BridgeSnapshot> {
     const normalized = normalizeAdaptiveTriggerPreviewEffect(effect);
     const value = triggerTestModeValue(normalized.mode) | (triggerTestTargetValue(normalized.target) << 8);
@@ -3522,7 +3213,7 @@ export class BridgeService extends EventEmitter {
     }
 
     try {
-      await this.systemAudioHapticsEngine.start(this.systemAudioHapticsConfig(settings), this.currentHostPersonaMode());
+      await this.systemAudioHapticsEngine.start(this.systemAudioHapticsConfig(settings));
       if (this.systemAudioHapticsPassthroughActive) {
         this.systemAudioHapticsPassthroughActive = false;
         await this.applyAudioReactiveHapticsSettings(settings, false);
@@ -3714,8 +3405,6 @@ export class BridgeService extends EventEmitter {
       return;
     }
 
-    const transition = this.advanceHostPersonaTransition(status, now);
-    const completedHostPersonaMode = this.consumeCompletedHostPersonaMode();
     const controllerAudioReady = this.controllerAudioReady(status);
 
     if (!controllerAudioReady) {
@@ -3750,11 +3439,9 @@ export class BridgeService extends EventEmitter {
       settings = this.settingsStore.update(customSettingUpdate({ micMuted: status.micMuted }));
       this.emitMicMuteToast(status.micMuted);
     }
-    const state = transition ? 'transitioning' : 'connected';
-
     this.snapshot = {
-      state,
-      message: transition ? this.hostPersonaTransitionMessage(transition) : 'Companion firmware connected',
+      state: 'connected',
+      message: 'Companion firmware connected',
       status,
       settings: {
         ...settings,
@@ -3772,17 +3459,9 @@ export class BridgeService extends EventEmitter {
         controllerFirmware: this.controllerFirmware.get(true, rawDevices),
         vdsKernelVersion: readVdsKernelVersion(),
         rawDevices
-      }),
-      personaTransition: transition
+      })
     };
     this.emitSnapshot();
-    if (transition) {
-      this.scheduleHostPersonaTransitionPoll();
-    }
-    await this.restoreHostPersonaDefaultRenderIfReady(status);
-    if (completedHostPersonaMode) {
-      await this.restartSystemAudioHapticsAfterPersonaTransition(completedHostPersonaMode);
-    }
     await this.updateMicKeepaliveEngine(status.controllerConnected);
     await this.updateVolumeGuardEngine(this.controllerAudioReady(status));
     await this.syncControllerPowerSavingState(settings);
@@ -3836,7 +3515,7 @@ export class BridgeService extends EventEmitter {
     try {
       if (!this.device) {
         this.device = await openCompanionTransport({
-          retryTimeoutMs: this.isHostPersonaTransitionActive() ? HOST_PERSONA_TRANSITION_OPEN_RETRY_MS : 0
+          retryTimeoutMs: 0
         });
         const openedDevice = this.device;
         this.device.on('error', (error: Error) => this.publishError(error));
@@ -4045,11 +3724,6 @@ export class BridgeService extends EventEmitter {
       pollingRateModeValue(settings.pollingRateMode),
       { expectSettingsRevisionChange }
     );
-    await this.sendCommand(
-      COMMAND_ID.SET_HOST_PERSONA,
-      hostPersonaModeValue(settings.hostPersonaMode),
-      { expectSettingsRevisionChange }
-    );
   }
 
   private async applyLightbarSettings(settings: CompanionSettings, expectSettingsRevisionChange: boolean): Promise<void> {
@@ -4103,12 +3777,6 @@ export class BridgeService extends EventEmitter {
 
   private publishError(error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
-    if (this.applyHostPersonaTransitionSnapshot(this.snapshot.diagnostics.rawDevices)) {
-      this.appendAudioDebugLines([`[HostBridge] masked persona transition error: ${message}`]);
-      this.emitSnapshot();
-      return;
-    }
-
     const isIncompatible = error instanceof ProtocolError && error.code === 'bad-version';
     this.snapshot = {
       ...this.snapshot,
@@ -4147,10 +3815,6 @@ export class BridgeService extends EventEmitter {
   }
 
   private markBridgeUnavailableAfterDisconnect(rawDevices: HidDeviceSummary[], normalFirmwarePresent = false): void {
-    if (this.applyHostPersonaTransitionSnapshot(rawDevices)) {
-      return;
-    }
-
     this.lastUptimeSeconds = null;
     this.sessionKey = null;
     this.sessionPath = null;
@@ -4172,13 +3836,6 @@ export class BridgeService extends EventEmitter {
   }
 
   private emitSnapshot(): void {
-    const personaTransition = this.snapshot.state === 'transitioning'
-      ? this.hostPersonaTransitionMaskSnapshot()
-      : this.hostPersonaTransitionSnapshot();
-    this.snapshot = {
-      ...this.snapshot,
-      personaTransition
-    };
     const signature = JSON.stringify({
       state: this.snapshot.state,
       message: this.snapshot.message,
@@ -4189,7 +3846,6 @@ export class BridgeService extends EventEmitter {
           }
         : null,
       settings: this.snapshot.settings,
-      personaTransition: this.snapshot.personaTransition,
       diagnostics: {
         hidPath: this.snapshot.diagnostics.hidPath,
         protocolVersion: this.snapshot.diagnostics.protocolVersion,

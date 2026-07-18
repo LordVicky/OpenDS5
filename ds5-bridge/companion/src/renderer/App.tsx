@@ -28,7 +28,6 @@ import {
   IconFlame,
   IconBrandDeezer,
   IconDeviceAudioTape,
-  IconBrandXbox,
   IconBrandGithub,
   IconHeart as Heart,
   IconDeviceMobileVibration as Vibrate,
@@ -68,7 +67,6 @@ import {
   IconVolumeOff as VolumeX,
   IconX as X
 } from '@tabler/icons-react';
-import playStationLogoUrl from '../../../assets/brand/playstation-logo.svg';
 import controllerImage from '../../../assets/controllers/dualsense-edge-front.svg';
 import remappingEdgeLayoutImage from '../../../assets/controllers/dualsense-edge-remapping-layout.svg';
 import remappingLayoutImage from '../../../assets/controllers/dualsense-remapping-layout.svg';
@@ -129,7 +127,6 @@ import type {
   ChordMediaAction,
   ChordStarterId,
   ControllerProfileSettings,
-  HostPersonaMode,
   MuteButtonMode,
   MuteKeyboardBehavior,
   PollingRateMode,
@@ -424,11 +421,6 @@ const POLLING_RATE_OPTIONS: Array<[string, PollingRateMode]> = [
 // runs at follows the model rather than the requested pollingRateMode.
 const ACTIVE_POLLING_RATE_HZ_DSE = 1000;
 const ACTIVE_POLLING_RATE_HZ_STANDARD = 250;
-const HOST_PERSONA_OPTIONS: Array<[string, HostPersonaMode]> = [
-  ['DualSense', 'dualsense'],
-  ['DualShock 4', 'ds4'],
-  ['Xbox', 'xbox']
-];
 const SPEAKER_GAIN_OPTIONS: Array<[string, number]> = [
   ['1', 1],
   ['2', 2],
@@ -591,9 +583,6 @@ const CHORD_CONTROLLER_SETTING_ACTION_OPTIONS: Array<[string, ChordControllerSet
   ['Lightbar Override', 'toggle-lightbar-override'],
   ['Mic Mute', 'toggle-mic-mute'],
   ['Sleep Controller', 'sleep-controller'],
-  ['DualSense', 'persona-dualsense'],
-  ['DualShock 4', 'persona-ds4'],
-  ['Xbox', 'persona-xbox'],
   ...CHORD_NOTCH_TARGETS.map((target): [string, ChordNotchTargetId] => [target.label, target.id])
 ];
 const CHORD_KEYBOARD_KEY_OPTIONS: Array<[string, string]> = [
@@ -1523,7 +1512,6 @@ function controllerProfileSettingsFromSnapshot(snapshot: BridgeSnapshot): Contro
     sleepKeybindEnabled: snapshot.settings.sleepKeybindEnabled,
     speakerVolumeShortcutEnabled: snapshot.settings.speakerVolumeShortcutEnabled,
     pollingRateMode: snapshot.settings.pollingRateMode,
-    hostPersonaMode: snapshot.settings.hostPersonaMode,
     duplexMicEnabled: snapshot.settings.duplexMicEnabled,
     audioReactiveHapticsEnabled: snapshot.settings.audioReactiveHapticsEnabled,
     audioReactiveHapticsSource: snapshot.settings.audioReactiveHapticsSource,
@@ -2642,12 +2630,6 @@ function chordControllerSettingSummary(action: ChordControllerSettingAction, ste
       return 'Toggle Mic Mute';
     case 'sleep-controller':
       return 'Sleep Controller';
-    case 'persona-dualsense':
-      return 'Set Persona: DualSense';
-    case 'persona-ds4':
-      return 'Set Persona: DualShock 4';
-    case 'persona-xbox':
-      return 'Set Persona: Xbox';
   }
   return 'Controller Setting';
 }
@@ -3094,8 +3076,6 @@ export function App() {
     };
   }, [Boolean(snapshot), startupVisible]);
 
-  const personaTransition = snapshot?.personaTransition ?? null;
-  const personaTransitionActive = Boolean(personaTransition);
   const connected = snapshot?.state === 'connected';
   const controllerConnected = Boolean(snapshot?.status?.controllerConnected);
   const controllerControlsAvailable = connected && controllerConnected;
@@ -3923,13 +3903,11 @@ export function App() {
   // 25 rather than 20 so the critical styling triggers at the same physical
   // charge as before the battery midpoint fix. See LOW_BATTERY_PERCENT.
   const batteryCritical = connected && !batteryCharging && batteryPercent > 0 && batteryPercent <= 25;
-  const statusTone = personaTransitionActive
-    ? 'warn'
-    : connected
-      ? 'good'
-      : snapshot?.state === 'error' || snapshot?.state === 'incompatible'
-        ? 'bad'
-        : 'idle';
+  const statusTone = connected
+    ? 'good'
+    : snapshot?.state === 'error' || snapshot?.state === 'incompatible'
+      ? 'bad'
+      : 'idle';
   const lastAck = snapshot?.diagnostics.lastAck;
   const speakerVolumeSupported = Boolean(snapshot?.status?.firmwareFlags.speakerVolumeControl);
   const lightbarSupported = Boolean(snapshot?.status?.firmwareFlags.lightbarControl);
@@ -3939,11 +3917,8 @@ export function App() {
   const usbSuspendDisconnectSupported = Boolean(snapshot?.status?.firmwareFlags.usbSuspendDisconnectControl);
   const sleepControllerSupported = Boolean(snapshot?.status?.firmwareFlags.sleepControllerControl);
   const pollingRateControlSupported = Boolean(snapshot?.status?.firmwareFlags.pollingRateControl);
-  const hostPersonaControlSupported = Boolean(snapshot?.status?.firmwareFlags.hostPersonaControl);
   const audioBufferLengthControlSupported = Boolean(snapshot?.status?.firmwareFlags.hapticsBufferLengthControl);
   const audioReactiveHapticsSupported = Boolean(snapshot?.status?.firmwareFlags.audioReactiveHapticsControl);
-  const supportedHostPersonaModes: HostPersonaMode[] = snapshot?.status?.supportedHostPersonaModes ?? ['dualsense'];
-  const overviewHostPersonaMode = personaTransition?.to ?? snapshot?.settings.hostPersonaMode ?? 'dualsense';
   const hapticsEnabled = Boolean(snapshot?.settings.hapticsEnabled);
   const audioReactiveHapticsEnabled = Boolean(snapshot?.settings.audioReactiveHapticsEnabled);
   const snapshotLoaded = snapshot !== null;
@@ -4032,15 +4007,9 @@ export function App() {
   const outputPresetLower = headsetOutputDetected ? 'headphones' : 'speaker';
   const duplexMicEnabled = Boolean(snapshot?.settings.duplexMicEnabled);
   const audioEnabled = speakerEnabled || duplexMicEnabled;
-  const audioPathLabel = personaTransitionActive
-    ? 'Switching Mode'
-    : !connected
-    ? 'Unavailable'
-    : 'Bridge Local';
-  const audioPathTooltip = personaTransitionActive
-    ? 'Waiting for the controller to re-enumerate.'
-    : audioPathLabel;
-  const audioPathTone = connected && !personaTransitionActive ? 'good' : 'idle';
+  const audioPathLabel = !connected ? 'Unavailable' : 'Bridge Local';
+  const audioPathTooltip = audioPathLabel;
+  const audioPathTone = connected ? 'good' : 'idle';
   const audioBufferLengthControlDisabled = !connected
     || !audioBufferLengthControlSupported
     || pendingAction !== null
@@ -4194,30 +4163,22 @@ export function App() {
   const activeAudioTestLocked = showMicrophoneControl ? micTestLocked : speakerTestLocked;
   const activeAudioTestStatusLabel = showMicrophoneControl ? micTestStatusLabel : speakerStatusLabel;
   const activeAudioTestStatusTone = showMicrophoneControl ? micTestStatusTone : speakerStatusTone;
-  const sidebarDeviceTitle = personaTransitionActive
-    ? 'Switching Mode'
-    : connected && controllerConnected
+  const sidebarDeviceTitle = connected && controllerConnected
     ? controllerName(snapshot.status?.controllerType)
     : 'Controller';
-  const sidebarDeviceStatus = personaTransitionActive
-    ? 'Please wait'
-    : connected && controllerConnected
+  const sidebarDeviceStatus = connected && controllerConnected
     ? 'Connected'
     : connected
       ? 'Controller not connected'
       : 'Bridge not detected';
-  const sidebarDeviceTone = personaTransitionActive
-    ? 'warn'
-    : connected && controllerConnected
-      ? 'good'
-      : connected
-        ? 'warn'
-        : snapshot?.state === 'error' || snapshot?.state === 'incompatible'
-          ? 'bad'
-          : 'idle';
-  const sidebarBatteryLabel = personaTransitionActive
-    ? 'Reconnecting'
-    : connected && controllerConnected
+  const sidebarDeviceTone = connected && controllerConnected
+    ? 'good'
+    : connected
+      ? 'warn'
+      : snapshot?.state === 'error' || snapshot?.state === 'incompatible'
+        ? 'bad'
+        : 'idle';
+  const sidebarBatteryLabel = connected && controllerConnected
     ? (batteryCharging ? 'Charging' : `Battery ${batteryPercentLabel}`)
     : 'Battery unavailable';
   const pollingRateLabel = POLLING_RATE_OPTIONS.find(([, mode]) => mode === snapshot?.settings.pollingRateMode)?.[0]
@@ -4228,9 +4189,7 @@ export function App() {
   } Hz`;
   const firmwareUpdateAvailable = Boolean(snapshot?.diagnostics.firmwareUpdateAvailable);
   const overviewHealthLabel = healthLabel(snapshot);
-  const overviewHealthTone = personaTransitionActive
-    ? 'warn'
-    : snapshot?.diagnostics.lastError
+  const overviewHealthTone = snapshot?.diagnostics.lastError
     ? 'bad'
     : firmwareUpdateAvailable
     ? 'warn'
@@ -4239,16 +4198,12 @@ export function App() {
       : connected
         ? 'warn'
         : 'idle';
-  const systemHealthTone = personaTransitionActive
-    ? 'warn'
-    : snapshot?.diagnostics.lastError
+  const systemHealthTone = snapshot?.diagnostics.lastError
       ? 'bad'
       : firmwareUpdateAvailable
         ? 'warn'
         : 'good';
-  const overviewConnectionStatus = personaTransitionActive
-    ? 'Switching'
-    : connected && controllerConnected
+  const overviewConnectionStatus = connected && controllerConnected
     ? 'Stable'
     : connected
       ? 'Waiting'
@@ -4256,9 +4211,7 @@ export function App() {
   const overviewAudioPathState = !connected
     ? '--'
     : 'Bridge Local';
-  const overviewAudioPathDetail = personaTransitionActive
-    ? 'Switching Mode'
-    : !connected
+  const overviewAudioPathDetail = !connected
     ? '--'
     : audioStatus?.controllerStateReady
       ? 'Controller Ready'
@@ -6692,10 +6645,6 @@ export function App() {
     void runAction('polling-rate', () => window.bridge.setPollingRateMode(mode));
   }
 
-  function setHostPersonaMode(mode: HostPersonaMode) {
-    void runAction('host-persona', () => window.bridge.setHostPersonaMode(mode));
-  }
-
   function testNotifications() {
     void runAction('notify-test', () => window.bridge.testNotification());
   }
@@ -7495,43 +7444,6 @@ export function App() {
                     <Moon size={15} />
                     {overviewSleepConfirmVisible ? 'Confirm Sleep' : 'Sleep Controller'}
                   </button>
-                </div>
-                <div className="overview-persona-grid" aria-label="Host controller persona">
-                  {HOST_PERSONA_OPTIONS.map(([label, mode]) => {
-                    const active = overviewHostPersonaMode === mode;
-                    const supported = supportedHostPersonaModes.includes(mode);
-                    const disabled = !connected
-                      || !hostPersonaControlSupported
-                      || pendingAction !== null
-                      || personaTransitionActive
-                      || (!supported && !active);
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        className={`overview-persona-button persona-${mode} ${active ? 'active' : ''}`}
-                        aria-pressed={active}
-                        disabled={disabled}
-                        title={`Switch to ${label} mode`}
-                        onClick={() => {
-                          if (!active) {
-                            setHostPersonaMode(mode);
-                          }
-                        }}
-                      >
-                        {mode === 'xbox' ? (
-                          <IconBrandXbox className="overview-persona-logo" aria-hidden="true" />
-                        ) : (
-                          <span
-                            className="overview-persona-logo playstation"
-                            style={{ '--overview-persona-logo-mask': `url("${playStationLogoUrl}")` } as CSSProperties}
-                            aria-hidden="true"
-                          />
-                        )}
-                        <span>{label}</span>
-                      </button>
-                    );
-                  })}
                 </div>
               </section>
 
