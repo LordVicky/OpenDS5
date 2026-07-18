@@ -27,6 +27,11 @@ import { EvdevInputReader } from './evdev-input-reader';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
 import { GameSettingsCoordinator, type GameSettingsStatus } from './game-settings-coordinator';
 import { GameArtworkStore } from './game-artwork';
+import { GamingShortcutsCoordinator } from './gaming-shortcuts/coordinator';
+import { ActionExecutor } from './gaming-shortcuts/action-executor';
+import { detectProviderCapabilities } from './gaming-shortcuts/providers/detect-environment';
+import { formatShortcutBindings, type GamingShortcutNotifications, type GamingShortcutResult } from './gaming-shortcuts/notifications';
+import { normalizeGamingShortcutsSettings } from '../shared/gaming-shortcuts';
 import {
   InstalledGamesScanner,
   defaultScannerRoots,
@@ -78,6 +83,8 @@ let tray: Tray | null = null;
 let trayDefaultIcon: Electron.NativeImage | null = null;
 let bridgeService: BridgeService | null = null;
 let triggerProfileEngine: TriggerProfileEngine | null = null;
+let gamingShortcutsCoordinator: GamingShortcutsCoordinator | null = null;
+let gamingShortcutsReader: EvdevInputReader | null = null;
 let isQuitting = false;
 let shutdownComplete = false;
 // One-time DS5 Bridge -> OpenDS5 rebrand migration: carry legacy userData
@@ -157,6 +164,12 @@ function scheduleWindowStateSave(): void {
     windowStateSaveTimer = null;
     persistWindowState();
   }, 500);
+}
+
+function repaintWindowAfterResize(window: BrowserWindow): void {
+  if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+    window.webContents.invalidate();
+  }
 }
 
 async function createTrayIcon(): Promise<Electron.NativeImage> {
@@ -502,7 +515,13 @@ function createWindow(uiScalePercent: UiScalePercent): BrowserWindow {
   });
   window.on('will-move', () => bridgeService?.pausePollingFor(1200));
   window.on('move', () => bridgeService?.pausePollingFor(700));
-  window.on('resize', scheduleWindowStateSave);
+  window.on('resize', () => {
+    scheduleWindowStateSave();
+    // Frameless windows can retain undamaged transparent compositor regions
+    // during native resize on Linux/Wayland. Force the renderer to repaint the
+    // full surface so the desktop cannot show through stale regions.
+    repaintWindowAfterResize(window);
+  });
   window.on('move', scheduleWindowStateSave);
   window.on('maximize', scheduleWindowStateSave);
   window.on('unmaximize', scheduleWindowStateSave);
@@ -796,7 +815,13 @@ function ensureWindowsNotificationShortcut(): void {
   }
 }
 
+const activeNotifications = new Map<string, Notification>();
+
 function showBridgeNotification(toast: BridgeToast): void {
+  const replaceGroup = toast.replaceGroup;
+  if (replaceGroup) {
+    activeNotifications.get(replaceGroup)?.close();
+  }
   if (Notification.isSupported()) {
     const notification = new Notification({
       title: toast.title,
@@ -807,8 +832,22 @@ function showBridgeNotification(toast: BridgeToast): void {
     notification.once('failed', (_event, error) => {
       console.warn('Windows notification failed:', error);
     });
+    if (replaceGroup) activeNotifications.set(replaceGroup, notification);
     notification.show();
   }
+}
+
+function gamingShortcutNotifications(service: BridgeService): GamingShortcutNotifications {
+  return {
+    showShortcutReference: async (bindings) => { service.emit('toast', { title: 'OpenDS5 Gaming Shortcuts', body: formatShortcutBindings(bindings), replaceGroup: 'gaming-shortcut-mode' } satisfies BridgeToast); },
+    showShortcutMode: async (bindings, timeoutMs) => { service.emit('toast', { title: 'OpenDS5 Gaming Shortcuts', body: `${formatShortcutBindings(bindings)}\n\nSelect a shortcut within ${Math.ceil(timeoutMs / 1000)}s`, replaceGroup: 'gaming-shortcut-mode' } satisfies BridgeToast); },
+    showActionResult: async (result: GamingShortcutResult) => { service.emit('toast', { title: result.title, body: result.body ?? '', replaceGroup: result.replaceGroup } satisfies BridgeToast); },
+    showActionError: async (result: GamingShortcutResult) => { service.emit('toast', { title: result.title, body: result.body ?? '', replaceGroup: result.replaceGroup } satisfies BridgeToast); },
+    dismissShortcutNotification: async () => {
+      activeNotifications.get('gaming-shortcut-mode')?.close();
+      activeNotifications.delete('gaming-shortcut-mode');
+    }
+  };
 }
 
 async function addAudioHapticsSessionIcons(sessions: AudioHapticsSession[]): Promise<AudioHapticsSession[]> {
@@ -1088,12 +1127,30 @@ function fileToDataUrl(filePath: string): string | null {
 
 function registerIpc(
   service: BridgeService,
+  settingsStore: SettingsStore,
+  gamingShortcuts: GamingShortcutsCoordinator | null,
   triggerProfileStore: TriggerProfileStore,
   triggerProfileEngine: TriggerProfileEngine,
   profileLibrary: ProfileLibrary,
   gameSettingsCoordinator: GameSettingsCoordinator,
   gameArtworkStore: GameArtworkStore
 ): void {
+  ipcMain.handle('bridge:getGamingShortcutsSettings', () => settingsStore.get().gamingShortcuts);
+  ipcMain.handle('bridge:saveGamingShortcutsSettings', (_event, value: unknown) => {
+    const next = normalizeGamingShortcutsSettings(value);
+    const saved = settingsStore.update({ gamingShortcuts: next });
+    gamingShortcuts?.reload();
+    if (next.enabled) {
+      gamingShortcuts?.start();
+      gamingShortcutsReader?.start();
+    } else {
+      gamingShortcuts?.stop();
+      gamingShortcutsReader?.stop();
+    }
+    return saved.gamingShortcuts;
+  });
+  ipcMain.handle('bridge:getGamingShortcutProviders', () => detectProviderCapabilities());
+  ipcMain.handle('bridge:previewGamingShortcutNotification', () => gamingShortcuts?.previewShortcutNotification());
   ipcMain.handle('bridge:listTriggerProfiles', () => triggerProfileStore.list());
   ipcMain.handle('bridge:saveTriggerProfile', (_event, profile: TriggerProfile) => {
     const saved = triggerProfileStore.save(profile);
@@ -1317,7 +1374,7 @@ function registerIpc(
   });
   ipcMain.handle('bridge:getTriggerProfileEngineStatus', () => triggerProfileEngine.getStatus());
   ipcMain.handle('bridge:selectTriggerProfileState', (_event, name: string) => (
-    triggerProfileEngine.selectState(String(name))
+    triggerProfileEngine.selectState(name)
   ));
   ipcMain.handle('bridge:previewTriggerProfileDraft', async (_event, triggers: DraftPreviewTriggers | null) => {
     await triggerProfileEngine.setDraftPreview(triggers);
@@ -1674,6 +1731,31 @@ app.whenReady().then(async () => {
     watcher: new GameWatcher({}),
     reader: new EvdevInputReader()
   });
+  if (process.platform === 'linux') {
+    const shortcutReader = new EvdevInputReader();
+    gamingShortcutsReader = shortcutReader;
+    shortcutReader.on('error', (error) => {
+      console.error('[gaming-shortcuts] input reader error', error);
+    });
+    gamingShortcutsCoordinator = new GamingShortcutsCoordinator({
+      input: shortcutReader,
+      settingsStore,
+      activeGameId: () => triggerProfileEngine?.getActiveGameId() ?? null,
+      executor: new ActionExecutor({
+        openOpenDS5: showMainWindow
+      }),
+      notifications: gamingShortcutNotifications(bridgeService),
+      controllerIdForSource: (sourceId) => bridgeService?.getGamingShortcutControllerIdForInputSource(sourceId) ?? null
+    });
+    gamingShortcutsCoordinator.on('error', (error) => {
+      console.error('[gaming-shortcuts] action error', error);
+    });
+    shortcutReader.on('error', () => gamingShortcutsCoordinator?.disconnect());
+    if (settingsStore.get().gamingShortcuts.enabled) {
+      gamingShortcutsCoordinator.start();
+      shortcutReader.start();
+    }
+  }
   triggerProfileEngine.refreshProfiles();
   // Game Profile: rides the trigger engine's detection to swap the whole settings set
   // (controller profile + button remapping) per game. Recovery and subscription happen
@@ -1711,6 +1793,8 @@ app.whenReady().then(async () => {
   });
   registerIpc(
     bridgeService,
+    settingsStore,
+    gamingShortcutsCoordinator,
     triggerProfileStore,
     triggerProfileEngine,
     profileLibrary,
@@ -1786,11 +1870,17 @@ app.on('before-quit', (event) => {
   isQuitting = true;
   const service = bridgeService;
   const engine = triggerProfileEngine;
+  const shortcuts = gamingShortcutsCoordinator;
+  const shortcutReader = gamingShortcutsReader;
   bridgeService = null;
   triggerProfileEngine = null;
+  gamingShortcutsCoordinator = null;
+  gamingShortcutsReader = null;
   void (async () => {
     try {
       await engine?.setEnabled(false);
+      shortcuts?.stop();
+      shortcutReader?.stop();
       await service?.stop();
     } finally {
       shutdownComplete = true;

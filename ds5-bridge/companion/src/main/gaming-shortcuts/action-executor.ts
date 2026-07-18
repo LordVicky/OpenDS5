@@ -1,0 +1,85 @@
+import { validateGamingShortcutAction, type GamingShortcutAction } from '../../shared/gaming-shortcuts';
+import { createProcessRunner, type ProcessRunner } from './process-runner';
+import { LinuxActionProvider } from './providers/linux-actions';
+import { ScreenshotProvider } from './providers/screenshot';
+import { GpuScreenRecorderProvider } from './providers/recording';
+
+export type ActionExecutionResult =
+  | { ok: true }
+  | { ok: false; reason: 'unavailable' | 'failed'; error?: string };
+
+export interface ActionExecutorOptions {
+  runner?: ProcessRunner;
+  openOpenDS5?: () => Promise<void> | void;
+  linuxProvider?: LinuxActionProvider;
+  screenshotProvider?: ScreenshotProvider;
+  recordingProvider?: GpuScreenRecorderProvider;
+}
+
+/** Executes only validated actions; desktop-specific actions are provider work. */
+export class ActionExecutor {
+  private readonly runner: ProcessRunner;
+  private readonly openOpenDS5: (() => Promise<void> | void) | null;
+  private readonly linuxProvider: LinuxActionProvider;
+  private readonly screenshotProvider: ScreenshotProvider;
+  private readonly recordingProvider: GpuScreenRecorderProvider;
+
+  constructor(options: ActionExecutorOptions = {}) {
+    this.runner = options.runner ?? createProcessRunner();
+    this.openOpenDS5 = options.openOpenDS5 ?? null;
+    this.linuxProvider = options.linuxProvider ?? new LinuxActionProvider();
+    this.screenshotProvider = options.screenshotProvider ?? new ScreenshotProvider();
+    this.recordingProvider = options.recordingProvider ?? new GpuScreenRecorderProvider();
+  }
+
+  async execute(rawAction: unknown): Promise<ActionExecutionResult> {
+    const action: GamingShortcutAction = validateGamingShortcutAction(rawAction);
+    try {
+      switch (action.type) {
+        case 'none':
+        case 'passthrough':
+          return { ok: true };
+        case 'open-opends5':
+          if (!this.openOpenDS5) return { ok: false, reason: 'unavailable' };
+          await this.openOpenDS5();
+          return { ok: true };
+        case 'launch-app':
+        case 'custom-executable': {
+          const result = await this.runner.run(action.executable, action.args);
+          return result.code === 0 && result.signal === null && !result.timedOut
+            ? { ok: true }
+            : { ok: false, reason: 'failed', error: result.timedOut ? 'Process timed out' : `Process exited with code ${result.code ?? 'unknown'}` };
+        }
+        case 'volume':
+        case 'microphone-mute-toggle':
+        case 'on-screen-keyboard':
+        case 'performance-hud-toggle': {
+          const command = this.linuxProvider.resolve(action);
+          if (!command) return { ok: false, reason: 'unavailable' };
+          const result = await this.runner.run(command.executable, command.args);
+          return result.code === 0 && result.signal === null && !result.timedOut
+            ? { ok: true }
+            : { ok: false, reason: 'failed', error: result.timedOut ? 'Process timed out' : `Process exited with ${result.code ?? 'unknown'}` };
+        }
+        case 'screenshot': {
+          const command = this.screenshotProvider.resolve(action.provider);
+          if (!command) return { ok: false, reason: 'unavailable' };
+          this.screenshotProvider.ensureOutputDirectory(command);
+          const result = await this.runner.run(command.executable, command.args);
+          // Some desktop capture helpers save the image before returning a
+          // non-zero status (for example after a portal notification issue).
+          // The file is the reliable success signal for screenshot actions.
+          return (result.code === 0 && result.signal === null && !result.timedOut) || this.screenshotProvider.outputExists(command)
+            ? { ok: true }
+            : { ok: false, reason: 'failed', error: result.timedOut ? 'Process timed out' : `Process exited with ${result.code ?? 'unknown'}` };
+        }
+        case 'recording-toggle':
+          return this.recordingProvider.toggle(action.provider);
+        default:
+          return { ok: false, reason: 'unavailable' };
+      }
+    } catch (error) {
+      return { ok: false, reason: 'failed', error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+}

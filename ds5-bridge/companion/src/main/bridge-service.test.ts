@@ -510,6 +510,14 @@ describe('BridgeService', () => {
     expect(service.getSnapshot().message).toBe('No bridge detected');
   });
 
+  it('fails closed for a Linux vdsd socket identity', () => {
+    const service = serviceFixture();
+    (service as unknown as { snapshot: { status: { controllerConnected: boolean }; diagnostics: { hidPath: string } } }).snapshot = {
+      status: { controllerConnected: true }, diagnostics: { hidPath: '/run/vdsd.sock' }
+    };
+    expect(service.getGamingShortcutControllerIdForInputSource('/run/vdsd.sock')).toBeNull();
+  });
+
   it('reports normal firmware when only the game-facing DualSense HID exists', async () => {
     const service = serviceFixture();
     hidMock.state.devicesList = [normalFirmwareDeviceInfo()];

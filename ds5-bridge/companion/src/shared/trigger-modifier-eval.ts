@@ -1,6 +1,11 @@
 import type { ModifierCondition, TriggerEffectSpec, TriggerProfile, TriggerSlotConfig } from './trigger-profiles';
+import { isControllerButton } from './controller-input';
+import type { ControllerButton } from './controller-input';
+export type { ControllerButton } from './controller-input';
 
 export interface ControllerInputState {
+  /** Physical evdev source identity; absent only for synthetic/legacy callers. */
+  sourceId?: string | null;
   timestampMs: number;
   l2: number;
   r2: number;
@@ -128,7 +133,7 @@ export class ModifierEvaluator {
       case 'trigger-full-pull':
         return value >= FULL_PULL_THRESHOLD;
       case 'button-held':
-        return when.button !== undefined && state.buttons.has(when.button);
+        return isControllerButton(when.button) && state.buttons.has(when.button);
       case 'rapid-fire': {
         const required = when.pressesPerSecond ?? DEFAULT_PRESSES_PER_SECOND;
         return timing.pressTimestampsMs.length >= required;

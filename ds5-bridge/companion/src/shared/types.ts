@@ -21,6 +21,7 @@ import type {
   PollingRateMode,
   TriggerTestMode
 } from './protocol';
+import type { GamingShortcutsSettings } from './gaming-shortcuts';
 
 export type UiScalePercent = 75 | 100 | 125 | 150;
 export type UiThemePreset = 'light' | 'dark' | 'bubble-gum' | 'pomegranate' | 'kiwi';
@@ -89,6 +90,7 @@ export interface CompanionSettings {
   buttonRemappingDraft: ButtonRemapMap;
   chordFunctions: ChordFunction[];
   chordAssignments: ChordAssignment[];
+  gamingShortcuts: GamingShortcutsSettings;
 }
 
 export interface HidDeviceSummary {

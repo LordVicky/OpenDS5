@@ -176,8 +176,9 @@ import { filterLibrary } from './library-search';
 import { matchGameInLibrary, nativeGameFeatureMap, nativeGameFeatures } from './game-library-match';
 import { TriggerEffectEditor } from './TriggerEffectEditor';
 import { StickWheelEditor, type StickSample } from './StickWheelEditor';
+import { GamingShortcuts } from './GamingShortcuts';
 
-type ControlTab = 'game-profile' | 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'system';
+type ControlTab = 'game-profile' | 'overview' | 'haptics' | 'audio' | 'triggers' | 'trigger-profiles' | 'lighting' | 'remapping' | 'chords' | 'gaming-shortcuts' | 'system';
 type StartupTutorialStep = 'feature-toggle' | 'done';
 type ControllerType = BridgeStatusPayload['controllerType'];
 type KnownControllerType = Exclude<ControllerType, 'unknown'>;
@@ -747,6 +748,7 @@ const CONTROL_TABS: Array<{ id: ControlTab; label: string; Icon: TablerIcon }> =
   { id: 'trigger-profiles', label: 'Trigger Profiles', Icon: IconTargetArrow },
   { id: 'lighting', label: 'Lighting', Icon: IconBulb },
   { id: 'remapping', label: 'Button Remapping', Icon: IconDeviceGamepad3 },
+  { id: 'gaming-shortcuts', label: 'Gaming Shortcuts', Icon: Zap },
   { id: 'system', label: 'System', Icon: IconCpu }
 ];
 
@@ -2962,6 +2964,7 @@ export function App() {
   const [edgeRemapControlLayout, setEdgeRemapControlLayout] = useState<Record<DualSenseEdgeRemapButtonId, EdgeRemapControlLayout> | null>(null);
   const [hoveredRemapButton, setHoveredRemapButton] = useState<RemapButtonId | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [feedbackTestError, setFeedbackTestError] = useState<string | null>(null);
   const [showBridgeSettings, setShowBridgeSettings] = useState(false);
   const [settingsFocusTarget, setSettingsFocusTarget] = useState<SettingsFocusTarget | null>(null);
   const [notificationFocusTarget, setNotificationFocusTarget] = useState<NotificationFocusTarget | null>(null);
@@ -4451,10 +4454,14 @@ export function App() {
       return;
     }
     setPendingAction(label);
+    if (label === 'test' || label === 'test-rumble') setFeedbackTestError(null);
     try {
       const next = await action();
       setSnapshot(next);
-    } catch {
+    } catch (error) {
+      if (label === 'test' || label === 'test-rumble') {
+        setFeedbackTestError(error instanceof Error ? error.message : String(error));
+      }
       const next = await window.bridge.getStatus();
       setSnapshot(next);
     } finally {
@@ -8236,6 +8243,7 @@ export function App() {
                       <strong>{activeFeedbackStatusLabel}</strong>
                     </span>
                   </div>
+                  {feedbackTestError && <p className="test-error" role="alert">{feedbackTestError}</p>}
                 </section>
               </div>
               )}
@@ -10479,6 +10487,13 @@ export function App() {
                 </section>
               </div>
           </div>
+
+          <GamingShortcuts
+            active={activeControlTab === 'gaming-shortcuts'}
+            profiles={triggerProfiles}
+            activeProfileId={triggerProfileEngineStatus?.activeProfileId ?? null}
+            snapshot={snapshot}
+          />
 
           <div
             className={`control-page system-page ${activeControlTab === 'system' ? 'active' : ''}`}

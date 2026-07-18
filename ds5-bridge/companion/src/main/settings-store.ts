@@ -38,6 +38,7 @@ import type {
   RemapButtonId
 } from '../shared/protocol';
 import type { CompanionSettings, UiScalePercent, UiThemePreset } from '../shared/types';
+import { DEFAULT_GAMING_SHORTCUTS_SETTINGS, normalizeGamingShortcutsSettings } from '../shared/gaming-shortcuts';
 
 const DEFAULT_CONTROLLER_PROFILE_SETTINGS: ControllerProfileSettings = {
   hapticsEnabled: true,
@@ -199,7 +200,8 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
   buttonRemappingProfiles: [DEFAULT_BUTTON_REMAP_PROFILE],
   buttonRemappingDraft: { ...DEFAULT_BUTTON_REMAP_PROFILE.mappings },
   chordFunctions: [],
-  chordAssignments: []
+  chordAssignments: [],
+  gamingShortcuts: DEFAULT_GAMING_SHORTCUTS_SETTINGS
 };
 
 function normalizeColor(value: unknown): string {
@@ -1026,7 +1028,8 @@ function normalizeSettings(value: Partial<CompanionSettings> | null | undefined)
     buttonRemappingProfiles,
     buttonRemappingDraft: normalizeRemapMap(value?.buttonRemappingDraft),
     chordFunctions,
-    chordAssignments: normalizeChordAssignments(value?.chordAssignments, chordFunctions)
+    chordAssignments: normalizeChordAssignments(value?.chordAssignments, chordFunctions),
+    gamingShortcuts: normalizeGamingShortcutsSettings(value?.gamingShortcuts)
   };
 }
 

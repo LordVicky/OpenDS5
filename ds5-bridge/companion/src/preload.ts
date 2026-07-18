@@ -26,6 +26,8 @@ import type { EngineStatus, TriggerProfile, TriggerSlotConfig } from './shared/t
 import type { GameSettingsStatus } from './main/game-settings-coordinator';
 import type { GameArtworkEntry, GameArtworkSearchResult } from './main/game-artwork';
 import type { InstalledGame } from './main/installed-games';
+import type { ProviderCapabilities } from './main/gaming-shortcuts/providers/detect-environment';
+import type { GamingShortcutsSettings } from './shared/gaming-shortcuts';
 
 export interface InstalledGamesList {
   games: Array<InstalledGame & { cover: string | null; junkCandidates: string[] }>;
@@ -53,6 +55,16 @@ const SETUP_CHANNELS = {
 
 const api = {
   getStatus: (): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:getStatus'),
+  getGamingShortcutsSettings: (): Promise<GamingShortcutsSettings> => (
+    ipcRenderer.invoke('bridge:getGamingShortcutsSettings')
+  ),
+  saveGamingShortcutsSettings: (value: unknown): Promise<GamingShortcutsSettings> => (
+    ipcRenderer.invoke('bridge:saveGamingShortcutsSettings', value)
+  ),
+  getGamingShortcutProviders: (): Promise<ProviderCapabilities> => (
+    ipcRenderer.invoke('bridge:getGamingShortcutProviders')
+  ),
+  previewGamingShortcutNotification: (): Promise<void> => ipcRenderer.invoke('bridge:previewGamingShortcutNotification'),
   listDevices: () => ipcRenderer.invoke('bridge:listDevices'),
   listAudioHapticsSessions: (): Promise<AudioHapticsSession[]> => (
     ipcRenderer.invoke('bridge:listAudioHapticsSessions')

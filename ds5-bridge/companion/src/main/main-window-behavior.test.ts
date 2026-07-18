@@ -39,7 +39,8 @@ describe('main window behavior', () => {
     expect(createWindow).not.toContain('maxWidth');
     expect(createWindow).not.toContain('maxHeight');
     expect(createWindow).toContain('resolveWindowBounds(');
-    expect(createWindow).toContain("window.on('resize', scheduleWindowStateSave)");
+    expect(createWindow).toContain("window.on('resize', () => {");
+    expect(createWindow).toContain('repaintWindowAfterResize(window);');
     expect(createWindow).toContain("window.on('move', scheduleWindowStateSave)");
     expect(createWindow).toContain('persistWindowState()');
 

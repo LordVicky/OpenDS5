@@ -2455,6 +2455,353 @@ button {
   pointer-events: auto;
 }
 
+.gaming-shortcuts-page {
+  grid-template-rows: auto auto auto auto auto;
+}
+
+.test-error { margin: 10px 0 0; color: #ffaaa7; font-size: 12px; line-height: 1.4; }
+
+.gaming-shortcuts-card {
+  padding: 18px 20px;
+}
+
+.gaming-shortcuts-page {
+  overflow: auto;
+  padding-bottom: 28px;
+}
+
+.gaming-shortcuts-page .eyebrow {
+  color: var(--accent-color);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.gaming-shortcuts-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, .8fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.gaming-shortcuts-config,
+.gaming-shortcuts-rail {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.gaming-shortcuts-overview,
+.gaming-preview-heading,
+.gaming-gesture-row,
+.gaming-shortcut-options label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.gaming-shortcuts-overview p,
+.gaming-preview-heading h3,
+.gaming-shortcuts-card .feature-card-title p {
+  margin: 5px 0 0;
+}
+
+.gaming-gesture-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.gaming-gesture-row {
+  min-width: 0;
+  padding: 10px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.gaming-gesture-row > div:first-child {
+  display: grid;
+  flex: 0 0 145px;
+  gap: 3px;
+}
+
+.gaming-gesture-row > div:first-child span,
+.gaming-shortcuts-overview p {
+  color: var(--text-muted);
+  font-size: .82rem;
+}
+
+.gaming-shortcut-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.gaming-shortcut-options label {
+  min-height: 38px;
+  color: var(--text-muted);
+  font-size: .86rem;
+}
+
+.gaming-timing-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gaming-timing-grid label {
+  position: relative;
+}
+
+.gaming-timing-grid label span {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  color: var(--text-muted);
+  font-size: .76rem;
+}
+
+.gaming-timing-grid input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 28px;
+}
+
+.gaming-preview-button {
+  width: auto;
+  margin-top: 14px;
+}
+
+.gaming-shortcuts-preview {
+  position: sticky;
+  top: 0;
+  overflow: hidden;
+  padding: 18px;
+}
+
+.gaming-preview-heading {
+  align-items: flex-start;
+}
+
+.gaming-preview-heading > div {
+  min-width: 0;
+}
+
+.gaming-preview-heading h3 {
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.gaming-controller-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: .75rem;
+  white-space: nowrap;
+}
+
+.gaming-controller-state span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.gaming-controller-state.connected span { background: var(--success-color, #35cf82); }
+
+.gaming-controller-stage {
+  position: relative;
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+  margin: 14px -8px 0;
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--accent-color) 18%, transparent), transparent 65%), var(--surface-raised);
+}
+
+.gaming-controller-stage img {
+  display: block;
+  width: min(90%, 280px);
+  max-height: 220px;
+  object-fit: contain;
+  filter: drop-shadow(0 14px 15px rgb(0 0 0 / 24%));
+}
+
+.gaming-ps-chip {
+  position: absolute;
+  right: 12%;
+  bottom: 14%;
+  display: grid;
+  gap: 2px;
+  max-width: 130px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 55%, var(--border-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
+  font-size: .72rem;
+}
+
+.gaming-ps-chip span { color: var(--accent-color); font-size: .68rem; font-weight: 700; }
+.gaming-ps-chip small { color: var(--text-muted); }
+.gaming-ps-chip strong { overflow-wrap: anywhere; }
+
+.gaming-preview-bindings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.gaming-preview-bindings div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px;
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.gaming-preview-bindings span { color: var(--text-muted); font-size: .72rem; }
+.gaming-preview-bindings strong { overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.gaming-preview-note { position: fixed; right: 24px; bottom: 24px; z-index: 5; padding: 10px 14px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--surface-raised); box-shadow: 0 8px 22px rgb(0 0 0 / 22%); }
+
+.gaming-shortcuts-toggle,
+.gaming-shortcut-row,
+.gaming-provider-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gaming-shortcuts-toggle {
+  justify-content: space-between;
+}
+
+.gaming-shortcuts-toggle div,
+.gaming-shortcut-row > span {
+  display: grid;
+  gap: 4px;
+}
+
+.gaming-shortcuts-toggle span,
+.gaming-shortcuts-help,
+.gaming-shortcuts-save-status,
+.gaming-provider-status span,
+.muted-copy {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.gaming-shortcut-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.gaming-shortcut-row {
+  min-height: 42px;
+}
+
+.gaming-shortcut-row > span,
+.gaming-shortcut-row > select:first-child {
+  min-width: 170px;
+}
+
+.gaming-shortcut-action-editor {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gaming-shortcut-action-editor select,
+.gaming-shortcut-action-editor input,
+.gaming-shortcut-row > select,
+.gaming-timing-grid input {
+  min-height: 34px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  padding: 0 9px;
+}
+
+.gaming-shortcut-action-editor select {
+  min-width: 190px;
+  flex: 1;
+}
+
+.gaming-shortcuts-card > .feature-card-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.gaming-shortcuts-card .feature-card-title .secondary-action {
+  width: auto;
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.gaming-timing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.gaming-timing-grid label {
+  display: grid;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.gaming-provider-status {
+  flex-wrap: wrap;
+  padding: 4px 2px 18px;
+}
+
+@media (max-width: 799px) {
+  .gaming-shortcuts-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .gaming-shortcuts-preview {
+    position: static;
+  }
+
+  .gaming-timing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gaming-shortcut-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .gaming-gesture-row,
+  .gaming-shortcut-options label {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .gaming-gesture-row > div:first-child {
+    flex-basis: auto;
+  }
+
+  .gaming-shortcut-options {
+    grid-template-columns: 1fr;
+  }
+}
+
 .overview-page {
   height: 100%;
   min-height: 0;
@@ -8926,6 +9273,11 @@ button.trigger-lab-chip {
   .update-toast-bar i {
     transition: none;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gaming-controller-stage img { filter: none; }
+  .gaming-preview-note { transition: none; }
 }
 
 .update-toast-head {

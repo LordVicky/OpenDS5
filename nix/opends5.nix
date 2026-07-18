@@ -7,6 +7,7 @@
   libusb1,
   makeWrapper,
   pipewire,
+  glib,
   version,
 }:
 buildNpmPackage {
@@ -77,6 +78,7 @@ buildNpmPackage {
       --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [
       libusb1
       stdenv.cc.cc.lib
+      glib
     ]}" \
       --prefix PATH : "${lib.makeBinPath [
       pipewire
