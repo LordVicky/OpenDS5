@@ -107,6 +107,13 @@ describe('IPC contract', () => {
     expect(mainSource).toContain('rawPowerState === 0x01 || rawPowerState === 0x02');
   });
 
+  it('exposes the HD haptics Volume Sync channel', () => {
+    expect(preloadSource).toContain("ipcRenderer.invoke('bridge:setHapticsVolumeSync', value)");
+    expect(mainSource).toContain("ipcMain.handle('bridge:setHapticsVolumeSync'");
+    expect(bridgeServiceSource).toContain('async setHapticsVolumeSync(enabled: boolean): Promise<BridgeSnapshot>');
+    expect(bridgeServiceSource).toContain('hapticsVolumeSync: enabled');
+  });
+
   it('exposes trigger profile engine channels', () => {
     expect(preloadSource).toContain("ipcRenderer.invoke('bridge:listTriggerProfiles')");
     expect(preloadSource).toContain("ipcRenderer.invoke('bridge:saveTriggerProfile', profile)");

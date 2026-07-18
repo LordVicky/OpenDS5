@@ -8,6 +8,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 
 const SAMPLE_RATE = 48000;
 const BRIDGE_NODE_PATTERN = /dualsense|vds/i;
@@ -45,6 +46,31 @@ function pwDump() {
 
 function nodeProps(object) {
   return object?.info?.props ?? {};
+}
+
+const STEREO_LAYOUT = { channels: 2, position: ['FL', 'FR'] };
+
+// Negotiated audio format of a pw-dump node; stereo fallback when absent
+// or inconsistent (spec: unknown layouts read as first-two-channel stereo).
+export function nodeChannelLayout(node) {
+  const format = node?.info?.params?.Format?.[0];
+  const channels = Number(format?.channels ?? 0);
+  const position = Array.isArray(format?.position) ? format.position : null;
+  if (!position || channels < 1 || position.length !== channels) {
+    return { ...STEREO_LAYOUT, position: [...STEREO_LAYOUT.position] };
+  }
+  return { channels, position: [...position] };
+}
+
+export function channelIndices(position) {
+  const stride = position.length;
+  let fl = position.indexOf('FL');
+  let fr = position.indexOf('FR');
+  if (fl < 0 || fr < 0) {
+    fl = 0;
+    fr = Math.min(1, stride - 1);
+  }
+  return { stride, fl, fr, fc: position.indexOf('FC'), lfe: position.indexOf('LFE') };
 }
 
 function isAudioSink(object) {
@@ -115,10 +141,38 @@ function envelopeCoefficient(milliseconds) {
   return Math.exp(-1 / (SAMPLE_RATE * (milliseconds / 1000)));
 }
 
-class HapticsProcessor {
+// The guard pins the haptic channels while the ear channels track the
+// knob, so compensation must be computed from the sink's real per-channel
+// volumes: desired scaling (ears when syncing, unity when not) over what
+// the sink actually applies to the haptic pair. Correct in all four
+// toggle states, guard running or not.
+export function channelCompensation(earsLinear, hapticLinear, volumeSync) {
+  const desired = volumeSync
+    ? (Number.isFinite(earsLinear) && earsLinear > 0 ? earsLinear : 1)
+    : 1;
+  const actual = Number.isFinite(hapticLinear) && hapticLinear > 0 ? hapticLinear : 1;
+  return Math.min(32, Math.max(1 / 32, desired / actual));
+}
+
+export class HapticsProcessor {
   constructor(config) {
     this.envelope = 0;
+    this.layout = { stride: 4, fl: 0, fr: 1, fc: -1, lfe: -1 };
+    this.outputCompensation = 1;
+    // Volume Sync (default ON): haptics follow the listening volume. This is
+    // an input to the per-channel compensation math (see channelCompensation),
+    // which the poll reads via processor.volumeSync; process() always applies
+    // the resulting outputCompensation.
+    this.volumeSync = true;
     this.setConfig(config);
+  }
+
+  setOutputCompensation(compensation) {
+    this.outputCompensation = compensation;
+  }
+
+  setVolumeSync(enabled) {
+    this.volumeSync = enabled;
   }
 
   setConfig({ gainPercent, bassFocus, response, attack, release }) {
@@ -131,14 +185,23 @@ class HapticsProcessor {
     this.lowpassRight = biquadLowpass(cutoff);
   }
 
-  // 4ch f32 in (front channels used, rears ignored) -> 4ch f32 out
-  // (speaker channels silent, haptics on 3-4)
+  setInputLayout(layout) {
+    this.layout = layout;
+  }
+
+  // Layout-aware input (see setInputLayout) -> 4ch f32 out
+  // (speaker channels silent, haptics on 3-4). Blend per spec:
+  // left/right = FL/FR + 0.5*FC + 1.0*LFE; rears and sides ignored.
   process(input) {
-    const frames = input.length / 4;
+    const { stride, fl, fr, fc, lfe } = this.layout;
+    const frames = Math.floor(input.length / stride);
     const output = new Float32Array(frames * 4);
     for (let frame = 0; frame < frames; frame += 1) {
-      const left = biquadStep(this.lowpassLeft, input[frame * 4]);
-      const right = biquadStep(this.lowpassRight, input[frame * 4 + 1]);
+      const base = frame * stride;
+      const center = fc >= 0 ? input[base + fc] * 0.5 : 0;
+      const bass = lfe >= 0 ? input[base + lfe] : 0;
+      const left = biquadStep(this.lowpassLeft, input[base + fl] + center + bass);
+      const right = biquadStep(this.lowpassRight, input[base + fr] + center + bass);
       const peak = Math.max(Math.abs(left), Math.abs(right));
       const coeff = peak > this.envelope ? this.attackCoeff : this.releaseCoeff;
       this.envelope = coeff * this.envelope + (1 - coeff) * peak;
@@ -147,90 +210,197 @@ class HapticsProcessor {
       // noise floor so silence does not buzz the actuators.
       const gate = this.envelope < 0.003 ? 0 : 1;
       const drive = this.gain * this.responseGain * 4 * gate;
-      output[frame * 4 + 2] = Math.tanh(left * drive);
-      output[frame * 4 + 3] = Math.tanh(right * drive);
+      // Compensation is always applied: the poll computes ears/haptic from
+      // the sink's real per-channel volumes (unity when no guard runs and
+      // sync ON, the ear volume when the guard pins the haptic pair).
+      const comp = this.outputCompensation;
+      output[frame * 4 + 2] = Math.max(-1, Math.min(1, Math.tanh(left * drive) * comp));
+      output[frame * 4 + 3] = Math.max(-1, Math.min(1, Math.tanh(right * drive) * comp));
     }
     return output;
   }
 }
 
-function readHapticsConfig(args) {
+export function readHapticsConfig(args) {
   return {
     gainPercent: Number(argValue(args, '--haptics-gain') ?? 100),
     bassFocus: argValue(args, '--haptics-bass-focus') ?? 'balanced',
     response: argValue(args, '--haptics-response') ?? 'balanced',
     attack: argValue(args, '--haptics-attack') ?? 'balanced',
-    release: argValue(args, '--haptics-release') ?? 'balanced'
+    release: argValue(args, '--haptics-release') ?? 'balanced',
+    // Volume Sync defaults ON: only an explicit "0" disables it.
+    volumeSync: argValue(args, '--haptics-volume-sync') !== '0'
   };
 }
 
 async function runRenderLoopbackHaptics(args) {
   const sink = await requireBridgeSink();
   const target = nodeProps(sink)['node.name'];
-  const processor = new HapticsProcessor(readHapticsConfig(args));
+  const config = readHapticsConfig(args);
+  const processor = new HapticsProcessor(config);
+  processor.setVolumeSync(config.volumeSync);
+
+  const appSource = {
+    processId: Number(argValue(args, '--haptics-app-process-id') ?? 0),
+    processPath: argValue(args, '--haptics-app-process-path'),
+    executableName: argValue(args, '--haptics-app-executable')
+  };
+  const hasAppSource = appSource.processId > 0 || Boolean(appSource.processPath)
+    || Boolean(appSource.executableName);
 
   // Optional capture pin: monitor a specific output device instead of
   // following the system default sink.
   const captureDevice = argValue(args, '--haptics-output-device');
-  const record = spawn('pw-record', [
-    '--raw',
-    '-P', '{ stream.capture.sink = true }',
-    ...(captureDevice ? ['--target', captureDevice] : []),
-    // Capture four discrete channels and let the processor use the fronts
-    // only. When the headset is plugged in, the default sink can be the
-    // bridge's own 4-channel device; any narrower capture goes through
-    // PipeWire's channel mixer, which folds the rear haptics channels we
-    // play back into the fronts (constant buzz / self-oscillation). With a
-    // matching 4ch format no mixing happens; stereo sinks upmix with
-    // silent rears, leaving the fronts intact either way.
-    '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
-    '--channel-map', 'FL,FR,RL,RR',
-    '--latency', '256',
-    '-'
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
-  const play = spawn('pw-play', [
-    '--raw',
-    '--target', target,
-    '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
-    '--channel-map', 'FL,FR,RL,RR',
-    '--latency', '256',
-    '-'
-  ], { stdio: ['pipe', 'ignore', 'pipe'] });
 
-  // Report readiness on stream startup: a suspended default sink delivers no
-  // monitor frames until something plays, and the app only waits 8 s.
-  record.on('spawn', () => {
-    process.stderr.write('status: recording-started\n');
-  });
+  const play = spawn('pw-play', hapticsPlaybackArgs(target), { stdio: ['pipe', 'ignore', 'pipe'] });
+  play.stderr.on('data', (chunk) => process.stderr.write(chunk));
 
-  let carry = Buffer.alloc(0);
-  record.stdout.on('data', (chunk) => {
-    let data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
-    const frameBytes = 4 * 4; // 4 channels x f32
-    const usable = data.length - (data.length % frameBytes);
-    carry = data.subarray(usable);
-    if (usable === 0) {
-      return;
+  let record = null;
+  let attachTimer = null;
+  let volumeTimer = null;
+  let stopping = false;
+  let announcedRecording = false;
+
+  // Playback always goes to the bridge sink. Its per-channel volumes
+  // (ears = channel 0, haptic = channel 2) drive the compensation: the
+  // volume guard may pin the haptic pair at unity while the ear channels
+  // track the knob, so a single scalar is not enough. Poll pw-dump, cache
+  // the channel volumes, and recompute so a live sync toggle applies at
+  // once instead of waiting for the next poll.
+  let lastChannelVolumes = null;
+  let lastCompError = null;
+  const applyCompensation = () => {
+    if (lastChannelVolumes) {
+      processor.setOutputCompensation(
+        channelCompensation(lastChannelVolumes[0], lastChannelVolumes[2], processor.volumeSync)
+      );
     }
-    const input = new Float32Array(data.buffer, data.byteOffset, usable / 4);
-    const output = processor.process(input);
-    if (play.stdin.writable) {
-      play.stdin.write(Buffer.from(output.buffer, 0, output.byteLength));
+  };
+  const refreshVolumeCompensation = async () => {
+    try {
+      const objects = await pwDump();
+      const found = objects.find((object) => object.id === sink.id)
+        ?? objects.filter(isBridgeSink).find((s) => (nodeProps(s)['node.name'] ?? '').startsWith('alsa_output'))
+        ?? objects.filter(isBridgeSink)[0]
+        ?? null;
+      const cv = found?.info?.params?.Props?.[0]?.channelVolumes;
+      if (Array.isArray(cv) && cv.length >= 3) {
+        lastChannelVolumes = cv;
+        applyCompensation();
+      }
+      // channelVolumes unavailable: keep the last compensation.
+    } catch (error) {
+      if (error.message !== lastCompError) {
+        lastCompError = error.message;
+        process.stderr.write(`volume compensation poll failed: ${error.message}\n`);
+      }
     }
-  });
+  };
+  refreshVolumeCompensation();
+  volumeTimer = setInterval(refreshVolumeCompensation, 2000);
 
   const shutdown = (code, detail) => {
+    stopping = true;
     if (detail) {
       process.stderr.write(`${detail}\n`);
     }
-    record.kill();
+    clearTimeout(attachTimer);
+    clearInterval(volumeTimer);
+    record?.kill();
     play.kill();
     process.exit(code);
   };
-  record.stderr.on('data', (chunk) => process.stderr.write(chunk));
-  play.stderr.on('data', (chunk) => process.stderr.write(chunk));
-  record.on('exit', (code) => shutdown(code ?? 1, 'capture stream ended'));
   play.on('exit', (code) => shutdown(code ?? 1, 'playback stream ended'));
+
+  const pipeRecordToProcessor = (proc, stride) => {
+    let carry = Buffer.alloc(0);
+    proc.stdout.on('data', (chunk) => {
+      let data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+      const frameBytes = stride * 4; // stride channels x f32
+      const usable = data.length - (data.length % frameBytes);
+      carry = data.subarray(usable);
+      if (usable === 0) {
+        return;
+      }
+      const input = new Float32Array(data.buffer, data.byteOffset, usable / 4);
+      const output = processor.process(input);
+      if (play.stdin.writable) {
+        play.stdin.write(Buffer.from(output.buffer, 0, output.byteLength));
+      }
+    });
+    proc.stderr.on('data', (chunk) => process.stderr.write(chunk));
+    proc.on('spawn', () => {
+      if (!announcedRecording) {
+        announcedRecording = true;
+        process.stderr.write('status: recording-started\n');
+      }
+    });
+  };
+
+  const startSinkMonitorCapture = () => {
+    record = spawn('pw-record', [
+      '--raw',
+      '-P', '{ stream.capture.sink = true }',
+      ...(captureDevice ? ['--target', captureDevice] : []),
+      // Capture four discrete channels and let the processor use the fronts
+      // only. When the headset is plugged in, the default sink can be the
+      // bridge's own 4-channel device; any narrower capture goes through
+      // PipeWire's channel mixer, which folds the rear haptics channels we
+      // play back into the fronts (constant buzz / self-oscillation). With a
+      // matching 4ch format no mixing happens; stereo sinks upmix with
+      // silent rears, leaving the fronts intact either way.
+      '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
+      '--channel-map', 'FL,FR,RL,RR',
+      '--latency', '256',
+      '-'
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    pipeRecordToProcessor(record, 4);
+    record.on('exit', (code) => {
+      if (!stopping) {
+        shutdown(code ?? 1, 'capture stream ended');
+      }
+    });
+  };
+
+  // Pre-fold app capture: target the app's own output stream so discrete
+  // surround channels (especially LFE) survive even when the listening
+  // device is stereo. The node comes and goes with the game, so poll and
+  // re-attach instead of failing hard.
+  const APP_POLL_MS = 2000;
+  const pollForAppNode = async () => {
+    if (stopping) {
+      return;
+    }
+    let node = null;
+    try {
+      node = matchAppStreamNode(await pwDump(), appSource);
+    } catch (error) {
+      process.stderr.write(`app node poll failed: ${error.message}\n`);
+    }
+    if (!node) {
+      attachTimer = setTimeout(pollForAppNode, APP_POLL_MS);
+      return;
+    }
+    const layout = nodeChannelLayout(node);
+    processor.setInputLayout(channelIndices(layout.position));
+    record = spawn('pw-record', appCaptureRecordArgs(node, layout), { stdio: ['ignore', 'pipe', 'pipe'] });
+    pipeRecordToProcessor(record, layout.channels);
+    record.on('exit', () => {
+      // Game restarted its stream (level load, restart): go back to polling.
+      record = null;
+      if (!stopping) {
+        process.stderr.write('status: waiting-for-app\n');
+        attachTimer = setTimeout(pollForAppNode, APP_POLL_MS);
+      }
+    });
+  };
+
+  if (hasAppSource) {
+    process.stderr.write('status: waiting-for-app\n');
+    await pollForAppNode();
+  } else {
+    startSinkMonitorCapture();
+  }
 
   const control = createInterface({ input: process.stdin });
   control.on('line', (line) => {
@@ -243,6 +413,10 @@ async function runRenderLoopbackHaptics(args) {
         attack: parts[4],
         release: parts[5]
       });
+      // 7th field is optional so 6-field lines keep working: absent → sync ON.
+      processor.setVolumeSync(parts[6] === undefined ? true : parts[6] === '1');
+      // Recompute from the cached channel volumes so the toggle applies now.
+      applyCompensation();
     } else if (parts[0] === 'stop') {
       shutdown(0);
     }
@@ -363,6 +537,58 @@ async function runSetDefaultRenderBridge() {
   });
 }
 
+// The helper owns its output level (gain, limiter, sink-volume
+// compensation), so pin the playback stream at unity and opt out of
+// WirePlumber's stream-restore: a remembered mixer tweak on "pw-play"
+// must not silently scale the haptics.
+export function hapticsPlaybackArgs(target) {
+  return [
+    '--raw',
+    '--target', target,
+    '--volume', '1',
+    '-P', '{ state.restore-props = false }',
+    '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
+    '--channel-map', 'FL,FR,RL,RR',
+    '--latency', '256',
+    '-'
+  ];
+}
+
+export function appCaptureRecordArgs(node, layout) {
+  const serial = nodeProps(node)['object.serial'];
+  return [
+    '--raw',
+    // Target the app's own output stream by serial: WirePlumber ignores a
+    // plain --target <id> for playback streams and falls back to the
+    // default source (the microphone), which is silence for haptics.
+    '-P', `{ target.object = ${serial ?? node.id} }`,
+    '--format', 'f32', '--rate', `${SAMPLE_RATE}`,
+    '--channels', `${layout.channels}`,
+    '--channel-map', layout.position.join(','),
+    '--latency', '256',
+    '-'
+  ];
+}
+
+export function matchAppStreamNode(objects, { processId, executableName, processPath }) {
+  const pathBasename = processPath ? processPath.split('/').pop() : null;
+  const matches = objects.filter((object) => {
+    if (object.type !== 'PipeWire:Interface:Node') {
+      return false;
+    }
+    const props = nodeProps(object);
+    if (props['media.class'] !== 'Stream/Output/Audio') {
+      return false;
+    }
+    if (processId > 0 && Number(props['application.process.id'] ?? 0) === processId) {
+      return true;
+    }
+    const binary = props['application.process.binary'] ?? null;
+    return Boolean(binary && (binary === executableName || binary === pathBasename));
+  });
+  return matches.find((object) => object.info?.state === 'running') ?? matches[0] ?? null;
+}
+
 async function listOutputStreamSessions() {
   const objects = await pwDump();
   const bridge = await findBridgeSink().catch(() => null);
@@ -430,6 +656,81 @@ async function runMonitorAudioSessions() {
   process.on('SIGTERM', stop);
 }
 
+// Desktop volume controls rewrite all four channels of the bridge sink;
+// when HD Volume Sync is off the haptic pair (3-4) must stay at unity so
+// game HD haptics don't fade with the listening volume.
+export function pinnedChannelVolumes(current) {
+  if (!Array.isArray(current) || current.length < 4) {
+    return null;
+  }
+  if (current[2] === 1 && current[3] === 1) {
+    return null;
+  }
+  return [current[0], current[1], 1, 1, ...current.slice(4)];
+}
+
+const VOLUME_GUARD_INTERVAL_MS = 2000;
+
+async function runVolumeGuard() {
+  let stopping = false;
+  // Hard-fail the first tick when the sink is missing (mirrors the other
+  // helper modes): the parent only starts the guard once the controller
+  // audio path is ready, so a missing sink at boot is a real setup error.
+  let sink = await requireBridgeSink();
+
+  const pinTick = async () => {
+    if (stopping) {
+      return;
+    }
+    try {
+      // Re-find the sink each tick so the guard survives the sink coming
+      // and going with the controller. channelVolumes change as the user
+      // adjusts volume, so always read them fresh from a live pw-dump.
+      const found = await findBridgeSink();
+      if (!found) {
+        process.stderr.write('volume guard: bridge sink not found, retrying\n');
+        return;
+      }
+      sink = found;
+      const vols = sink.info?.params?.Props?.[0]?.channelVolumes;
+      const pinned = pinnedChannelVolumes(vols);
+      if (!pinned) {
+        return;
+      }
+      await new Promise((resolve) => {
+        execFile('pw-cli', [
+          'set-param', `${sink.id}`, 'Props',
+          `{ channelVolumes: [ ${pinned.join(', ')} ] }`
+        ], (error) => {
+          if (error) {
+            process.stderr.write(`volume guard: set-param failed: ${error.message}\n`);
+          }
+          resolve();
+        });
+      });
+    } catch (error) {
+      process.stderr.write(`volume guard tick failed: ${error.message}\n`);
+    }
+  };
+
+  await pinTick();
+  const timer = setInterval(pinTick, VOLUME_GUARD_INTERVAL_MS);
+  const control = createInterface({ input: process.stdin });
+  const stop = () => {
+    stopping = true;
+    clearInterval(timer);
+    process.exit(0);
+  };
+  control.on('line', (line) => {
+    if (line.trim() === 'stop') {
+      stop();
+    }
+  });
+  control.on('close', stop);
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+}
+
 function runMicKeepalive() {
   // Microphone input is unsupported over the vds Bluetooth transport; stay
   // alive so the engine's lifecycle management works, but do nothing.
@@ -453,6 +754,8 @@ async function main() {
     await runSetDefaultRenderBridge();
   } else if (args.includes('--monitor-audio-sessions')) {
     await runMonitorAudioSessions();
+  } else if (args.includes('--volume-guard')) {
+    await runVolumeGuard();
   } else if (args.includes('--mic-keepalive-only')) {
     runMicKeepalive();
   } else if (argValue(args, '--source') === 'render-loopback') {
@@ -462,4 +765,8 @@ async function main() {
   }
 }
 
-main().catch((error) => fail(error.message));
+const isCliEntry = process.argv[1]
+  && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isCliEntry) {
+  main().catch((error) => fail(error.message));
+}

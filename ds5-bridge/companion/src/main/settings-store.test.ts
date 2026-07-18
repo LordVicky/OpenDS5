@@ -533,6 +533,36 @@ describe('SettingsStore', () => {
     expect(settings.controllerProfiles[1]?.settings.lightbarColor).toBe('#123456');
   });
 
+  it('defaults both volume-sync toggles to true', () => {
+    const settings = new SettingsStore(tempUserDataPath()).get();
+    expect(settings.audioReactiveHapticsVolumeSync).toBe(true);
+    expect(settings.hapticsVolumeSync).toBe(true);
+    expect(DEFAULT_SETTINGS.audioReactiveHapticsVolumeSync).toBe(true);
+    expect(DEFAULT_SETTINGS.hapticsVolumeSync).toBe(true);
+  });
+
+  it('persists a stored false for the volume-sync toggles', () => {
+    const userDataPath = tempUserDataPath();
+    writeFileSync(path.join(userDataPath, 'settings.json'), JSON.stringify({
+      audioReactiveHapticsVolumeSync: false,
+      hapticsVolumeSync: false
+    }), 'utf8');
+    const settings = new SettingsStore(userDataPath).get();
+    expect(settings.audioReactiveHapticsVolumeSync).toBe(false);
+    expect(settings.hapticsVolumeSync).toBe(false);
+  });
+
+  it('coerces non-boolean volume-sync values back to true', () => {
+    const userDataPath = tempUserDataPath();
+    writeFileSync(path.join(userDataPath, 'settings.json'), JSON.stringify({
+      audioReactiveHapticsVolumeSync: 'nope',
+      hapticsVolumeSync: 0
+    }), 'utf8');
+    const settings = new SettingsStore(userDataPath).get();
+    expect(settings.audioReactiveHapticsVolumeSync).toBe(true);
+    expect(settings.hapticsVolumeSync).toBe(true);
+  });
+
   it('persists the selected UI theme preset', () => {
     const userDataPath = tempUserDataPath();
     const store = new SettingsStore(userDataPath);

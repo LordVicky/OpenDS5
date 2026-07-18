@@ -182,6 +182,7 @@ export interface AudioReactiveHapticsConfig {
   response: AudioReactiveHapticsResponse;
   attack: AudioReactiveHapticsAttack;
   release: AudioReactiveHapticsRelease;
+  volumeSync: boolean;
 }
 export const BRIDGE_PRESET_IDS = [
   'custom',

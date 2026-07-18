@@ -60,6 +60,8 @@ export interface CompanionSettings {
   audioReactiveHapticsResponse: AudioReactiveHapticsResponse;
   audioReactiveHapticsAttack: AudioReactiveHapticsAttack;
   audioReactiveHapticsRelease: AudioReactiveHapticsRelease;
+  audioReactiveHapticsVolumeSync: boolean;
+  hapticsVolumeSync: boolean;
   lightbarEnabled: boolean;
   lightbarColor: string;
   lightbarBrightnessPercent: number;

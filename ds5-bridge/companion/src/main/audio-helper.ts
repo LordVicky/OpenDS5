@@ -21,6 +21,7 @@ export type SystemAudioHapticsConfig = {
   response: AudioReactiveHapticsResponse;
   attack: AudioReactiveHapticsAttack;
   release: AudioReactiveHapticsRelease;
+  volumeSync: boolean;
 };
 
 export type DefaultRenderEndpointStatus = {
@@ -97,7 +98,8 @@ export class SystemAudioHapticsEngine extends EventEmitter {
     bassFocus: 'balanced',
     response: 'balanced',
     attack: 'balanced',
-    release: 'balanced'
+    release: 'balanced',
+    volumeSync: true
   };
 
   async start(config: SystemAudioHapticsConfig, hostPersonaMode: HostPersonaMode = 'dualsense'): Promise<void> {
@@ -138,7 +140,7 @@ export class SystemAudioHapticsEngine extends EventEmitter {
   setConfig(config: SystemAudioHapticsConfig): void {
     this.activeConfig = normalizeSystemAudioHapticsConfig(config);
     this.writeControlLine(
-      `haptics-config ${this.activeConfig.gainPercent} ${this.activeConfig.bassFocus} ${this.activeConfig.response} ${this.activeConfig.attack} ${this.activeConfig.release}`
+      `haptics-config ${this.activeConfig.gainPercent} ${this.activeConfig.bassFocus} ${this.activeConfig.response} ${this.activeConfig.attack} ${this.activeConfig.release} ${this.activeConfig.volumeSync ? '1' : '0'}`
     );
   }
 
@@ -206,7 +208,9 @@ export class SystemAudioHapticsEngine extends EventEmitter {
       '--haptics-attack',
       config.attack,
       '--haptics-release',
-      config.release
+      config.release,
+      '--haptics-volume-sync',
+      config.volumeSync ? '1' : '0'
     ];
     const deviceSource = audioReactiveHapticsOutputDeviceSource(config.source);
     if (deviceSource) {
@@ -459,7 +463,8 @@ function normalizeSystemAudioHapticsConfig(config: SystemAudioHapticsConfig): Sy
       : 'balanced',
     release: config.release === 'tight' || config.release === 'smooth' || config.release === 'long'
       ? config.release
-      : 'balanced'
+      : 'balanced',
+    volumeSync: config.volumeSync !== false
   };
 }
 
@@ -1029,6 +1034,79 @@ export class MicKeepaliveEngine extends EventEmitter {
       if (this.process === helper) {
         this.process = null;
         this.emit('status', `mic keepalive helper exited (${signal ?? code ?? 'unknown'})`);
+      }
+    });
+  }
+}
+
+// Holds the bridge sink's haptic channels (3-4) at unity while HD Volume
+// Sync is off. Desktop volume controls rewrite all four channels, so this
+// re-pins the haptic pair without touching the speaker channels the user is
+// adjusting. Linux only; a no-op mode elsewhere is never started.
+export class VolumeGuardEngine extends EventEmitter {
+  private process: ChildProcess | null = null;
+  private starting: Promise<void> | null = null;
+
+  async start(): Promise<void> {
+    if (this.process) {
+      return;
+    }
+    if (this.starting) {
+      return this.starting;
+    }
+
+    this.starting = this.startInternal().finally(() => {
+      this.starting = null;
+    });
+    return this.starting;
+  }
+
+  async stop(): Promise<void> {
+    const helper = this.process;
+    this.process = null;
+    if (!helper) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        if (!helper.killed) {
+          helper.kill('SIGKILL');
+        }
+        resolve();
+      }, 500);
+
+      helper.once('exit', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+
+      helper.stdin?.end();
+      helper.kill();
+    });
+  }
+
+  isActive(): boolean {
+    return this.process !== null;
+  }
+
+  private async startInternal(): Promise<void> {
+    const launch = helperLaunch(['--volume-guard']);
+    const helper = spawn(launch.command, launch.args, {
+      env: launch.env,
+      windowsHide: true,
+      stdio: ['pipe', 'ignore', 'pipe']
+    });
+
+    this.process = helper;
+    helper.stderr.on('data', (chunk: Buffer) => {
+      this.emit('status', chunk.toString('utf8').trim());
+    });
+    helper.on('error', (error) => this.emit('error', error));
+    helper.on('exit', (code, signal) => {
+      if (this.process === helper) {
+        this.process = null;
+        this.emit('status', `volume guard helper exited (${signal ?? code ?? 'unknown'})`);
       }
     });
   }

@@ -1779,6 +1779,70 @@ describe('BridgeService', () => {
     await flushImmediate();
   });
 
+  it.runIf(process.platform === 'linux')(
+    'starts the volume guard when HD Volume Sync is off and stops it when toggled on',
+    async () => {
+      const service = serviceFixture({ hapticsVolumeSync: false });
+      const guard = { start: vi.fn(async () => undefined), stop: vi.fn(async () => undefined), isActive: () => false };
+      (service as unknown as { volumeGuardEngine: typeof guard }).volumeGuardEngine = guard;
+
+      const device = new MockHidDevice();
+      device.status = statusReport({ controllerConnected: true });
+      hidMock.state.devicesList = [companionDeviceInfo()];
+      hidMock.state.openDevices.set('companion-path', device);
+
+      await poll(service);
+      expect(guard.start).toHaveBeenCalledTimes(1);
+      expect(guard.stop).not.toHaveBeenCalled();
+
+      (service as unknown as { settingsStore: SettingsStore }).settingsStore.update({ hapticsVolumeSync: true });
+      guard.start.mockClear();
+      await poll(service);
+      expect(guard.stop).toHaveBeenCalled();
+      expect(guard.start).not.toHaveBeenCalled();
+    }
+  );
+
+  it.runIf(process.platform === 'linux')(
+    'setHapticsVolumeSync persists the setting and reconciles the volume guard immediately',
+    async () => {
+      const service = serviceFixture({ hapticsVolumeSync: false });
+      const guard = { start: vi.fn(async () => undefined), stop: vi.fn(async () => undefined), isActive: () => false };
+      (service as unknown as { volumeGuardEngine: typeof guard }).volumeGuardEngine = guard;
+
+      const device = new MockHidDevice();
+      device.status = statusReport({ controllerConnected: true });
+      hidMock.state.devicesList = [companionDeviceInfo()];
+      hidMock.state.openDevices.set('companion-path', device);
+
+      await poll(service);
+      expect(guard.start).toHaveBeenCalledTimes(1);
+
+      guard.start.mockClear();
+      const snapshot = await service.setHapticsVolumeSync(true);
+      expect(snapshot.settings.hapticsVolumeSync).toBe(true);
+      expect(guard.stop).toHaveBeenCalled();
+      expect(guard.start).not.toHaveBeenCalled();
+    }
+  );
+
+  it.runIf(process.platform === 'linux')(
+    'stops the volume guard when the controller audio path is not ready',
+    async () => {
+      const service = serviceFixture({ hapticsVolumeSync: false });
+      const guard = { start: vi.fn(async () => undefined), stop: vi.fn(async () => undefined), isActive: () => false };
+      (service as unknown as { volumeGuardEngine: typeof guard }).volumeGuardEngine = guard;
+
+      const device = new MockHidDevice();
+      device.status = statusReport({ controllerConnected: false });
+      hidMock.state.devicesList = [companionDeviceInfo()];
+      hidMock.state.openDevices.set('companion-path', device);
+
+      await poll(service);
+      expect(guard.start).not.toHaveBeenCalled();
+    }
+  );
+
   it('ignores controller mic mute events when mic pass-through is not armed', async () => {
     const service = serviceFixture({
       duplexMicEnabled: true,
