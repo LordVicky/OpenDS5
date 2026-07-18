@@ -1101,8 +1101,8 @@ describe('BridgeService', () => {
 
     command = device.sentReports.at(-1);
     expect(command?.[7]).toBe(COMMAND_ID.SET_HAPTICS_BUFFER_LENGTH);
-    expect(command?.[9]).toBe(128);
-    expect(snapshot.settings.hapticsBufferLength).toBe(128);
+    expect(command?.[9]).toBe(240);
+    expect(snapshot.settings.hapticsBufferLength).toBe(240);
   });
 
   it('sends and stores adaptive trigger intensity', async () => {
@@ -2212,6 +2212,28 @@ describe('BridgeService', () => {
 
     snapshot = await service.setNotifyLowBattery(true);
     expect(snapshot.settings.notifyLowBattery).toBe(true);
+  });
+
+  it('emits mic mute toasts for app toggles', async () => {
+    const service = serviceFixture();
+    const device = new MockHidDevice();
+    device.status = statusReport({ controllerConnected: true });
+    const toasts: Array<{ title: string; body: string }> = [];
+    service.on('toast', (toast) => toasts.push(toast));
+    hidMock.state.devicesList = [companionDeviceInfo()];
+    hidMock.state.openDevices.set('companion-path', device);
+    await poll(service);
+
+    await service.setMicMute(true);
+    expect(toasts.at(-1)?.body).toBe('Microphone muted');
+
+    await service.setMicMute(false);
+    expect(toasts.at(-1)?.body).toBe('Microphone unmuted');
+    expect(toasts).toHaveLength(2);
+
+    // No state change, no toast.
+    await service.setMicMute(false);
+    expect(toasts).toHaveLength(2);
   });
 
   it('emits controller connect and disconnect toasts on status transitions', async () => {

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AdaptiveTriggerPreviewEffect,
+  AudioOutputDevice,
   AudioReactiveHapticsConfig,
   BridgePresetId,
   ChordAssignment,
@@ -55,6 +56,9 @@ const api = {
   listDevices: () => ipcRenderer.invoke('bridge:listDevices'),
   listAudioHapticsSessions: (): Promise<AudioHapticsSession[]> => (
     ipcRenderer.invoke('bridge:listAudioHapticsSessions')
+  ),
+  listAudioOutputDevices: (): Promise<AudioOutputDevice[]> => (
+    ipcRenderer.invoke('bridge:listAudioOutputDevices')
   ),
   applyPreset: (value: BridgePresetId): Promise<BridgeSnapshot> => ipcRenderer.invoke('bridge:applyPreset', value),
   selectControllerProfile: (profileId: string): Promise<BridgeSnapshot> => (

@@ -9,6 +9,11 @@ is_udev_running() {
 	command -v udevadm >/dev/null 2>&1 && [ -S /run/udev/control ]
 }
 
+purge_runtime_state() {
+	rm -rf /var/lib/vds
+	rm -f /var/log/vdsd.log /var/log/vdsd.log.*
+}
+
 case "$1" in
 remove | purge | upgrade | failed-upgrade | abort-install | abort-upgrade | disappear)
 	if is_systemd_running; then
@@ -18,6 +23,12 @@ remove | purge | upgrade | failed-upgrade | abort-install | abort-upgrade | disa
 		udevadm control --reload-rules || true
 		udevadm trigger --subsystem-match=input || true
 	fi
+	;;
+esac
+
+case "$1" in
+purge)
+	purge_runtime_state
 	;;
 esac
 

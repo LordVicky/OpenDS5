@@ -202,7 +202,7 @@ describe('renderer behavior guards', () => {
 
   it('exposes the firmware-gated audio buffer length control', () => {
     expect(appSource).toContain('const AUDIO_BUFFER_LENGTH_MIN = 16;');
-    expect(appSource).toContain('const AUDIO_BUFFER_LENGTH_MAX = 128;');
+    expect(appSource).toContain('const AUDIO_BUFFER_LENGTH_MAX = 240;');
     expect(appSource).toContain('audioBufferLengthControlSupported');
     expect(appSource).toContain('firmwareFlags.hapticsBufferLengthControl');
     expect(appSource).toContain('window.bridge.setHapticsBufferLength(snappedValue)');

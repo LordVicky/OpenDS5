@@ -116,6 +116,7 @@ import type {
   AudioReactiveHapticsBassFocus,
   AudioReactiveHapticsConfig,
   AudioReactiveHapticsMode,
+  AudioOutputDevice,
   AudioReactiveHapticsSource,
   AudioReactiveHapticsAttack,
   AudioReactiveHapticsRelease,
@@ -280,9 +281,13 @@ const BOOSTED_FEEDBACK_GAIN_PERCENT = 500;
 const SPEAKER_VOLUME_STEP = 10;
 const MIC_VOLUME_STEP = 10;
 const AUDIO_BUFFER_LENGTH_MIN = 16;
-const AUDIO_BUFFER_LENGTH_MAX = 128;
-const AUDIO_BUFFER_LENGTH_HIGH_STUTTER_MAX = 44;
-const AUDIO_BUFFER_LENGTH_RISKY_MAX = 63;
+const AUDIO_BUFFER_LENGTH_MAX = 240;
+// Zone boundaries follow the Linux daemon's 10 ms chunk queue: it rounds the
+// value to whole chunks (30 samples each, floor of 2), so <=74 all map to the
+// 2-chunk floor, 75-104 to 3 chunks, and 4+ chunks (>=105) give enough
+// headroom for bursty USB arrival.
+const AUDIO_BUFFER_LENGTH_HIGH_STUTTER_MAX = 74;
+const AUDIO_BUFFER_LENGTH_RISKY_MAX = 104;
 const LIGHTBAR_BRIGHTNESS_STEP = 10;
 const TRIGGER_EFFECT_STEP = 10;
 const CONTROLLER_POWER_SAVING_CAP_PERCENT = 60;
@@ -823,7 +828,17 @@ function audioHapticsSessionKey(session: AudioHapticsSession): string {
   return `app-pid:${session.processId}`;
 }
 
+function audioHapticsOutputDeviceSource(source: AudioReactiveHapticsSource | null | undefined) {
+  return source && typeof source === 'object' && source.kind === 'output-device'
+    ? source
+    : null;
+}
+
 function audioHapticsSourceKey(source: AudioReactiveHapticsSource | null | undefined): string {
+  const deviceSource = audioHapticsOutputDeviceSource(source);
+  if (deviceSource) {
+    return `output-device:${deviceSource.nodeName}`;
+  }
   const appSource = audioHapticsAppSource(source);
   if (!appSource) {
     return 'system-audio';
@@ -850,6 +865,10 @@ function audioHapticsSourceFromSession(session: AudioHapticsSession): AudioReact
 }
 
 function audioHapticsSourceDisplayName(source: AudioReactiveHapticsSource | null | undefined): string {
+  const deviceSource = audioHapticsOutputDeviceSource(source);
+  if (deviceSource) {
+    return deviceSource.displayName || deviceSource.nodeName;
+  }
   const appSource = audioHapticsAppSource(source);
   if (!appSource) {
     return 'System';
@@ -869,7 +888,7 @@ function snapMicVolume(value: number): number {
 
 function clampAudioBufferLength(value: number): number {
   if (!Number.isFinite(value)) {
-    return 64;
+    return 120;
   }
   return Math.max(AUDIO_BUFFER_LENGTH_MIN, Math.min(AUDIO_BUFFER_LENGTH_MAX, Math.round(value)));
 }
@@ -2811,6 +2830,7 @@ export function App() {
   const [triggerEffectIntensityValue, setTriggerEffectIntensityValue] = useState(100);
   const [audioHapticsOpen, setAudioHapticsOpen] = useState(false);
   const [audioHapticsSessions, setAudioHapticsSessions] = useState<AudioHapticsSession[]>([]);
+  const [audioOutputDevices, setAudioOutputDevices] = useState<AudioOutputDevice[]>([]);
   const [audioHapticsSessionsLoading, setAudioHapticsSessionsLoading] = useState(false);
   const [triggerProfiles, setTriggerProfiles] = useState<TriggerProfile[]>([]);
   const [triggerProfilesEnabled, setTriggerProfilesEnabled] = useState(false);
@@ -3164,8 +3184,12 @@ export function App() {
   const openGameProfileEntry = openGameProfileId
     ? gameProfiles.find((profile) => profile.id === openGameProfileId) ?? null
     : null;
+  // A manually pinned trigger profile (matchedBy 'pin') is an override of the
+  // trigger engine only — it must not present the game profile card as the
+  // active game.
   const activeGameProfile = triggerProfileEngineStatus
     && triggerProfileEngineStatus.enabled
+    && triggerProfileEngineStatus.matchedBy === 'process'
     && triggerProfileEngineStatus.activeProfileId !== DEFAULT_PROFILE_ID
     ? gameProfiles.find((profile) => profile.id === triggerProfileEngineStatus.activeProfileId) ?? null
     : null;
@@ -3563,13 +3587,18 @@ export function App() {
       refreshInFlight = true;
       setAudioHapticsSessionsLoading(true);
       try {
-        const sessions = await window.bridge.listAudioHapticsSessions();
+        const [sessions, devices] = await Promise.all([
+          window.bridge.listAudioHapticsSessions(),
+          window.bridge.listAudioOutputDevices()
+        ]);
         if (!cancelled) {
           setAudioHapticsSessions(sessions);
+          setAudioOutputDevices(devices);
         }
       } catch {
         if (!cancelled) {
           setAudioHapticsSessions([]);
+          setAudioOutputDevices([]);
         }
       } finally {
         refreshInFlight = false;
@@ -3946,14 +3975,28 @@ export function App() {
   }, [audioHapticsSessions]);
   const selectedAudioHapticsSourceDisplayName = audioHapticsSessionByKey.get(audioReactiveHapticsSourceKey)?.displayName
     ?? audioHapticsSourceDisplayName(audioReactiveHapticsSource);
+  const audioOutputDeviceByKey = useMemo(() => {
+    const devices = new Map<string, AudioOutputDevice>();
+    for (const device of audioOutputDevices) {
+      devices.set(`output-device:${device.nodeName}`, device);
+    }
+    return devices;
+  }, [audioOutputDevices]);
   const audioHapticsSourceOptions = useMemo<Array<[string, string]>>(() => {
-    const options: Array<[string, string]> = [['System', 'system-audio']];
+    const options: Array<[string, string]> = [['System (follows default output)', 'system-audio']];
+    for (const device of audioOutputDevices) {
+      options.push([
+        device.isDefault ? `${device.displayName} (default)` : device.displayName,
+        `output-device:${device.nodeName}`
+      ]);
+    }
     for (const session of audioHapticsSessions) {
       options.push([session.displayName, audioHapticsSessionKey(session)]);
     }
     if (
       audioReactiveHapticsSourceKey !== 'system-audio'
       && !audioHapticsSessionByKey.has(audioReactiveHapticsSourceKey)
+      && !audioOutputDeviceByKey.has(audioReactiveHapticsSourceKey)
     ) {
       options.push([`${audioHapticsSourceDisplayName(audioReactiveHapticsSource)} unavailable`, audioReactiveHapticsSourceKey]);
     }
@@ -3961,6 +4004,8 @@ export function App() {
   }, [
     audioHapticsSessionByKey,
     audioHapticsSessions,
+    audioOutputDeviceByKey,
+    audioOutputDevices,
     audioReactiveHapticsSource,
     audioReactiveHapticsSourceKey
   ]);
@@ -4793,6 +4838,13 @@ export function App() {
     if (!snapshot || value === audioReactiveHapticsSourceKey) return;
     if (value === 'system-audio') {
       void commitAudioReactiveHapticsConfig({ source: 'system-audio' });
+      return;
+    }
+    const device = audioOutputDeviceByKey.get(value);
+    if (device) {
+      void commitAudioReactiveHapticsConfig({
+        source: { kind: 'output-device', nodeName: device.nodeName, displayName: device.displayName }
+      });
       return;
     }
     const session = audioHapticsSessionByKey.get(value);
@@ -5720,6 +5772,12 @@ export function App() {
       }
       if (!enabled && next.settings.duplexMicEnabled) {
         next = await window.bridge.setDuplexMicEnabled(false);
+      }
+      if (enabled && !next.settings.duplexMicEnabled) {
+        // Re-enabling the audio section restores mic pass-through too;
+        // otherwise the mic stays disabled (and its controls grayed out)
+        // until the mic toggle is found and pressed separately.
+        next = await window.bridge.setDuplexMicEnabled(true);
       }
       return next;
     });

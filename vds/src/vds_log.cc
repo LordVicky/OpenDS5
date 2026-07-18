@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #ifndef _WIN32
 #include <cerrno>
@@ -107,24 +108,35 @@ void prepare_log_file(const std::string &path) {
 
 namespace vds {
 
-Logger::Logger(const std::string &path) {
-  const std::filesystem::path log_path(path);
+Logger::Logger(const std::string &path) : path_(path) { file_ = open_file(); }
+
+std::ofstream Logger::open_file() const {
+  const std::filesystem::path log_path(path_);
   const std::filesystem::path directory = log_path.parent_path();
   if (!directory.empty()) {
     std::filesystem::create_directories(directory);
   }
-  prepare_log_file(path);
-  file_.open(path, std::ios::app);
-  if (!file_) {
-    throw std::runtime_error("failed to open log file: " + path);
+  prepare_log_file(path_);
+  std::ofstream file(path_, std::ios::app);
+  if (!file) {
+    throw std::runtime_error("failed to open log file: " + path_);
   }
+  return file;
 }
 
-void Logger::log(std::string_view scope, LogLevel level,
-                 std::string_view message) {
+void Logger::reopen() {
+  std::ofstream file = open_file();
+
   std::lock_guard guard(mutex_);
-  file_ << local_timestamp() << '|' << scope << '|' << log_level_name(level)
-        << '|';
+  file_.flush();
+  file_.close();
+  file_ = std::move(file);
+}
+
+void Logger::log(LogScope scope, LogLevel level, std::string_view message) {
+  std::lock_guard guard(mutex_);
+  file_ << local_timestamp() << '|' << log_scope_name(scope) << '|'
+        << log_level_name(level) << '|';
   write_log_message(file_, message);
   file_ << '\n';
   file_.flush();
@@ -142,6 +154,34 @@ const char *log_level_name(LogLevel level) {
     return "ERROR";
   }
   return "ERROR";
+}
+
+const char *log_scope_name(LogScope scope) {
+  switch (scope) {
+  case LogScope::Bluetooth:
+    return "bluetooth";
+  case LogScope::Companion:
+    return "companion";
+  case LogScope::Config:
+    return "config";
+  case LogScope::Control:
+    return "control";
+  case LogScope::Daemon:
+    return "daemon";
+  case LogScope::Hid:
+    return "hid";
+  case LogScope::InputAudio:
+    return "input-audio";
+  case LogScope::InputControl:
+    return "input-control";
+  case LogScope::Output:
+    return "output";
+  case LogScope::Port:
+    return "port";
+  case LogScope::Usb:
+    return "usb";
+  }
+  return "daemon";
 }
 
 } // namespace vds

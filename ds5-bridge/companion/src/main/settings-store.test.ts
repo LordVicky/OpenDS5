@@ -430,8 +430,8 @@ describe('SettingsStore', () => {
 
     expect(store.update({ hapticsBufferLength: 2 }).hapticsBufferLength).toBe(16);
     expect(store.update({ hapticsBufferLength: 44.4 }).hapticsBufferLength).toBe(44);
-    expect(store.update({ hapticsBufferLength: 255 }).hapticsBufferLength).toBe(128);
-    expect(persistedSettings(userDataPath).hapticsBufferLength).toBe(128);
+    expect(store.update({ hapticsBufferLength: 255 }).hapticsBufferLength).toBe(240);
+    expect(persistedSettings(userDataPath).hapticsBufferLength).toBe(240);
   });
 
   it('persists audio haptics app-session sources', () => {

@@ -9,6 +9,8 @@
 
 #include "vds_controller.h"
 
+#define VDS_USB_AUDIO_FEATURE_COUNT 2
+
 struct vds_usb_device {
 	/* Protects address/configuration/interface state and feature cache. */
 	spinlock_t lock;
@@ -19,8 +21,8 @@ struct vds_usb_device {
 	u8 audio_in_altsetting;
 	u8 hid_idle;
 	u8 hid_protocol;
-	u8 audio_mute[VDS_CONTROLLER_AUDIO_FEATURE_COUNT];
-	s16 audio_volume[VDS_CONTROLLER_AUDIO_FEATURE_COUNT];
+	u8 audio_mute[VDS_USB_AUDIO_FEATURE_COUNT];
+	s16 audio_volume[VDS_USB_AUDIO_FEATURE_COUNT];
 	u16 feature_cache_len[256];
 	u8 feature_cache[256][VDS_CONTROLLER_HID_PACKET_SIZE];
 };

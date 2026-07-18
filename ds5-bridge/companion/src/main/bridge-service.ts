@@ -43,6 +43,7 @@ import type {
   AudioReactiveHapticsBassFocus,
   AudioReactiveHapticsConfig,
   AudioReactiveHapticsMode,
+  AudioOutputDevice,
   AudioReactiveHapticsRelease,
   AudioReactiveHapticsResponse,
   AudioReactiveHapticsSource,
@@ -81,6 +82,7 @@ import {
   AudioHapticsSessionMonitor,
   MicKeepaliveEngine,
   SystemAudioHapticsEngine,
+  listAudioOutputDevices,
   playBridgeHapticsTestPattern,
   playBridgeSpeakerTestTone,
   getDefaultRenderEndpointStatus,
@@ -97,6 +99,7 @@ const POLL_INTERVAL_MS = 500;
 const SHORTCUT_POLL_INTERVAL_MS = 50;
 const SHORTCUT_POLL_ERROR_RETRY_MS = 250;
 const AUDIO_STATUS_READ_INTERVAL_MS = 500;
+const MIC_MUTE_RECONCILE_HOLDOFF_MS = 2000;
 const AUDIO_DEBUG_READ_INTERVAL_MS = 500;
 const TRIGGER_TRACE_READ_INTERVAL_MS = 250;
 const FEEDBACK_TRACE_READ_INTERVAL_MS = 250;
@@ -506,6 +509,15 @@ function normalizeAudioReactiveHapticsSource(source: unknown): AudioReactiveHapt
   if (!source || typeof source !== 'object') {
     return 'system-audio';
   }
+  const deviceCandidate = source as Partial<Extract<AudioReactiveHapticsSource, { kind: 'output-device' }>>;
+  if (deviceCandidate.kind === 'output-device') {
+    const nodeName = normalizeOptionalString(deviceCandidate.nodeName);
+    if (!nodeName) {
+      return 'system-audio';
+    }
+    const displayName = normalizeOptionalString(deviceCandidate.displayName);
+    return { kind: 'output-device', nodeName, ...(displayName ? { displayName } : {}) };
+  }
   const candidate = source as Partial<Extract<AudioReactiveHapticsSource, { kind: 'app-session' }>>;
   if (candidate.kind !== 'app-session') {
     return 'system-audio';
@@ -537,6 +549,9 @@ function normalizeOptionalString(value: unknown): string | undefined {
 function audioReactiveHapticsSourceKey(source: AudioReactiveHapticsSource): string {
   if (source === 'controller-audio' || source === 'system-audio') {
     return source;
+  }
+  if (source.kind === 'output-device') {
+    return `output-device:${source.nodeName}`;
   }
   if (source.processPath) {
     return `app-path:${source.processPath.toLowerCase()}`;
@@ -1396,6 +1411,10 @@ export class BridgeService extends EventEmitter {
   private systemAudioHapticsPassthroughActive = false;
   private commandQueue: Promise<unknown> = Promise.resolve();
   private lastAudioStatusReadAt = 0;
+  // Set when this app sends SET_MIC_MUTE. The status-poll micMuted reconcile
+  // is skipped inside this window: the polled status report may predate the
+  // command, and adopting it would snap the UI back to the stale state.
+  private lastMicMuteCommandAt = 0;
   private lastAudioDebugReadAt = 0;
   private lastTriggerTraceReadAt = 0;
   private lastFeedbackTraceReadAt = 0;
@@ -1548,6 +1567,10 @@ export class BridgeService extends EventEmitter {
     await this.systemAudioHapticsEngine.stop();
     await this.stopAudioHapticsSessionPolling();
     await this.micKeepaliveEngine.stop();
+  }
+
+  async listAudioOutputDevices(): Promise<AudioOutputDevice[]> {
+    return listAudioOutputDevices();
   }
 
   async listAudioHapticsSessions(): Promise<AudioHapticsSession[]> {
@@ -2292,7 +2315,7 @@ export class BridgeService extends EventEmitter {
   }
 
   async setHapticsBufferLength(length: number): Promise<BridgeSnapshot> {
-    const value = Math.max(16, Math.min(128, Math.round(length)));
+    const value = Math.max(16, Math.min(240, Math.round(length)));
     await this.sendSettingCommand(COMMAND_ID.SET_HAPTICS_BUFFER_LENGTH, value, { hapticsBufferLength: value });
     return this.getSnapshot();
   }
@@ -2433,9 +2456,13 @@ export class BridgeService extends EventEmitter {
   }
 
   async setMicMute(enabled: boolean): Promise<BridgeSnapshot> {
+    this.lastMicMuteCommandAt = Date.now();
     await this.sendCommand(COMMAND_ID.SET_MIC_MUTE, enabled ? 1 : 0, {
       expectSettingsRevisionChange: true
     });
+    if (this.settingsStore.get().micMuted !== enabled) {
+      this.emitMicMuteToast(enabled);
+    }
     this.snapshot.settings = this.settingsStore.update(customSettingUpdate({
       micMuted: enabled
     }));
@@ -2500,6 +2527,7 @@ export class BridgeService extends EventEmitter {
 
   async setDuplexMicEnabled(enabled: boolean): Promise<BridgeSnapshot> {
     const nextEnabled = enabled;
+    this.lastMicMuteCommandAt = Date.now();
     if (!nextEnabled) {
       await this.sendCommand(COMMAND_ID.SET_MIC_MUTE, 1, {
         expectSettingsRevisionChange: true
@@ -2512,6 +2540,9 @@ export class BridgeService extends EventEmitter {
       await this.sendCommand(COMMAND_ID.SET_MIC_MUTE, 0, {
         expectSettingsRevisionChange: true
       });
+    }
+    if (this.settingsStore.get().micMuted !== !nextEnabled) {
+      this.emitMicMuteToast(!nextEnabled);
     }
     this.snapshot.settings = this.settingsStore.update(customSettingUpdate({
       duplexMicEnabled: nextEnabled,
@@ -2841,10 +2872,20 @@ export class BridgeService extends EventEmitter {
     await this.sleepController();
   }
 
+  private emitMicMuteToast(muted: boolean): void {
+    this.emit('toast', {
+      title: 'OpenDS5',
+      body: muted ? 'Microphone muted' : 'Microphone unmuted'
+    } satisfies BridgeToast);
+  }
+
   private async applyControllerMicMuteEvent(micMuted: boolean): Promise<void> {
     const settings = this.settingsStore.get();
     if (!settings.duplexMicEnabled || settings.muteButtonMode !== 'normal') {
       return;
+    }
+    if (settings.micMuted !== micMuted) {
+      this.emitMicMuteToast(micMuted);
     }
     this.snapshot.settings = this.settingsStore.update(customSettingUpdate({ micMuted }));
     if (this.snapshot.status) {
@@ -3620,8 +3661,10 @@ export class BridgeService extends EventEmitter {
       this.reappliedSessionKey === this.sessionKey
       && settings.duplexMicEnabled
       && settings.micMuted !== status.micMuted
+      && Date.now() - this.lastMicMuteCommandAt > MIC_MUTE_RECONCILE_HOLDOFF_MS
     ) {
       settings = this.settingsStore.update(customSettingUpdate({ micMuted: status.micMuted }));
+      this.emitMicMuteToast(status.micMuted);
     }
     const state = transition ? 'transitioning' : 'connected';
 

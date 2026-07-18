@@ -120,13 +120,14 @@ class HapticsProcessor {
     this.lowpassRight = biquadLowpass(cutoff);
   }
 
-  // stereo f32 in -> 4ch f32 out (speaker channels silent, haptics on 3-4)
+  // 4ch f32 in (front channels used, rears ignored) -> 4ch f32 out
+  // (speaker channels silent, haptics on 3-4)
   process(input) {
-    const frames = input.length / 2;
+    const frames = input.length / 4;
     const output = new Float32Array(frames * 4);
     for (let frame = 0; frame < frames; frame += 1) {
-      const left = biquadStep(this.lowpassLeft, input[frame * 2]);
-      const right = biquadStep(this.lowpassRight, input[frame * 2 + 1]);
+      const left = biquadStep(this.lowpassLeft, input[frame * 4]);
+      const right = biquadStep(this.lowpassRight, input[frame * 4 + 1]);
       const peak = Math.max(Math.abs(left), Math.abs(right));
       const coeff = peak > this.envelope ? this.attackCoeff : this.releaseCoeff;
       this.envelope = coeff * this.envelope + (1 - coeff) * peak;
@@ -157,10 +158,22 @@ async function runRenderLoopbackHaptics(args) {
   const target = nodeProps(sink)['node.name'];
   const processor = new HapticsProcessor(readHapticsConfig(args));
 
+  // Optional capture pin: monitor a specific output device instead of
+  // following the system default sink.
+  const captureDevice = argValue(args, '--haptics-output-device');
   const record = spawn('pw-record', [
     '--raw',
     '-P', '{ stream.capture.sink = true }',
-    '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '2',
+    ...(captureDevice ? ['--target', captureDevice] : []),
+    // Capture four discrete channels and let the processor use the fronts
+    // only. When the headset is plugged in, the default sink can be the
+    // bridge's own 4-channel device; any narrower capture goes through
+    // PipeWire's channel mixer, which folds the rear haptics channels we
+    // play back into the fronts (constant buzz / self-oscillation). With a
+    // matching 4ch format no mixing happens; stereo sinks upmix with
+    // silent rears, leaving the fronts intact either way.
+    '--format', 'f32', '--rate', `${SAMPLE_RATE}`, '--channels', '4',
+    '--channel-map', 'FL,FR,RL,RR',
     '--latency', '256',
     '-'
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -182,7 +195,7 @@ async function runRenderLoopbackHaptics(args) {
   let carry = Buffer.alloc(0);
   record.stdout.on('data', (chunk) => {
     let data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
-    const frameBytes = 2 * 4;
+    const frameBytes = 4 * 4; // 4 channels x f32
     const usable = data.length - (data.length % frameBytes);
     carry = data.subarray(usable);
     if (usable === 0) {
@@ -303,6 +316,27 @@ async function defaultSinkName() {
   });
 }
 
+// Prints the audio output sinks as a JSON array for the Audio Haptics
+// capture-device picker. The bridge's own sink is excluded: capturing it
+// would feed the haptics we play back into the processor.
+async function runListOutputSinks() {
+  const objects = await pwDump();
+  const current = await defaultSinkName();
+  const devices = objects
+    .filter((object) => isAudioSink(object) && !isBridgeSink(object))
+    .map((object) => {
+      const props = nodeProps(object);
+      const nodeName = props['node.name'] ?? '';
+      return {
+        nodeName,
+        displayName: props['node.description'] || nodeName,
+        isDefault: nodeName === (current?.name ?? '')
+      };
+    })
+    .filter((device) => device.nodeName);
+  process.stdout.write(`${JSON.stringify(devices)}\n`);
+}
+
 async function runDefaultRenderStatus() {
   const current = await defaultSinkName();
   const deviceName = current?.description || current?.name || '';
@@ -400,6 +434,8 @@ async function main() {
     await runPlayTestTone(args);
   } else if (args.includes('--play-test-haptics')) {
     await runPlayTestHaptics(args);
+  } else if (args.includes('--list-output-sinks')) {
+    await runListOutputSinks();
   } else if (args.includes('--default-render-status')) {
     await runDefaultRenderStatus();
   } else if (args.includes('--set-default-render-bridge')) {
