@@ -4285,6 +4285,13 @@ export function App() {
   const overviewAudioOutputLabel = connected ? (headsetOutputDetected ? 'Headphones' : 'Speaker') : '--';
   const overviewSpeakerVolumeValue = `${speakerVolumeValue}%`;
   const overviewFirmwareLabel = snapshot?.status?.firmwareVersion ?? '--';
+  // The loaded vds_hcd module version replaces the emulated bridge firmware in the
+  // UI, since there is no dongle on Linux. The bridge firmware still gates
+  // companion features, so it is kept in the tooltip rather than dropped.
+  const vdsKernelVersionLabel = snapshot?.diagnostics.vdsKernelVersion ?? '--';
+  const vdsKernelTooltip = snapshot?.status?.firmwareVersion
+    ? `Bridge firmware ${snapshot.status.firmwareVersion}`
+    : undefined;
   // Read from the DualSense itself, so it is absent when the controller's hidraw
   // node cannot be opened rather than when the bridge is simply idle.
   const controllerFirmwareInfo = snapshot?.diagnostics.controllerFirmware ?? null;
@@ -7458,8 +7465,8 @@ export function App() {
                     </strong>
                   </div>
                   <div>
-                    <span>Firmware</span>
-                    <strong>{overviewFirmwareLabel}</strong>
+                    <span>VDS Kernel</span>
+                    <strong title={vdsKernelTooltip}>{vdsKernelVersionLabel}</strong>
                   </div>
                 </div>
               </button>
@@ -10822,8 +10829,8 @@ export function App() {
                   ) : (
                     <div className="device-list">
                       <div className="device-row">
-                        <span>Firmware</span>
-                        <strong>{snapshot.status?.firmwareVersion ?? '--'}</strong>
+                        <span>VDS Kernel Version</span>
+                        <strong title={vdsKernelTooltip}>{vdsKernelVersionLabel}</strong>
                       </div>
                       <div className="device-row">
                         <span>Controller Firmware</span>

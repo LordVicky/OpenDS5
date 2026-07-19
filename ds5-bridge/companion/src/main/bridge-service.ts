@@ -98,6 +98,7 @@ import {
   createNodeHidAccess,
   readControllerFirmware
 } from './controller-firmware';
+import { readVdsKernelVersion } from './vds-kernel-version';
 import { SettingsStore, normalizeUiScalePercent, normalizeUiThemePreset } from './settings-store';
 import { openCompanionTransport, type CompanionTransport } from './companion-transport';
 import { normalizeControllerSysfsPath, resolveHidSourceIdentity } from './controller-source-identity';
@@ -314,6 +315,7 @@ function emptyDiagnostics(rawDevices: HidDeviceSummary[]): BridgeDiagnostics {
     firmwareUpdateAvailable: null,
     lastPollAt: null,
     controllerFirmware: null,
+    vdsKernelVersion: null,
     rawDevices,
     audioDebugLogPath: null,
     audioDebugLogLines: [],
@@ -3696,6 +3698,7 @@ export class BridgeService extends EventEmitter {
           lastError: `Firmware ${status.firmwareVersion} is too old for this companion app. Update the bridge firmware to ${MIN_SUPPORTED_FIRMWARE_VERSION} or newer.`,
           firmwareUpdateAvailable: null,
           controllerFirmware: this.controllerFirmware.get(true, rawDevices),
+          vdsKernelVersion: readVdsKernelVersion(),
           lastPollAt: Date.now(),
           rawDevices
         })
@@ -3760,6 +3763,7 @@ export class BridgeService extends EventEmitter {
         firmwareUpdateAvailable: firmwareUpdateAvailable(status.firmwareVersion),
         lastPollAt: Date.now(),
         controllerFirmware: this.controllerFirmware.get(true, rawDevices),
+        vdsKernelVersion: readVdsKernelVersion(),
         rawDevices
       }),
       personaTransition: transition

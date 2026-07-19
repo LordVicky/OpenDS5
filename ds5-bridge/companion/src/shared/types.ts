@@ -163,6 +163,8 @@ export interface BridgeDiagnostics {
   } | null;
   lastPollAt: number | null;
   controllerFirmware: ControllerFirmwareInfo | null;
+  /** Version of the vds_hcd module currently loaded in the kernel. */
+  vdsKernelVersion: string | null;
   rawDevices: HidDeviceSummary[];
   audioDebugLogPath: string | null;
   audioDebugLogLines: string[];
