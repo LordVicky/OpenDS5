@@ -2523,24 +2523,6 @@ function ChordButtonGlyphOption({ label, value }: { label: string; value: ChordB
   return <RemapGlyphOption label={label} value={value} />;
 }
 
-function HostPersonaOption({ label, value }: { label: string; value: HostPersonaMode }) {
-  const sonyPersona = value === 'dualsense' || value === 'ds4';
-  return (
-    <span className="host-persona-option">
-      {sonyPersona ? (
-        <span
-          className="host-persona-brand-icon"
-          style={{ '--host-persona-brand-mask': `url("${playStationLogoUrl}")` } as CSSProperties}
-          aria-hidden="true"
-        />
-      ) : (
-        <IconBrandXbox size={18} aria-hidden="true" />
-      )}
-      <span className="host-persona-label">{label}</span>
-    </span>
-  );
-}
-
 function AudioHapticsSourceOption({
   label,
   value,
@@ -3961,9 +3943,6 @@ export function App() {
   const audioBufferLengthControlSupported = Boolean(snapshot?.status?.firmwareFlags.hapticsBufferLengthControl);
   const audioReactiveHapticsSupported = Boolean(snapshot?.status?.firmwareFlags.audioReactiveHapticsControl);
   const supportedHostPersonaModes: HostPersonaMode[] = snapshot?.status?.supportedHostPersonaModes ?? ['dualsense'];
-  const hostPersonaOptions = HOST_PERSONA_OPTIONS.filter(([, mode]) => (
-    supportedHostPersonaModes.includes(mode) || snapshot?.settings.hostPersonaMode === mode
-  ));
   const overviewHostPersonaMode = personaTransition?.to ?? snapshot?.settings.hostPersonaMode ?? 'dualsense';
   const hapticsEnabled = Boolean(snapshot?.settings.hapticsEnabled);
   const audioReactiveHapticsEnabled = Boolean(snapshot?.settings.audioReactiveHapticsEnabled);
@@ -10846,20 +10825,6 @@ export function App() {
                           options={POLLING_RATE_OPTIONS}
                           ariaLabel="Polling rate"
                           onChange={setPollingRateMode}
-                        />
-                      </div>
-                      <div className="device-row device-control-row">
-                        <span>Host Controller</span>
-                        <CustomSelect
-                          value={snapshot.settings.hostPersonaMode}
-                          disabled={!connected || !hostPersonaControlSupported || pendingAction !== null || personaTransitionActive}
-                          options={hostPersonaOptions.length > 0 ? hostPersonaOptions : HOST_PERSONA_OPTIONS.slice(0, 1)}
-                          className="host-persona-selector"
-                          ariaLabel="Host controller persona"
-                          getOptionClassName={(_, mode) => (mode === 'xbox' ? 'host-persona-platform-break' : undefined)}
-                          renderValue={(label, mode) => <HostPersonaOption label={label} value={mode} />}
-                          renderOption={(label, mode) => <HostPersonaOption label={label} value={mode} />}
-                          onChange={setHostPersonaMode}
                         />
                       </div>
                       <div className="device-row device-status-row">
