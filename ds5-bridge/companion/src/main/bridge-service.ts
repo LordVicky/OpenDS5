@@ -118,7 +118,14 @@ const MIC_KEEPALIVE_ENABLED = CompanionDebugConfig.micKeepaliveEnabled;
 const SYSTEM_AUDIO_HAPTICS_RETRY_MS = 5000;
 const SYSTEM_AUDIO_HAPTICS_BYPASS_RETRY_MS = 2000;
 const AUDIO_HAPTICS_SESSION_CACHE_MS = 2500;
-const LOW_BATTERY_PERCENT = 20;
+/**
+ * Battery percent is the midpoint of a 10% hardware bucket, so this is 25 rather
+ * than 20 to keep the warning firing at the same physical charge it always has:
+ * bucket level 2 reads 25% under the midpoint mapping and read 20% under the
+ * old floor mapping. Lowering this to 20 would delay the warning by a full
+ * bucket.
+ */
+const LOW_BATTERY_PERCENT = 25;
 const BUNDLED_FIRMWARE_VERSION = '1.6.3';
 const MIN_SUPPORTED_FIRMWARE_VERSION = '1.6.1';
 const FIRMWARE_UPDATE_REQUIRED_MESSAGE = `Firmware ${MIN_SUPPORTED_FIRMWARE_VERSION} update required`;

@@ -2370,7 +2370,7 @@ describe('BridgeService', () => {
 
     device.status = statusReport({ controllerConnected: true, batteryPercent: 20, uptimeSeconds: 11 });
     await poll(service);
-    expect(toasts.at(-1)?.body).toBe('Controller battery low: 20%');
+    expect(toasts.at(-1)?.body).toBe('Controller battery low: 25%');
     expect(toasts).toHaveLength(1);
 
     device.status = statusReport({ controllerConnected: true, batteryPercent: 10, uptimeSeconds: 12 });

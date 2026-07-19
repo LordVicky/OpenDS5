@@ -3938,7 +3938,9 @@ export function App() {
   const batteryCharged = connected && controllerConnected && batteryCharging;
   const batteryDisplayTone = batteryCharged ? 'healthy' : batteryLevelTone;
   const batteryDisplaySegmentCount = batteryCharged ? 3 : batterySegmentCount;
-  const batteryCritical = connected && !batteryCharging && batteryPercent > 0 && batteryPercent <= 20;
+  // 25 rather than 20 so the critical styling triggers at the same physical
+  // charge as before the battery midpoint fix. See LOW_BATTERY_PERCENT.
+  const batteryCritical = connected && !batteryCharging && batteryPercent > 0 && batteryPercent <= 25;
   const statusTone = personaTransitionActive
     ? 'warn'
     : connected

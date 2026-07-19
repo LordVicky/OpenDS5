@@ -137,7 +137,7 @@ describe('companion protocol', () => {
     const status = parseStatusReport(report);
     expect(status.controllerConnected).toBe(true);
     expect(status.controllerType).toBe('dualsense-edge');
-    expect(status.batteryPercent).toBe(80);
+    expect(status.batteryPercent).toBe(85); // report byte 80 = bucket floor -> midpoint
     expect(status.hapticsGainPercent).toBe(150);
     expect(status.speakerGainLevel).toBe(6);
     expect(status.settingsRevision).toBe(3);
@@ -633,5 +633,36 @@ describe('companion protocol', () => {
     expect(normalizeBridgePresetId('quiet')).toBe('quiet');
     expect(normalizeBridgePresetId('ptt-f24')).toBe('balanced');
     expect(normalizeBridgePresetId('retired-profile', 'custom')).toBe('custom');
+  });
+});
+
+describe('battery percent', () => {
+  function statusWithBatteryByte(value: number) {
+    const report = baseReport(REPORT_ID.STATUS);
+    report[7] = 1;
+    report[9] = value;
+    return parseStatusReport(report);
+  }
+
+  /**
+   * vds reports the DualSense's 4-bit battery level as level*10, the floor of a
+   * 10% bucket. The kernel's hid-playstation reports the bucket midpoint
+   * (level*10+5), and so does everything reading /sys/class/power_supply. We
+   * match the kernel so the app agrees with the rest of the desktop.
+   */
+  it('reports the bucket midpoint so it matches the kernel', () => {
+    expect(statusWithBatteryByte(30).batteryPercent).toBe(35);
+  });
+
+  it('reports 5 percent for the lowest bucket rather than a flat zero', () => {
+    expect(statusWithBatteryByte(0).batteryPercent).toBe(5);
+  });
+
+  it('caps a full battery at 100 instead of overshooting to 105', () => {
+    expect(statusWithBatteryByte(100).batteryPercent).toBe(100);
+  });
+
+  it('still reports unknown battery as null', () => {
+    expect(statusWithBatteryByte(255).batteryPercent).toBeNull();
   });
 });

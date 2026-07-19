@@ -730,11 +730,19 @@ export function parseStatusReport(report: ArrayLike<number>): BridgeStatusPayloa
   const firmwareMajor = report[25];
   const firmwareMinor = report[26];
   const firmwarePatch = report[27];
+  /**
+   * The DualSense reports battery as a 4-bit level where each unit is a 10%
+   * bucket, and vds forwards it as level*10 - the bucket's floor. The kernel's
+   * hid-playstation reports the midpoint (level*10+5), which is the better
+   * estimate (max error 5% rather than 9%, and unbiased) and is what everything
+   * reading /sys/class/power_supply shows. Shift to the midpoint here so the app
+   * agrees with the rest of the desktop instead of reading 5% low.
+   */
   const battery = report[9];
   return {
     controllerConnected: report[7] === 1,
     controllerType: controllerType(report[8]),
-    batteryPercent: battery === 255 ? null : battery,
+    batteryPercent: battery === 255 ? null : Math.min(battery + 5, 100),
     rawPowerState: report[10],
     audioRecent: report[11] === 1,
     hapticsReady: report[12] === 1,
