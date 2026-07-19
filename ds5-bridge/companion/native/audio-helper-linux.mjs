@@ -377,6 +377,19 @@ async function runRenderLoopbackHaptics(args) {
   // little enough that a stalled stream cannot build up audible latency.
   const MAX_LAG_FRAMES = MIX_BLOCK_FRAMES * 16;
   const appStreams = new Map();
+  // How long a new stream is metered before we decide whether it carries the
+  // mix. Long enough to survive a gap between game sound effects, short
+  // enough that haptics start promptly.
+  const PROBE_WINDOW_MS = 750;
+  // A rejected stream is retried on a cooldown, because a game can start using
+  // a stream it opened silently. Retry fast while nothing is live so haptics
+  // pick up quickly, slowly once we already have audio.
+  const DORMANT_RETRY_MS = 15000;
+  const DORMANT_RETRY_IDLE_MS = 3000;
+  // A live capture delivering no bytes at all is broken, not quiet. Drop it so
+  // it cannot hold up the lockstep mix.
+  const LIVE_STALL_MS = 10000;
+  const dormantUntil = new Map();
 
   const mixReadyBlocks = () => {
     for (;;) {
@@ -392,6 +405,8 @@ async function runRenderLoopbackHaptics(args) {
     }
   };
 
+  const anyLive = () => [...appStreams.values()].some((stream) => stream.role === 'live');
+
   const startAppStream = (key, node) => {
     const layout = nodeChannelLayout(node);
     const indices = channelIndices(layout.position);
@@ -400,6 +415,10 @@ async function runRenderLoopbackHaptics(args) {
     let carry = Buffer.alloc(0);
     const stream = {
       proc,
+      role: 'probing',
+      probePeak: 0,
+      lastDataAt: Date.now(),
+      probeTimer: null,
       get frames() {
         return pending.length / BUS_CHANNELS;
       },
@@ -411,6 +430,21 @@ async function runRenderLoopbackHaptics(args) {
       }
     };
     appStreams.set(key, stream);
+
+    stream.probeTimer = setTimeout(() => {
+      stream.probeTimer = null;
+      if (stream.role !== 'probing') {
+        return;
+      }
+      if (hasSignal(stream.probePeak)) {
+        stream.role = 'live';
+        process.stderr.write(`status: app-stream-live ${key}\n`);
+        return;
+      }
+      process.stderr.write(`status: app-stream-silent ${key}\n`);
+      dormantUntil.set(key, Date.now() + (anyLive() ? DORMANT_RETRY_MS : DORMANT_RETRY_IDLE_MS));
+      stream.proc.kill();
+    }, PROBE_WINDOW_MS);
     proc.stdout.on('data', (chunk) => {
       const data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
       const frameBytes = layout.channels * 4; // channels x f32
@@ -421,6 +455,14 @@ async function runRenderLoopbackHaptics(args) {
       }
       const input = new Float32Array(data.buffer, data.byteOffset, usable / 4);
       const bus = busFrames(input, indices);
+      stream.lastDataAt = Date.now();
+      if (stream.role === 'probing') {
+        const peak = peakAmplitude(bus);
+        if (peak > stream.probePeak) {
+          stream.probePeak = peak;
+        }
+        return;
+      }
       const merged = new Float32Array(pending.length + bus.length);
       merged.set(pending);
       merged.set(bus, pending.length);
@@ -439,6 +481,10 @@ async function runRenderLoopbackHaptics(args) {
       }
     });
     proc.on('exit', () => {
+      if (stream.probeTimer) {
+        clearTimeout(stream.probeTimer);
+        stream.probeTimer = null;
+      }
       appStreams.delete(key);
       if (!stopping && appStreams.size === 0) {
         process.stderr.write('status: waiting-for-app\n');
