@@ -127,6 +127,7 @@ import {
   matchAppStreamNodes,
   peakAmplitude,
   readHapticsConfig,
+  readyLiveStreams,
   SIGNAL_PEAK_THRESHOLD,
   sumBusFrames
 } from '../../native/audio-helper-linux.mjs';
@@ -532,5 +533,34 @@ describe('hasSignal', () => {
 
   it('accepts a normal mix level', () => {
     expect(hasSignal(0.176)).toBe(true);
+  });
+});
+
+describe('readyLiveStreams', () => {
+  const stream = (role, frames) => ({ role, frames });
+
+  it('ignores probing streams entirely', () => {
+    const live = stream('live', 512);
+    const ready = readyLiveStreams([live, stream('probing', 0)], 256);
+    expect(ready).toEqual([live]);
+  });
+
+  it('is empty when there are no live streams', () => {
+    expect(readyLiveStreams([stream('probing', 999)], 256)).toEqual([]);
+  });
+
+  it('is empty until every live stream has a full block', () => {
+    expect(readyLiveStreams([stream('live', 256), stream('live', 12)], 256)).toEqual([]);
+  });
+
+  it('returns every live stream once they all have a full block', () => {
+    const a = stream('live', 256);
+    const b = stream('live', 300);
+    expect(readyLiveStreams([a, b], 256)).toEqual([a, b]);
+  });
+
+  it('does not let a stalled probing stream block a ready live stream', () => {
+    const live = stream('live', 256);
+    expect(readyLiveStreams([live, stream('probing', 0)], 256)).toEqual([live]);
   });
 });

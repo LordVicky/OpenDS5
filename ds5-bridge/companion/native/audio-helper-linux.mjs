@@ -379,12 +379,12 @@ async function runRenderLoopbackHaptics(args) {
   const appStreams = new Map();
 
   const mixReadyBlocks = () => {
-    const streams = [...appStreams.values()];
-    if (streams.length === 0) {
-      return;
-    }
-    while (streams.every((stream) => stream.frames >= MIX_BLOCK_FRAMES)) {
-      const blocks = streams.map((stream) => stream.take(MIX_BLOCK_FRAMES));
+    for (;;) {
+      const ready = readyLiveStreams([...appStreams.values()], MIX_BLOCK_FRAMES);
+      if (ready.length === 0) {
+        return;
+      }
+      const blocks = ready.map((stream) => stream.take(MIX_BLOCK_FRAMES));
       const output = processor.process(sumBusFrames(blocks));
       if (play.stdin.writable) {
         play.stdin.write(Buffer.from(output.buffer, 0, output.byteLength));
@@ -723,6 +723,17 @@ export function peakAmplitude(frames) {
 
 export function hasSignal(peak) {
   return peak > SIGNAL_PEAK_THRESHOLD;
+}
+
+// Probing captures are metered, never mixed: a stream still being evaluated
+// must not gate output. Live streams are mixed in lockstep so the summed
+// blocks stay sample-aligned.
+export function readyLiveStreams(streams, blockFrames) {
+  const live = streams.filter((stream) => stream.role === 'live');
+  if (live.length === 0) {
+    return [];
+  }
+  return live.every((stream) => stream.frames >= blockFrames) ? live : [];
 }
 
 export function sumBusFrames(blocks) {
