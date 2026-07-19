@@ -128,6 +128,28 @@ export type BridgeStateKind =
   | 'incompatible'
   | 'error';
 
+/**
+ * Firmware info read from the physical DualSense itself, as opposed to the
+ * emulated bridge firmware reported in BridgeStatusPayload.firmwareVersion.
+ */
+export interface ControllerFirmwareInfo {
+  /** Sony's published firmware version, e.g. '0x0630'. */
+  firmwareVersion: string;
+  /**
+   * The version the kernel exposes as sysfs `firmware_version` and that
+   * dualsensectl prints as "Firmware", e.g. '0x0110002a'. Shown alongside the
+   * published version so a user cross-checking with Linux tooling can
+   * reconcile the two different numbers.
+   */
+  internalFirmwareVersion: string;
+  /** Hardware revision, e.g. '0x00000313'. */
+  hardwareVersion: string;
+  /** Firmware build date, e.g. 'Jul  4 2025'. */
+  buildDate: string;
+  /** Firmware build time, e.g. '10:10:32'. */
+  buildTime: string;
+}
+
 export interface BridgeDiagnostics {
   hidPath: string | null;
   protocolVersion: string | null;
@@ -140,6 +162,7 @@ export interface BridgeDiagnostics {
     availableVersion: string;
   } | null;
   lastPollAt: number | null;
+  controllerFirmware: ControllerFirmwareInfo | null;
   rawDevices: HidDeviceSummary[];
   audioDebugLogPath: string | null;
   audioDebugLogLines: string[];

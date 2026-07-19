@@ -93,6 +93,11 @@ import {
 } from './audio-helper';
 import { CompanionDebugConfig } from './debug-config';
 import { HidDiscoveryClient } from './hid-discovery-client';
+import {
+  ControllerFirmwareCache,
+  createNodeHidAccess,
+  readControllerFirmware
+} from './controller-firmware';
 import { SettingsStore, normalizeUiScalePercent, normalizeUiThemePreset } from './settings-store';
 import { openCompanionTransport, type CompanionTransport } from './companion-transport';
 import { normalizeControllerSysfsPath, resolveHidSourceIdentity } from './controller-source-identity';
@@ -308,6 +313,7 @@ function emptyDiagnostics(rawDevices: HidDeviceSummary[]): BridgeDiagnostics {
     lastError: null,
     firmwareUpdateAvailable: null,
     lastPollAt: null,
+    controllerFirmware: null,
     rawDevices,
     audioDebugLogPath: null,
     audioDebugLogLines: [],
@@ -1384,6 +1390,9 @@ export class BridgeService extends EventEmitter {
   private readonly micKeepaliveEngine = new MicKeepaliveEngine();
   private readonly volumeGuardEngine = new VolumeGuardEngine();
   private readonly hidDiscovery = new HidDiscoveryClient();
+  private readonly controllerFirmware = new ControllerFirmwareCache(
+    (devices) => readControllerFirmware(createNodeHidAccess(), devices)
+  );
   private audioHapticsSessionCache: { key: string; expiresAt: number; sessions: AudioHapticsSession[] } | null = null;
   private audioHapticsSessionListInFlight: Promise<AudioHapticsSession[]> | null = null;
   private audioHapticsSessionListInFlightKey: string | null = null;
@@ -3686,6 +3695,7 @@ export class BridgeService extends EventEmitter {
           lastAck: this.snapshot.diagnostics.lastAck,
           lastError: `Firmware ${status.firmwareVersion} is too old for this companion app. Update the bridge firmware to ${MIN_SUPPORTED_FIRMWARE_VERSION} or newer.`,
           firmwareUpdateAvailable: null,
+          controllerFirmware: this.controllerFirmware.get(true, rawDevices),
           lastPollAt: Date.now(),
           rawDevices
         })
@@ -3749,6 +3759,7 @@ export class BridgeService extends EventEmitter {
         lastError: null,
         firmwareUpdateAvailable: firmwareUpdateAvailable(status.firmwareVersion),
         lastPollAt: Date.now(),
+        controllerFirmware: this.controllerFirmware.get(true, rawDevices),
         rawDevices
       }),
       personaTransition: transition
@@ -4133,6 +4144,8 @@ export class BridgeService extends EventEmitter {
     this.sessionKey = null;
     this.sessionPath = null;
     this.reapplyActive = false;
+    // Drop the cached controller firmware so a different controller is read afresh.
+    this.controllerFirmware.reset();
     this.noteControllerUnavailableForToasts();
     this.lowBatteryToastActive = false;
     this.resetStartupReapplyState();

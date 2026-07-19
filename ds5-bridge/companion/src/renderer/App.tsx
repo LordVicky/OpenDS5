@@ -4285,6 +4285,16 @@ export function App() {
   const overviewAudioOutputLabel = connected ? (headsetOutputDetected ? 'Headphones' : 'Speaker') : '--';
   const overviewSpeakerVolumeValue = `${speakerVolumeValue}%`;
   const overviewFirmwareLabel = snapshot?.status?.firmwareVersion ?? '--';
+  // Read from the DualSense itself, so it is absent when the controller's hidraw
+  // node cannot be opened rather than when the bridge is simply idle.
+  const controllerFirmwareInfo = snapshot?.diagnostics.controllerFirmware ?? null;
+  const controllerFirmwareLabel = controllerConnected && controllerFirmwareInfo
+    ? controllerFirmwareInfo.firmwareVersion
+    : '--';
+  const controllerFirmwareBuildLabel = controllerConnected && controllerFirmwareInfo
+    ? `Hardware ${controllerFirmwareInfo.hardwareVersion} · built ${controllerFirmwareInfo.buildDate} ${controllerFirmwareInfo.buildTime}`
+      + ` · reported by Linux tools as ${controllerFirmwareInfo.internalFirmwareVersion}`
+    : undefined;
   const overviewSignalValue = connected ? snapshot?.status?.signalStrengthDbm : null;
   const overviewSignalQuality = overviewSignalValue === null || overviewSignalValue === undefined
     ? null
@@ -10816,8 +10826,8 @@ export function App() {
                         <strong>{snapshot.status?.firmwareVersion ?? '--'}</strong>
                       </div>
                       <div className="device-row">
-                        <span>Controller</span>
-                        <strong>{controllerConnected ? controllerName(snapshot.status?.controllerType) : '--'}</strong>
+                        <span>Controller Firmware</span>
+                        <strong title={controllerFirmwareBuildLabel}>{controllerFirmwareLabel}</strong>
                       </div>
                       <div className="device-row device-control-row">
                         <span>Polling Rate</span>
