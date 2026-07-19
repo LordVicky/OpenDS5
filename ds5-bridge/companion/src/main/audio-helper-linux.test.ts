@@ -336,6 +336,51 @@ describe('matchAppStreamNode', () => {
   it('returns null when nothing matches or only non-streams exist', () => {
     expect(matchAppStreamNode([music, sinkNode], { processId: 1234, executableName: 'game-bin', processPath: null })).toBeNull();
   });
+
+  // Every wine app reports the same loader as its binary, so the executable
+  // fallback cannot tell two Proton games apart. node.name carries the real
+  // identity and survives the restart that invalidates the process id.
+  describe('Proton apps', () => {
+    const rivals = streamNode(60, {
+      'application.process.id': 4321,
+      'application.process.binary': 'wine64-preloader',
+      'application.name': 'Marvel Rivals',
+      'node.name': 'Marvel Rivals'
+    });
+    const nier = streamNode(61, {
+      'application.process.id': 616,
+      'application.process.binary': 'wine64-preloader',
+      'application.name': 'NieR Replicant ver.1.22474487139...',
+      'node.name': 'NieR Replicant ver.1.22474487139...'
+    });
+
+    it('matches the saved node name once the process id is stale', () => {
+      expect(matchAppStreamNode([nier, rivals], {
+        processId: 999999,
+        executableName: 'wine64-preloader',
+        processPath: null,
+        sessionIdentifier: 'Marvel Rivals'
+      })?.id).toBe(60);
+    });
+
+    it('does not attach to a different wine app via the shared loader binary', () => {
+      expect(matchAppStreamNode([nier], {
+        processId: 999999,
+        executableName: 'wine64-preloader',
+        processPath: null,
+        sessionIdentifier: 'Marvel Rivals'
+      })).toBeNull();
+    });
+
+    it('still matches on a live process id', () => {
+      expect(matchAppStreamNode([nier, rivals], {
+        processId: 616,
+        executableName: 'wine64-preloader',
+        processPath: null,
+        sessionIdentifier: 'NieR Replicant ver.1.22474487139...'
+      })?.id).toBe(61);
+    });
+  });
 });
 
 describe('hapticsPlaybackArgs', () => {

@@ -243,10 +243,11 @@ async function runRenderLoopbackHaptics(args) {
   const appSource = {
     processId: Number(argValue(args, '--haptics-app-process-id') ?? 0),
     processPath: argValue(args, '--haptics-app-process-path'),
-    executableName: argValue(args, '--haptics-app-executable')
+    executableName: argValue(args, '--haptics-app-executable'),
+    sessionIdentifier: argValue(args, '--haptics-app-session-id')
   };
   const hasAppSource = appSource.processId > 0 || Boolean(appSource.processPath)
-    || Boolean(appSource.executableName);
+    || Boolean(appSource.executableName) || Boolean(appSource.sessionIdentifier);
 
   // Optional capture pin: monitor a specific output device instead of
   // following the system default sink.
@@ -570,8 +571,15 @@ export function appCaptureRecordArgs(node, layout) {
   ];
 }
 
-export function matchAppStreamNode(objects, { processId, executableName, processPath }) {
+// Wine reports its loader as the client binary, so every Proton game looks
+// identical here. Such a name identifies the runtime, never the game.
+export const GENERIC_WINE_BINARIES = new Set([
+  'wine', 'wine64', 'wine-preloader', 'wine64-preloader', 'wineserver'
+]);
+
+export function matchAppStreamNode(objects, { processId, executableName, processPath, sessionIdentifier }) {
   const pathBasename = processPath ? processPath.split('/').pop() : null;
+  const identifiesApp = (name) => Boolean(name) && !GENERIC_WINE_BINARIES.has(name);
   const matches = objects.filter((object) => {
     if (object.type !== 'PipeWire:Interface:Node') {
       return false;
@@ -583,8 +591,15 @@ export function matchAppStreamNode(objects, { processId, executableName, process
     if (processId > 0 && Number(props['application.process.id'] ?? 0) === processId) {
       return true;
     }
+    // The stream name outlives the process id across a game restart, and is
+    // the only thing distinguishing one wine app from another.
+    if (sessionIdentifier
+      && (props['node.name'] === sessionIdentifier || props['application.name'] === sessionIdentifier)) {
+      return true;
+    }
     const binary = props['application.process.binary'] ?? null;
-    return Boolean(binary && (binary === executableName || binary === pathBasename));
+    return identifiesApp(binary)
+      && (binary === executableName || binary === pathBasename);
   });
   return matches.find((object) => object.info?.state === 'running') ?? matches[0] ?? null;
 }

@@ -209,6 +209,9 @@ export class SystemAudioHapticsEngine extends EventEmitter {
       if (appSource.executableName) {
         args.push('--haptics-app-executable', appSource.executableName);
       }
+      if (appSource.sessionIdentifier) {
+        args.push('--haptics-app-session-id', appSource.sessionIdentifier);
+      }
     }
 
     const launch = helperLaunch(args, buildSystemAudioHapticsHelperEnv());

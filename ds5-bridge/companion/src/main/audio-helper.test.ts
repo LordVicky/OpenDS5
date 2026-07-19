@@ -75,7 +75,8 @@ describe('SystemAudioHapticsEngine app source', () => {
         processId: 1234,
         displayName: 'Game',
         executableName: 'Game.exe',
-        processPath: 'C:\\Games\\Game.exe'
+        processPath: 'C:\\Games\\Game.exe',
+        sessionIdentifier: 'Game Audio Stream'
       },
       gainPercent: 125,
       bassFocus: 'punchy',
@@ -97,6 +98,10 @@ describe('SystemAudioHapticsEngine app source', () => {
     expect(args).toContain('C:\\Games\\Game.exe');
     expect(args).toContain('--haptics-app-executable');
     expect(args).toContain('Game.exe');
+    // Proton games all share one loader binary, so the stream name is the
+    // only identity that survives a restart.
+    expect(args).toContain('--haptics-app-session-id');
+    expect(args).toContain('Game Audio Stream');
     expect(args).toContain('--haptics-volume-sync');
     expect(args[args.indexOf('--haptics-volume-sync') + 1]).toBe('1');
     expect(args).not.toContain('--device-name');
