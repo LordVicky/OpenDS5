@@ -502,16 +502,41 @@ async function runRenderLoopbackHaptics(args) {
     } catch (error) {
       process.stderr.write(`app node poll failed: ${error.message}\n`);
     }
+    const now = Date.now();
     const wanted = new Map(nodes.map((node) => [`${nodeProps(node)['object.serial'] ?? node.id}`, node]));
+
     for (const [key, stream] of appStreams) {
       if (!wanted.has(key)) {
         stream.proc.kill();
+        continue;
+      }
+      // A live capture that has gone completely quiet on stdout is wedged, not
+      // silent: silence still arrives as zero-filled buffers.
+      if (stream.role === 'live' && now - stream.lastDataAt > LIVE_STALL_MS) {
+        process.stderr.write(`status: app-stream-stalled ${key}\n`);
+        dormantUntil.set(key, now + DORMANT_RETRY_IDLE_MS);
+        stream.proc.kill();
       }
     }
-    for (const [key, node] of wanted) {
-      if (!appStreams.has(key)) {
-        startAppStream(key, node);
+
+    // Forget cooldowns for streams the app has closed, so a restarted game is
+    // probed immediately rather than serving out a stale timer.
+    for (const key of [...dormantUntil.keys()]) {
+      if (!wanted.has(key)) {
+        dormantUntil.delete(key);
       }
+    }
+
+    for (const [key, node] of wanted) {
+      if (appStreams.has(key)) {
+        continue;
+      }
+      const retryAt = dormantUntil.get(key);
+      if (retryAt !== undefined && now < retryAt) {
+        continue;
+      }
+      dormantUntil.delete(key);
+      startAppStream(key, node);
     }
     attachTimer = setTimeout(syncAppStreams, APP_POLL_MS);
   };
