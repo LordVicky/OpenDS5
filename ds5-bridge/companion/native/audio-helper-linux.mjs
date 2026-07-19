@@ -308,6 +308,9 @@ async function runRenderLoopbackHaptics(args) {
     clearTimeout(attachTimer);
     clearInterval(volumeTimer);
     record?.kill();
+    for (const stream of appStreams.values()) {
+      stream.proc.kill();
+    }
     play.kill();
     process.exit(code);
   };
@@ -363,42 +366,114 @@ async function runRenderLoopbackHaptics(args) {
     });
   };
 
-  // Pre-fold app capture: target the app's own output stream so discrete
+  // Pre-fold app capture: target the app's own output streams so discrete
   // surround channels (especially LFE) survive even when the listening
-  // device is stereo. The node comes and goes with the game, so poll and
-  // re-attach instead of failing hard.
+  // device is stereo. Unreal titles publish several streams at once and only
+  // one of them carries the mix, so capture every stream the app owns and sum
+  // them. Streams come and go with the game, so re-check on a poll.
   const APP_POLL_MS = 2000;
-  const pollForAppNode = async () => {
-    if (stopping) {
+  const MIX_BLOCK_FRAMES = 256;
+  // Roughly 85ms of slack: enough to ride out jitter between the captures,
+  // little enough that a stalled stream cannot build up audible latency.
+  const MAX_LAG_FRAMES = MIX_BLOCK_FRAMES * 16;
+  const appStreams = new Map();
+
+  const mixReadyBlocks = () => {
+    const streams = [...appStreams.values()];
+    if (streams.length === 0) {
       return;
     }
-    let node = null;
-    try {
-      node = matchAppStreamNode(await pwDump(), appSource);
-    } catch (error) {
-      process.stderr.write(`app node poll failed: ${error.message}\n`);
+    while (streams.every((stream) => stream.frames >= MIX_BLOCK_FRAMES)) {
+      const blocks = streams.map((stream) => stream.take(MIX_BLOCK_FRAMES));
+      const output = processor.process(sumBusFrames(blocks));
+      if (play.stdin.writable) {
+        play.stdin.write(Buffer.from(output.buffer, 0, output.byteLength));
+      }
     }
-    if (!node) {
-      attachTimer = setTimeout(pollForAppNode, APP_POLL_MS);
-      return;
-    }
+  };
+
+  const startAppStream = (key, node) => {
     const layout = nodeChannelLayout(node);
-    processor.setInputLayout(channelIndices(layout.position));
-    record = spawn('pw-record', appCaptureRecordArgs(node, layout), { stdio: ['ignore', 'pipe', 'pipe'] });
-    pipeRecordToProcessor(record, layout.channels);
-    record.on('exit', () => {
-      // Game restarted its stream (level load, restart): go back to polling.
-      record = null;
-      if (!stopping) {
+    const indices = channelIndices(layout.position);
+    const proc = spawn('pw-record', appCaptureRecordArgs(node, layout), { stdio: ['ignore', 'pipe', 'pipe'] });
+    let pending = new Float32Array(0);
+    let carry = Buffer.alloc(0);
+    const stream = {
+      proc,
+      get frames() {
+        return pending.length / BUS_CHANNELS;
+      },
+      take(count) {
+        const wanted = count * BUS_CHANNELS;
+        const block = pending.subarray(0, wanted);
+        pending = pending.slice(wanted);
+        return block;
+      }
+    };
+    appStreams.set(key, stream);
+    proc.stdout.on('data', (chunk) => {
+      const data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+      const frameBytes = layout.channels * 4; // channels x f32
+      const usable = data.length - (data.length % frameBytes);
+      carry = Buffer.from(data.subarray(usable));
+      if (usable === 0) {
+        return;
+      }
+      const input = new Float32Array(data.buffer, data.byteOffset, usable / 4);
+      const bus = busFrames(input, indices);
+      const merged = new Float32Array(pending.length + bus.length);
+      merged.set(pending);
+      merged.set(bus, pending.length);
+      // Drop the oldest audio rather than let one lagging capture stall the
+      // mix and grow the queue without bound.
+      pending = merged.length > MAX_LAG_FRAMES * BUS_CHANNELS
+        ? merged.slice(merged.length - MAX_LAG_FRAMES * BUS_CHANNELS)
+        : merged;
+      mixReadyBlocks();
+    });
+    proc.stderr.on('data', (data) => process.stderr.write(data));
+    proc.on('spawn', () => {
+      if (!announcedRecording) {
+        announcedRecording = true;
+        process.stderr.write('status: recording-started\n');
+      }
+    });
+    proc.on('exit', () => {
+      appStreams.delete(key);
+      if (!stopping && appStreams.size === 0) {
         process.stderr.write('status: waiting-for-app\n');
-        attachTimer = setTimeout(pollForAppNode, APP_POLL_MS);
       }
     });
   };
 
+  const syncAppStreams = async () => {
+    if (stopping) {
+      return;
+    }
+    let nodes = [];
+    try {
+      nodes = matchAppStreamNodes(await pwDump(), appSource);
+    } catch (error) {
+      process.stderr.write(`app node poll failed: ${error.message}\n`);
+    }
+    const wanted = new Map(nodes.map((node) => [`${nodeProps(node)['object.serial'] ?? node.id}`, node]));
+    for (const [key, stream] of appStreams) {
+      if (!wanted.has(key)) {
+        stream.proc.kill();
+      }
+    }
+    for (const [key, node] of wanted) {
+      if (!appStreams.has(key)) {
+        startAppStream(key, node);
+      }
+    }
+    attachTimer = setTimeout(syncAppStreams, APP_POLL_MS);
+  };
+
   if (hasAppSource) {
+    processor.setInputLayout(BUS_LAYOUT);
     process.stderr.write('status: waiting-for-app\n');
-    await pollForAppNode();
+    await syncAppStreams();
   } else {
     startSinkMonitorCapture();
   }
@@ -577,10 +652,10 @@ export const GENERIC_WINE_BINARIES = new Set([
   'wine', 'wine64', 'wine-preloader', 'wine64-preloader', 'wineserver'
 ]);
 
-export function matchAppStreamNode(objects, { processId, executableName, processPath, sessionIdentifier }) {
+export function matchAppStreamNodes(objects, { processId, executableName, processPath, sessionIdentifier }) {
   const pathBasename = processPath ? processPath.split('/').pop() : null;
   const identifiesApp = (name) => Boolean(name) && !GENERIC_WINE_BINARIES.has(name);
-  const matches = objects.filter((object) => {
+  return objects.filter((object) => {
     if (object.type !== 'PipeWire:Interface:Node') {
       return false;
     }
@@ -601,7 +676,46 @@ export function matchAppStreamNode(objects, { processId, executableName, process
     return identifiesApp(binary)
       && (binary === executableName || binary === pathBasename);
   });
+}
+
+export function matchAppStreamNode(objects, appSource) {
+  const matches = matchAppStreamNodes(objects, appSource);
   return matches.find((object) => object.info?.state === 'running') ?? matches[0] ?? null;
+}
+
+// The processor reads FL, FR, FC and LFE and ignores everything else, so
+// every capture is reduced to those four lanes before mixing. Doing it here
+// rather than asking PipeWire for a fixed channel map keeps the app's own
+// LFE intact instead of letting the channel mixer synthesise or drop it.
+export const BUS_CHANNELS = 4;
+export const BUS_LAYOUT = { stride: BUS_CHANNELS, fl: 0, fr: 1, fc: 2, lfe: 3 };
+
+export function busFrames(input, layout) {
+  const { stride, fl, fr, fc, lfe } = layout;
+  const frames = Math.floor(input.length / stride);
+  const bus = new Float32Array(frames * BUS_CHANNELS);
+  for (let frame = 0; frame < frames; frame += 1) {
+    const from = frame * stride;
+    const to = frame * BUS_CHANNELS;
+    bus[to] = input[from + fl];
+    bus[to + 1] = input[from + fr];
+    bus[to + 2] = fc >= 0 ? input[from + fc] : 0;
+    bus[to + 3] = lfe >= 0 ? input[from + lfe] : 0;
+  }
+  return bus;
+}
+
+export function sumBusFrames(blocks) {
+  if (blocks.length === 1) {
+    return blocks[0];
+  }
+  const summed = new Float32Array(blocks[0].length);
+  for (const block of blocks) {
+    for (let i = 0; i < summed.length; i += 1) {
+      summed[i] += block[i];
+    }
+  }
+  return summed;
 }
 
 async function listOutputStreamSessions() {

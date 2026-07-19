@@ -117,7 +117,16 @@ describe('HapticsProcessor layouts', () => {
   });
 });
 
-import { appCaptureRecordArgs, channelCompensation, matchAppStreamNode, readHapticsConfig } from '../../native/audio-helper-linux.mjs';
+import {
+  appCaptureRecordArgs,
+  busFrames,
+  channelCompensation,
+  channelIndices,
+  matchAppStreamNode,
+  matchAppStreamNodes,
+  readHapticsConfig,
+  sumBusFrames
+} from '../../native/audio-helper-linux.mjs';
 
 describe('channelCompensation', () => {
   it('is unity when ears and haptic match and sync is ON', () => {
@@ -380,6 +389,70 @@ describe('matchAppStreamNode', () => {
         sessionIdentifier: 'NieR Replicant ver.1.22474487139...'
       })?.id).toBe(61);
     });
+
+    // Unreal titles publish several output streams at once and only one of
+    // them carries the mix, so capturing a single node picks silence.
+    it('returns every stream the app is publishing', () => {
+      const second = streamNode(62, {
+        'application.process.id': 4321,
+        'application.process.binary': 'wine64-preloader',
+        'node.name': 'Marvel Rivals'
+      });
+      const third = streamNode(63, {
+        'application.process.id': 4321,
+        'application.process.binary': 'wine64-preloader',
+        'node.name': 'Marvel Rivals'
+      });
+      const ids = matchAppStreamNodes([rivals, nier, second, third], {
+        processId: 4321,
+        executableName: 'wine64-preloader',
+        processPath: null,
+        sessionIdentifier: 'Marvel Rivals'
+      }).map((node) => node.id);
+      expect(ids).toEqual([60, 62, 63]);
+    });
+  });
+});
+
+describe('busFrames', () => {
+  it('passes a stereo stream through as FL/FR with no centre or bass', () => {
+    const layout = channelIndices(['FL', 'FR']);
+    expect(Array.from(busFrames(Float32Array.from([0.5, -0.25]), layout)))
+      .toEqual([0.5, -0.25, 0, 0]);
+  });
+
+  it('keeps the centre and LFE of a 5.1 stream', () => {
+    const layout = channelIndices(['FL', 'FR', 'FC', 'LFE', 'RL', 'RR']);
+    // FL FR FC LFE RL RR -> the rears are dropped, the rest survive.
+    expect(Array.from(busFrames(Float32Array.from([1, 2, 3, 4, 9, 9]), layout)))
+      .toEqual([1, 2, 3, 4]);
+  });
+
+  it('drops the rears of a quadraphonic stream', () => {
+    const layout = channelIndices(['FL', 'FR', 'RL', 'RR']);
+    expect(Array.from(busFrames(Float32Array.from([1, 2, 9, 9]), layout)))
+      .toEqual([1, 2, 0, 0]);
+  });
+});
+
+describe('sumBusFrames', () => {
+  it('adds the streams channel by channel', () => {
+    const a = Float32Array.from([1, 2, 3, 4]);
+    const b = Float32Array.from([10, 20, 30, 40]);
+    expect(Array.from(sumBusFrames([a, b]))).toEqual([11, 22, 33, 44]);
+  });
+
+  // The whole point: the silent streams must not mask the one with audio.
+  it('recovers the active stream when the others are silent', () => {
+    const silent = new Float32Array(4);
+    const active = Float32Array.from([0.5, -0.5, 0, 0.25]);
+    expect(Array.from(sumBusFrames([silent, active, silent])))
+      .toEqual([0.5, -0.5, 0, 0.25]);
+  });
+
+  it('returns the single stream untouched', () => {
+    const only = Float32Array.from([0.5, 0.25, -0.75, 0.125]);
+    expect(Array.from(sumBusFrames([only]))).toEqual([0.5, 0.25, -0.75, 0.125]);
   });
 });
 
