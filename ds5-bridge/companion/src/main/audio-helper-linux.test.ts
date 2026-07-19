@@ -122,9 +122,12 @@ import {
   busFrames,
   channelCompensation,
   channelIndices,
+  hasSignal,
   matchAppStreamNode,
   matchAppStreamNodes,
+  peakAmplitude,
   readHapticsConfig,
+  SIGNAL_PEAK_THRESHOLD,
   sumBusFrames
 } from '../../native/audio-helper-linux.mjs';
 
@@ -496,5 +499,38 @@ describe('pinnedChannelVolumes', () => {
   it('preserves any trailing channels beyond the first four', () => {
     expect(pinnedChannelVolumes([0.3, 0.3, 0.3, 0.3, 0.5, 0.5]))
       .toEqual([0.3, 0.3, 1, 1, 0.5, 0.5]);
+  });
+});
+
+describe('peakAmplitude', () => {
+  it('is zero for a digitally silent block', () => {
+    expect(peakAmplitude(new Float32Array(64))).toBe(0);
+  });
+
+  it('returns the largest magnitude regardless of sign', () => {
+    expect(peakAmplitude(new Float32Array([0.1, -0.4, 0.25]))).toBeCloseTo(0.4, 6);
+  });
+
+  it('is zero for an empty block', () => {
+    expect(peakAmplitude(new Float32Array(0))).toBe(0);
+  });
+});
+
+describe('hasSignal', () => {
+  it('rejects digital silence', () => {
+    expect(hasSignal(0)).toBe(false);
+  });
+
+  it('rejects dither-level noise below the threshold', () => {
+    expect(hasSignal(SIGNAL_PEAK_THRESHOLD / 2)).toBe(false);
+  });
+
+  it('accepts quiet but real game audio', () => {
+    // -60 dBFS: far below anything audible as "loud", still clearly not silence.
+    expect(hasSignal(0.001)).toBe(true);
+  });
+
+  it('accepts a normal mix level', () => {
+    expect(hasSignal(0.176)).toBe(true);
   });
 });

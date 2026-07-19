@@ -705,6 +705,26 @@ export function busFrames(input, layout) {
   return bus;
 }
 
+// A stream that never rises above this is treated as silence. Games publish
+// idle streams that emit exact zeros; real audio, even a quiet ambience bed,
+// clears this by orders of magnitude. -80 dBFS.
+export const SIGNAL_PEAK_THRESHOLD = 1e-4;
+
+export function peakAmplitude(frames) {
+  let peak = 0;
+  for (let i = 0; i < frames.length; i += 1) {
+    const value = frames[i] < 0 ? -frames[i] : frames[i];
+    if (value > peak) {
+      peak = value;
+    }
+  }
+  return peak;
+}
+
+export function hasSignal(peak) {
+  return peak > SIGNAL_PEAK_THRESHOLD;
+}
+
 export function sumBusFrames(blocks) {
   if (blocks.length === 1) {
     return blocks[0];
