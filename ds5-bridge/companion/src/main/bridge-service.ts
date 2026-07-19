@@ -99,6 +99,7 @@ import { readVdsKernelVersion } from './vds-kernel-version';
 import { SettingsStore, normalizeUiScalePercent, normalizeUiThemePreset } from './settings-store';
 import { openCompanionTransport, type CompanionTransport } from './companion-transport';
 import { normalizeControllerSysfsPath, resolveHidSourceIdentity } from './controller-source-identity';
+import { classifyControllerDevice } from './controller-device';
 
 const POLL_INTERVAL_MS = 500;
 const SHORTCUT_POLL_INTERVAL_MS = 50;
@@ -145,8 +146,6 @@ const LIGHTBAR_BRIGHTNESS_STEP = 10;
 const TRIGGER_EFFECT_STEP = 10;
 const AUDIO_REACTIVE_HAPTICS_FIXED_GAIN_PERCENT = 100;
 const AUDIO_REACTIVE_HAPTICS_SUPPRESS_CLASSIC_RUMBLE_MODE_FLAG = 0x80;
-const SONY_VENDOR_ID = 0x054c;
-const DUALSENSE_PRODUCT_IDS = new Set([0x0ce6, 0x0df2]);
 const WINDOWS_DEVICE_CLEANUP_RELATIVE_PATH = path.join('tools', 'windows', 'clean-ds5bridge-devices.ps1');
 const POWERSHELL_ERROR_OUTPUT_MAX_CHARS = 8192;
 const CLEANUP_LOG_EXCERPT_MAX_CHARS = 3000;
@@ -229,8 +228,7 @@ const PRESET_SETTINGS: Record<Exclude<BridgePresetId, 'custom'>, Partial<Compani
 };
 
 function isDualSenseDevice(device: HidDeviceSummary): boolean {
-  return device.vendorId === SONY_VENDOR_ID
-    && DUALSENSE_PRODUCT_IDS.has(device.productId ?? 0)
+  return classifyControllerDevice(device).isDualSense
     && /DualSense/i.test(device.product ?? '');
 }
 

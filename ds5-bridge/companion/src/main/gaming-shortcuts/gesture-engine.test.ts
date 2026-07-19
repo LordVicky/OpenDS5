@@ -32,6 +32,14 @@ describe('GestureEngine', () => {
     engine.update(new Set(['ps', 'create']), 1000);
     expect(emit).toHaveBeenCalledWith({ type: 'chord', modifier: 'ps', button: 'create' });
   });
+  it('recognizes all DualSense Edge secondary controls', () => {
+    for (const button of ['lb', 'rb', 'lfn', 'rfn'] as const) {
+      const emit = vi.fn(); const engine = new GestureEngine({ emit });
+      engine.update(new Set(['ps']), 0);
+      engine.update(new Set(['ps', button]), 10);
+      expect(emit).toHaveBeenCalledWith({ type: 'chord', modifier: 'ps', button });
+    }
+  });
   it('repeats chords when the secondary button is released and pressed again', () => {
     const emit = vi.fn(); const engine = new GestureEngine({ emit });
     engine.update(new Set(['ps']), 0);

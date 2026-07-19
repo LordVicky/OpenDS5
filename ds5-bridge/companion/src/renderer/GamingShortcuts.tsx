@@ -15,7 +15,9 @@ const BUTTONS: Array<{ value: Exclude<ControllerButton, 'ps'>; label: string }> 
   { value: 'cross', label: 'Cross' }, { value: 'circle', label: 'Circle' }, { value: 'square', label: 'Square' }, { value: 'triangle', label: 'Triangle' },
   { value: 'l1', label: 'L1' }, { value: 'r1', label: 'R1' }, { value: 'l2', label: 'L2' }, { value: 'r2', label: 'R2' },
   { value: 'l3', label: 'L3' }, { value: 'r3', label: 'R3' }, { value: 'dpad-up', label: 'D-pad Up' }, { value: 'dpad-down', label: 'D-pad Down' },
-  { value: 'dpad-left', label: 'D-pad Left' }, { value: 'dpad-right', label: 'D-pad Right' }
+  { value: 'dpad-left', label: 'D-pad Left' }, { value: 'dpad-right', label: 'D-pad Right' },
+  { value: 'lb', label: 'LB (left rear)' }, { value: 'rb', label: 'RB (right rear)' },
+  { value: 'lfn', label: 'LFN (left function)' }, { value: 'rfn', label: 'RFN (right function)' }
 ];
 
 type ActionKind = GamingShortcutAction['type'];

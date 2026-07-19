@@ -50,4 +50,16 @@ describe('normalizeGamingShortcutsSettings', () => {
     expect(settings.chords[0]).toEqual({ button: 'create', action: { type: 'screenshot', provider: 'grim' } });
     expect(settings.shortcutModeTimeoutMs).toBe(3000);
   });
+
+  it('persists and resolves Edge back and function buttons as generic inputs', () => {
+    const settings = normalizeGamingShortcutsSettings({
+      chords: [
+        { button: 'lb', action: { type: 'passthrough' } },
+        { button: 'rb', action: { type: 'none' } },
+        { button: 'lfn', action: { type: 'open-opends5' } },
+        { button: 'rfn', action: { type: 'volume', direction: 'mute' } }
+      ]
+    });
+    expect(settings.chords.map(({ button }) => button)).toEqual(['lb', 'rb', 'lfn', 'rfn']);
+  });
 });

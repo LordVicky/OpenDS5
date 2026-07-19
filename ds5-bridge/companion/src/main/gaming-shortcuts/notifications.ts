@@ -26,6 +26,7 @@ const BUTTON_LABELS: Record<ControllerButton, string> = {
   cross: 'Cross', circle: 'Circle', square: 'Square', triangle: 'Triangle',
   l1: 'L1', r1: 'R1', l2: 'L2', r2: 'R2', l3: 'L3', r3: 'R3',
   create: 'Create', options: 'Options', ps: 'PS', touchpad: 'Touchpad', mute: 'Mute',
+  lb: 'Left Back Button', rb: 'Right Back Button', lfn: 'Left Function Button', rfn: 'Right Function Button',
   'dpad-up': 'D-pad Up', 'dpad-down': 'D-pad Down', 'dpad-left': 'D-pad Left', 'dpad-right': 'D-pad Right'
 };
 

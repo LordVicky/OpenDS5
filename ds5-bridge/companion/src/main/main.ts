@@ -24,6 +24,7 @@ import { readProfileFileForImport, TriggerProfileStore } from './trigger-profile
 import { ProfileLibrary, type LibraryEntry } from './profile-library';
 import { GameWatcher, listCandidateGameProcesses } from './game-watcher';
 import { EvdevInputReader } from './evdev-input-reader';
+import { DualSenseShortcutInputReader } from './dualsense-input';
 import { TriggerProfileEngine, type DraftPreviewTriggers, type EngineStatus } from './trigger-profile-engine';
 import { GameSettingsCoordinator, type GameSettingsStatus } from './game-settings-coordinator';
 import { GameArtworkStore } from './game-artwork';
@@ -83,7 +84,7 @@ let trayDefaultIcon: Electron.NativeImage | null = null;
 let bridgeService: BridgeService | null = null;
 let triggerProfileEngine: TriggerProfileEngine | null = null;
 let gamingShortcutsCoordinator: GamingShortcutsCoordinator | null = null;
-let gamingShortcutsReader: EvdevInputReader | null = null;
+let gamingShortcutsReader: EvdevInputReader | DualSenseShortcutInputReader | null = null;
 let isQuitting = false;
 let shutdownComplete = false;
 // One-time DS5 Bridge -> OpenDS5 rebrand migration: carry legacy userData
@@ -1722,14 +1723,15 @@ app.whenReady().then(async () => {
   const profileLibrary = new ProfileLibrary(
     path.join(app.getPath('userData'), 'profile-library')
   );
+  const inputReader = process.platform === 'linux' ? new DualSenseShortcutInputReader() : new EvdevInputReader();
   triggerProfileEngine = new TriggerProfileEngine({
     sink: bridgeService,
     store: triggerProfileStore,
     watcher: new GameWatcher({}),
-    reader: new EvdevInputReader()
+    reader: inputReader
   });
   if (process.platform === 'linux') {
-    const shortcutReader = new EvdevInputReader();
+    const shortcutReader = inputReader;
     gamingShortcutsReader = shortcutReader;
     shortcutReader.on('error', (error) => {
       console.error('[gaming-shortcuts] input reader error', error);

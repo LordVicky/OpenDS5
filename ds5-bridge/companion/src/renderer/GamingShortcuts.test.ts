@@ -30,6 +30,10 @@ describe('Gaming Shortcuts page', () => {
     expect(component).toContain("value: 'custom-executable'");
     expect(component).toContain("value: 'l1'");
     expect(component).toContain("value: 'r3'");
+    expect(component).toContain("value: 'lb'");
+    expect(component).toContain("value: 'rb'");
+    expect(component).toContain("value: 'lfn'");
+    expect(component).toContain("value: 'rfn'");
     expect(component).not.toContain("value: 'focus-app'");
     expect(component).not.toContain("value: 'switch-application'");
     expect(component).not.toContain("value: 'quit-active-game'");

@@ -13,7 +13,6 @@ import {
 import { StateSwitcher } from '../shared/trigger-state-switcher';
 import type { TriggerTestTarget } from '../shared/protocol';
 import type { ActiveProfileChange, GameWatcher } from './game-watcher';
-import type { EvdevInputReader } from './evdev-input-reader';
 import type { TriggerProfileStore } from './trigger-profile-store';
 
 export type { EngineStatus };
@@ -33,8 +32,16 @@ type EngineOptions = {
   sink: TriggerEffectSink;
   store: TriggerProfileStore;
   watcher: GameWatcher;
-  reader: EvdevInputReader;
+  reader: TriggerInputReader;
 };
+
+interface TriggerInputReader {
+  on(event: 'input', listener: (state: ControllerInputState) => void): this;
+  on(event: 'error', listener: (error: Error) => void): this;
+  start(): void;
+  rescan?(): void;
+  stop(): void;
+}
 
 type TriggerName = 'l2' | 'r2';
 
@@ -80,7 +87,7 @@ export class TriggerProfileEngine extends EventEmitter {
   private readonly sink: TriggerEffectSink;
   private readonly store: TriggerProfileStore;
   private readonly watcher: GameWatcher;
-  private readonly reader: EvdevInputReader;
+  private readonly reader: TriggerInputReader;
   private readonly evaluator = new ModifierEvaluator();
   private readonly draftEvaluator = new ModifierEvaluator();
   private readonly stateSwitcher = new StateSwitcher();
@@ -143,7 +150,8 @@ export class TriggerProfileEngine extends EventEmitter {
     this.readerRetryTimer = setTimeout(() => {
       this.readerRetryTimer = null;
       if (!this.enabled) return;
-      this.reader.start();
+      if (this.reader.rescan) this.reader.rescan();
+      else this.reader.start();
     }, TriggerProfileEngine.READER_RETRY_MS);
   }
 

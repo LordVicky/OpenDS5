@@ -19,7 +19,8 @@ export interface GestureEngineOptions {
 const DEFAULTS = { doublePressWindowMs: 300, longPressThresholdMs: 650, chordWindowMs: 150 };
 const SECONDARY = new Set<ControllerButton>([
   'cross', 'circle', 'square', 'triangle', 'l1', 'r1', 'l2', 'r2', 'l3', 'r3',
-  'create', 'options', 'touchpad', 'mute', 'dpad-up', 'dpad-down', 'dpad-left', 'dpad-right'
+  'create', 'options', 'touchpad', 'mute', 'lb', 'rb', 'lfn', 'rfn',
+  'dpad-up', 'dpad-down', 'dpad-left', 'dpad-right'
 ]);
 
 export class GestureEngine {
