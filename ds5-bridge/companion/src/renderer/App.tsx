@@ -419,6 +419,11 @@ const POLLING_RATE_OPTIONS: Array<[string, PollingRateMode]> = [
   ['500 Hz', '500'],
   ['250 Hz', '250']
 ];
+// The HID IN endpoint interval is fixed per controller model: a DualSense Edge
+// negotiates 1 ms and a standard DualSense 4 ms, so the rate the link actually
+// runs at follows the model rather than the requested pollingRateMode.
+const ACTIVE_POLLING_RATE_HZ_DSE = 1000;
+const ACTIVE_POLLING_RATE_HZ_STANDARD = 250;
 const HOST_PERSONA_OPTIONS: Array<[string, HostPersonaMode]> = [
   ['DualSense', 'dualsense'],
   ['DualShock 4', 'ds4'],
@@ -4237,6 +4242,9 @@ export function App() {
   const pollingRateLabel = POLLING_RATE_OPTIONS.find(([, mode]) => mode === snapshot?.settings.pollingRateMode)?.[0]
     .replace(' / Real-time', '')
     ?? '--';
+  const activePollingRateLabel = `${
+    snapshot?.status?.firmwareFlags.dse ? ACTIVE_POLLING_RATE_HZ_DSE : ACTIVE_POLLING_RATE_HZ_STANDARD
+  } Hz`;
   const firmwareUpdateAvailable = Boolean(snapshot?.diagnostics.firmwareUpdateAvailable);
   const overviewHealthLabel = healthLabel(snapshot);
   const overviewHealthTone = personaTransitionActive
@@ -7386,7 +7394,7 @@ export function App() {
                   </div>
                   <div>
                     <span>Polling Rate</span>
-                    <strong>{connected && pollingRateControlSupported ? pollingRateLabel : '--'}</strong>
+                    <strong>{connected ? activePollingRateLabel : '--'}</strong>
                   </div>
                 </div>
               </button>

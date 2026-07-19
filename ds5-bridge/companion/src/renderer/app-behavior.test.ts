@@ -200,6 +200,24 @@ describe('renderer behavior guards', () => {
     expect(compactStatusSource).not.toContain('className={`dot');
   });
 
+  it('reports the active polling rate on the overview connection card', () => {
+    // The overview must show the rate the link actually runs at, not the
+    // requested pollingRateMode: a standard DualSense negotiates a 4 ms HID
+    // endpoint (250 Hz) and only the Edge gets 1 ms (1000 Hz), so echoing the
+    // setting back claims a rate the controller cannot deliver.
+    expect(appSource).toContain('const ACTIVE_POLLING_RATE_HZ_DSE = 1000;');
+    expect(appSource).toContain('const ACTIVE_POLLING_RATE_HZ_STANDARD = 250;');
+    expect(appSource).toContain('const activePollingRateLabel =');
+    expect(appSource).toContain('firmwareFlags.dse');
+
+    const start = appSource.indexOf('<h3>Connection</h3>');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const connectionCardSource = appSource.slice(start, appSource.indexOf('</button>', start));
+
+    expect(connectionCardSource).toContain('{connected ? activePollingRateLabel : \'--\'}');
+    expect(connectionCardSource).not.toContain('pollingRateLabel');
+  });
+
   it('exposes the firmware-gated audio buffer length control', () => {
     expect(appSource).toContain('const AUDIO_BUFFER_LENGTH_MIN = 16;');
     expect(appSource).toContain('const AUDIO_BUFFER_LENGTH_MAX = 240;');
