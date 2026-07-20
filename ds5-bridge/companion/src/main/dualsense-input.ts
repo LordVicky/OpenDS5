@@ -10,6 +10,7 @@ export const DUALSENSE_USB_REPORT_ID = 0x01;
 export const DUALSENSE_BT_REPORT_ID = 0x31;
 export const DUALSENSE_USB_REPORT_SIZE = 64;
 export const DUALSENSE_BT_REPORT_SIZE = 78;
+const EDGE_HID_RESCAN_DELAY_MS = 5000;
 
 export interface DualSenseTouchPoint { active: boolean; id: number; x: number; y: number; }
 export interface DualSenseInputReport extends ControllerInputState {
@@ -108,7 +109,9 @@ interface HidReadable {
 
 /** Edge-only raw HID source. Standard DualSense stays exclusively on evdev. */
 export class DualSenseEdgeHidInputReader extends EventEmitter {
-  private devices: HidReadable[] = [];
+  private readonly devices = new Map<string, { hid: HidReadable; sourceId: string }>();
+  private readonly sourcePathCounts = new Map<string, number>();
+  private rescanTimer: ReturnType<typeof setTimeout> | null = null;
   private stopping = false;
   private readonly open: (path: string) => HidReadable;
   private readonly enumerate: () => HID.Device[];
@@ -122,12 +125,12 @@ export class DualSenseEdgeHidInputReader extends EventEmitter {
   }
 
   start(): void {
-    if (this.devices.length > 0) return;
     this.stopping = false;
     for (const device of this.enumerate()) {
       const classification = classifyControllerDevice(device);
       if (!classification.capabilities.hasEdgeFunctionButtons && !classification.capabilities.hasRearButtons) continue;
       if (!device.path) continue;
+      if (this.devices.has(device.path)) continue;
       try {
         const hid = this.open(device.path);
         // The identity join is what lets the fan-out reader suppress the
@@ -135,13 +138,16 @@ export class DualSenseEdgeHidInputReader extends EventEmitter {
         // emitting both streams would create duplicate standard button edges.
         const sourceId = this.sourceIdentity(device.path);
         if (!sourceId) { hid.close(); continue; }
-        this.emit('source', sourceId);
+        const path = device.path;
+        const pathCount = this.sourcePathCounts.get(sourceId) ?? 0;
+        this.sourcePathCounts.set(sourceId, pathCount + 1);
+        if (pathCount === 0) this.emit('source', sourceId);
         hid.on('data', (data) => {
           const state = decodeDualSenseInputReport(data, classification.model);
           if (state) this.emit('input', { ...state, sourceId });
         });
-        hid.on('error', () => this.remove(hid, sourceId));
-        this.devices.push(hid);
+        hid.on('error', () => this.remove(path));
+        this.devices.set(path, { hid, sourceId });
       } catch {
         // Device races and permission failures are expected during hotplug.
       }
@@ -151,17 +157,38 @@ export class DualSenseEdgeHidInputReader extends EventEmitter {
 
   stop(): void {
     this.stopping = true;
-    for (const device of this.devices) { try { device.close(); } catch { /* already disconnected */ } }
-    this.devices = [];
+    if (this.rescanTimer !== null) { clearTimeout(this.rescanTimer); this.rescanTimer = null; }
+    const devices = [...this.devices.values()];
+    const sourceIds = [...this.sourcePathCounts.keys()];
+    this.devices.clear();
+    this.sourcePathCounts.clear();
+    for (const sourceId of sourceIds) this.emit('source-removed', sourceId);
+    for (const { hid } of devices) { try { hid.close(); } catch { /* already disconnected */ } }
   }
 
-  private remove(device: HidReadable, sourceId: string): void {
-    if (!this.devices.includes(device)) return;
-    this.devices = this.devices.filter((current) => current !== device);
-    try { device.close(); } catch { /* already disconnected */ }
-    this.emit('disconnect', sourceId);
-    this.emit('source-removed', sourceId);
-    if (!this.stopping) this.emit('error', new Error('DualSense Edge HID device disconnected.'));
+  private remove(path: string): void {
+    const entry = this.devices.get(path);
+    if (!entry) return;
+    this.devices.delete(path);
+    try { entry.hid.close(); } catch { /* already disconnected */ }
+    const remaining = (this.sourcePathCounts.get(entry.sourceId) ?? 1) - 1;
+    if (remaining > 0) {
+      this.sourcePathCounts.set(entry.sourceId, remaining);
+      this.scheduleRescan();
+      return;
+    }
+    this.sourcePathCounts.delete(entry.sourceId);
+    this.emit('source-removed', entry.sourceId);
+    this.emit('disconnect', entry.sourceId);
+    this.scheduleRescan();
+  }
+
+  private scheduleRescan(): void {
+    if (this.stopping || this.rescanTimer !== null) return;
+    this.rescanTimer = setTimeout(() => {
+      this.rescanTimer = null;
+      if (!this.stopping) this.start();
+    }, EDGE_HID_RESCAN_DELAY_MS);
   }
 }
 
@@ -170,12 +197,22 @@ export class DualSenseShortcutInputReader extends EventEmitter {
   private readonly evdev: EvdevInputReader;
   private readonly edge: DualSenseEdgeHidInputReader;
   private readonly edgeSourceIds = new Set<string>();
-  private edgeRescanTimer: ReturnType<typeof setTimeout> | null = null;
+  private rescanTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly onEvdevInput = (state: ControllerInputState) => {
     if (!state.sourceId || !this.edgeSourceIds.has(state.sourceId)) this.emit('input', state);
   };
   private readonly onEvdevDisconnect = (sourceId: string) => {
     if (!this.edgeSourceIds.has(sourceId)) this.emit('disconnect', sourceId);
+  };
+  private readonly onReaderError = (error: Error) => {
+    this.emit('error', error);
+    if (this.users > 0 && this.rescanTimer === null) {
+      this.rescanTimer = setTimeout(() => {
+        this.rescanTimer = null;
+        this.edge.start();
+        this.evdev.start();
+      }, 5000);
+    }
   };
 
   constructor(options: { evdev?: EvdevInputReader; edge?: DualSenseEdgeHidInputReader } = {}) {
@@ -184,19 +221,12 @@ export class DualSenseShortcutInputReader extends EventEmitter {
     this.edge = options.edge ?? new DualSenseEdgeHidInputReader();
     this.evdev.on('input', this.onEvdevInput);
     this.evdev.on('disconnect', this.onEvdevDisconnect);
+    this.evdev.on('error', this.onReaderError);
     this.edge.on('input', (state: ControllerInputState) => this.emit('input', state));
     this.edge.on('source', (sourceId: string) => this.edgeSourceIds.add(sourceId));
     this.edge.on('source-removed', (sourceId: string) => this.edgeSourceIds.delete(sourceId));
     this.edge.on('disconnect', (sourceId: string) => this.emit('disconnect', sourceId));
-    this.edge.on('error', (error: Error) => {
-      this.emit('error', error);
-      if (this.users > 0 && this.edgeRescanTimer === null) {
-        this.edgeRescanTimer = setTimeout(() => {
-          this.edgeRescanTimer = null;
-          this.edge.start();
-        }, 5000);
-      }
-    });
+    this.edge.on('error', this.onReaderError);
   }
 
   private users = 0;
@@ -207,14 +237,15 @@ export class DualSenseShortcutInputReader extends EventEmitter {
   }
 
   rescan(): void {
-    if (this.edgeRescanTimer !== null) { clearTimeout(this.edgeRescanTimer); this.edgeRescanTimer = null; }
+    if (this.rescanTimer !== null) { clearTimeout(this.rescanTimer); this.rescanTimer = null; }
     this.edge.start();
+    this.evdev.start();
   }
 
   stop(): void {
     this.users = Math.max(0, this.users - 1);
     if (this.users === 0) {
-      if (this.edgeRescanTimer !== null) { clearTimeout(this.edgeRescanTimer); this.edgeRescanTimer = null; }
+      if (this.rescanTimer !== null) { clearTimeout(this.rescanTimer); this.rescanTimer = null; }
       this.evdev.stop(); this.edge.stop();
     }
   }

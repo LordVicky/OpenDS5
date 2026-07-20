@@ -9,7 +9,7 @@ DualSense feature has been validated on physical hardware.
 The normal data path is:
 
 ```text
-physical DualSense USB or Bluetooth HID
+physical DualSense Bluetooth HID
         │
         ▼
 vds_hcd + vdsd  ── Bluetooth HID input is converted to the vds USB model
@@ -21,9 +21,9 @@ virtual wired DualSense exposed to Linux and the game
         └── OpenDS5 companion input/remapping/shortcut path
 ```
 
-Game output travels in the reverse direction: the game's virtual-USB output
-report is consumed by `vds_hcd`/`vdsd` and sent to the physical controller over
-the available transport. This is the path for game-driven rumble, adaptive
+Game output travels in the reverse direction for the Bluetooth bridge: the
+game's virtual-USB output report is consumed by `vds_hcd`/`vdsd` and sent to
+the physical controller. This is the path for game-driven rumble, adaptive
 trigger state, lights, and other supported DualSense output. Companion-owned
 overrides are merged into the vds output state before transmission. The
 repository documents this topology, but physical output behavior remains a
@@ -44,9 +44,13 @@ evdev input path. The Edge model additionally enables raw HID decoding for the
 four extra controls, while the normal controls continue to use the same
 generic input representation.
 
+This raw-HID path is separate from the Bluetooth-only vds bridge: it is used
+for Edge USB reports and is not a claim that USB is routed through
+`vds_hcd`/`vdsd`.
+
 The parser accepts the report forms currently covered by tests:
 
-- USB report ID `0x01`, 64 bytes.
+- USB report ID `0x01`, 64 bytes (companion raw-HID path only).
 - Bluetooth report ID `0x31`, 78 bytes, with the expected CRC check. Some raw
   HID stacks may include the Bluetooth transport prefix `0xa1`; the parser
   accepts that form as well.
@@ -107,7 +111,7 @@ The current implementation has these verified behaviors in source/tests:
   exists, the retained port/profile binding is reused and physical input/output
   forwarding is re-established.
 
-The Edge reader enumerates devices when started or explicitly rescanned. HID
+The Edge raw-HID reader enumerates devices when started or explicitly rescanned. HID
 permission failures, port removal, daemon shutdown, and unusual unplug/replug
 timing still require manual verification for the transport and desktop/runtime
 combination in use.
@@ -119,7 +123,7 @@ udev rules; creates the `vds` group; and adds the selected user to that group
 for vds control-socket access. A new group membership requires a new login
 session. The `vds_hcd` module and `/dev/vds*` endpoints must also be present.
 
-For Bluetooth, vds needs ownership of the controller's HID L2CAP channels.
+For the Bluetooth bridge, vds needs ownership of the controller's HID L2CAP channels.
 The standard installer disables BlueZ's `input` plugin for this purpose. This
 has the documented upstream trade-off that other Bluetooth input devices,
 including keyboards and mice, do not work through that plugin while it is
@@ -182,8 +186,9 @@ only; it is not a general capability claim.
 - [ ] Confirm the physical device's VID/PID and that the classifier reports
       the correct standard or Edge model.
 - [ ] Pair and test Bluetooth input with the BlueZ input-plugin ownership
-      setting required by vds.
-- [ ] Connect and test USB input separately.
+      setting required by vds (the vds bridge path is Bluetooth-only).
+- [ ] Connect and test USB raw-HID input separately; do not infer vds bridge
+      support from successful USB parsing.
 - [ ] Test d-pad, square, cross, circle, triangle, L1/R1, L2/R2, L3/R3,
       Create, Options, PS, mute, touchpad click, sticks, and trigger ranges.
 - [ ] On Edge, test LFN, RFN, LB, and RB independently, including press and
@@ -217,10 +222,12 @@ only; it is not a general capability claim.
 
 - [ ] Unplug USB while idle and while a game is running; confirm disconnect
       reporting and absence of stuck buttons.
-- [ ] Reconnect USB and verify the virtual device, input, output, remaps,
-      chords, and shortcuts after the required rescan/restart path.
+- [ ] Reconnect USB and verify raw-HID companion input, remaps, chords, and
+      shortcuts after the required rescan/restart path. This does not exercise
+      the vds virtual-device or output lifecycle.
 - [ ] Disconnect Bluetooth, wait for the physical HID stream to disappear,
-      then reconnect and repeat the same checks.
+      then reconnect and verify the vds virtual device, input/output forwarding,
+      remaps, chords, and shortcuts.
 - [ ] Repeat rapid disconnect/reconnect and a controller power-cycle; record
       cases requiring an explicit rescan, app restart, service restart, or
       reapplication of settings.
