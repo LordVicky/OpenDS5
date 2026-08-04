@@ -62,6 +62,7 @@ constexpr std::uint8_t kBtHidpSetFeaturePrefix = 0x53;
 constexpr std::size_t kBtInputReportIdOffset = 1;
 constexpr std::size_t kBtInputHeaderOffset = 2;
 constexpr std::size_t kBtInputUsbPayloadOffset = 3;
+constexpr std::size_t kBtInputPacketSize = 1 + kBtStateReportSize;
 constexpr std::size_t kBtInputMinimumSize =
     kBtInputUsbPayloadOffset + VDS_USB_INPUT_PAYLOAD_SIZE;
 constexpr std::size_t kBtMicOpusOffset = 4;
@@ -484,9 +485,20 @@ feature_set_packet(std::span<const std::uint8_t> report) {
 
 std::optional<UsbInputReport>
 bt_input_to_usb_input(std::span<const std::uint8_t> packet) {
-  if (packet.size() < kBtInputMinimumSize || packet[0] != kBtHidpInputPrefix ||
+  constexpr std::size_t kBtInputCrcOffset = kBtInputPacketSize - 4;
+  if (packet.size() != kBtInputPacketSize ||
+      packet[0] != kBtHidpInputPrefix ||
       packet[kBtInputReportIdOffset] != VDS_BT_STATE_REPORT_ID ||
       bt_input_payload_type(packet) != BtInputPayloadType::Control) {
+    return std::nullopt;
+  }
+
+  const std::uint32_t expected_crc =
+      static_cast<std::uint32_t>(packet[kBtInputCrcOffset + 0]) |
+      (static_cast<std::uint32_t>(packet[kBtInputCrcOffset + 1]) << 8) |
+      (static_cast<std::uint32_t>(packet[kBtInputCrcOffset + 2]) << 16) |
+      (static_cast<std::uint32_t>(packet[kBtInputCrcOffset + 3]) << 24);
+  if (crc32_seeded(packet.first(kBtInputCrcOffset), 0) != expected_crc) {
     return std::nullopt;
   }
 

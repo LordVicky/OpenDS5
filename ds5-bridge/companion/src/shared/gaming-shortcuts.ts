@@ -123,7 +123,7 @@ export function validateGamingShortcutAction(value: unknown): GamingShortcutActi
 
 const SECONDARY_BUTTONS = new Set<Exclude<ControllerButton, 'ps'>>([
   'cross', 'circle', 'square', 'triangle', 'l1', 'r1', 'l2', 'r2', 'l3', 'r3',
-  'create', 'options', 'touchpad', 'mute', 'dpad-up', 'dpad-down', 'dpad-left', 'dpad-right'
+  'create', 'options', 'touchpad', 'mute', 'lb', 'rb', 'lfn', 'rfn', 'dpad-up', 'dpad-down', 'dpad-left', 'dpad-right'
 ]);
 
 function timing(value: unknown, fallback: number, min: number, max: number): number {

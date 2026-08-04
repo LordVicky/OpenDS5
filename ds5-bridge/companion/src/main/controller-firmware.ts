@@ -11,6 +11,7 @@
  */
 
 import type { ControllerFirmwareInfo } from '../shared/types';
+import { classifyControllerDevice } from './controller-device';
 
 export type { ControllerFirmwareInfo };
 
@@ -59,9 +60,8 @@ function readAscii(report: ArrayLike<number>, start: number, end: number): strin
   return text;
 }
 
-export const SONY_VENDOR_ID = 0x054c;
 /** Standard DualSense and DualSense Edge product ids. */
-export const DUALSENSE_PRODUCT_IDS = [0x0ce6, 0x0df2];
+export { DUALSENSE_PRODUCT_IDS, SONY_VENDOR_ID } from './controller-device';
 
 export interface HidDeviceLike {
   getFeatureReport(reportId: number, length: number): number[];
@@ -127,9 +127,7 @@ export function readControllerFirmware(
 ): ControllerFirmwareInfo | null {
   const candidate = devices.find(
     (device) =>
-      device.vendorId === SONY_VENDOR_ID &&
-      device.productId !== undefined &&
-      DUALSENSE_PRODUCT_IDS.includes(device.productId) &&
+      classifyControllerDevice(device).isDualSense &&
       Boolean(device.path)
   );
 

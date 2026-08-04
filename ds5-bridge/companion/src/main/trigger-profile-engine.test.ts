@@ -37,6 +37,7 @@ class FakeSink {
 
 class FakeReader extends EventEmitter {
   startCount = 0;
+  rescan?: () => void;
   start(): void {
     this.startCount += 1;
   }
@@ -252,6 +253,21 @@ describe('TriggerProfileEngine', () => {
     await flush();
     const vibration = sink.applied.filter((effect) => effect.mode === 'vibration');
     expect(vibration.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('uses an available rescan hook without incrementing reader ownership', async () => {
+    const rescan = vi.fn();
+    reader.rescan = rescan;
+    vi.useFakeTimers();
+    try {
+      const startsBefore = reader.startCount;
+      reader.fail();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(rescan).toHaveBeenCalledOnce();
+      expect(reader.startCount).toBe(startsBefore);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('clears the pending retry timer when disabled', async () => {

@@ -179,8 +179,16 @@ endif()
 add_executable(trigger_effect_v2_test tests/trigger_effect_v2_test.cc)
 target_link_libraries(trigger_effect_v2_test PRIVATE vds_protocol)
 
+add_executable(bt_input_protocol_test tests/bt_input_protocol_test.cc)
+target_link_libraries(bt_input_protocol_test PRIVATE vds_protocol)
+
 add_executable(companion_buffer_length_test tests/companion_buffer_length_test.cc)
 target_link_libraries(companion_buffer_length_test
+                      PRIVATE vdsd_common vds_protocol vds_log vds_config
+                              vds_common jsonl)
+
+add_executable(companion_edge_input_test tests/companion_edge_input_test.cc)
+target_link_libraries(companion_edge_input_test
                       PRIVATE vdsd_common vds_protocol vds_log vds_config
                               vds_common jsonl)
 

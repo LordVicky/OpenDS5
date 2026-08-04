@@ -209,6 +209,7 @@ struct ControllerRuntime {
   vds::UniqueFd pending_control_fd;
   vds::UniqueFd pending_interrupt_fd;
   bool virtual_connected = false;
+  bool physical_connected = false;
   std::string last_error;
 };
 
@@ -475,6 +476,26 @@ bool write_vds_frame(VirtualPort &port, std::span<const std::uint8_t> bytes,
     }
     throw std::runtime_error("write failed: " +
                              std::string(std::strerror(errno)));
+  }
+}
+
+void emit_neutral_input(VirtualPort &port, vds::Logger &logger) {
+  try {
+    std::array<std::uint8_t, vds::kUsbInputReportSize> report{};
+    report[0] = VDS_USB_INPUT_REPORT_ID;
+    report[1] = 128;
+    report[2] = 128;
+    report[3] = 128;
+    report[4] = 128;
+    report[8] = 0x08; // neutral DualSense hat-switch value
+    const auto frame = vds::frame_bytes(VDS_FRAME_USB_HID_IN, report);
+    (void)write_vds_frame(port, frame, false, logger);
+    logger.log(vds::LogScope::InputControl, vds::LogLevel::Info,
+               port.path + " emitted neutral input after physical disconnect");
+  } catch (const std::exception &error) {
+    logger.log(vds::LogScope::InputControl, vds::LogLevel::Warn,
+               port.path + " neutral input after disconnect failed: " +
+                   error.what());
   }
 }
 
@@ -1464,17 +1485,21 @@ void drop_bt_backend(ControllerRuntime &controller, VirtualPort &port,
     return;
   }
 
+  port.pending_audio_chunks.clear();
   port.pending_bt_state.reset();
   port.pending_bt_state_report.reset();
+  port.mute_button_down = false;
   logger.log(vds::LogScope::Bluetooth, vds::LogLevel::Warn,
              "backend disconnected address=" + controller.config.address +
                  " device=" + controller.device + " reason=" + reason);
   controller.backend.reset();
   controller.pending_control_fd.reset();
   controller.pending_interrupt_fd.reset();
-  controller.virtual_connected = false;
-  controller.device.clear();
-  disconnect_virtual_port(port, logger);
+  controller.physical_connected = false;
+  port.companion_input = {};
+  if (controller.virtual_connected) {
+    emit_neutral_input(port, logger);
+  }
 }
 
 void sync_virtual_ports(std::vector<VirtualPort> &ports,
@@ -1610,6 +1635,7 @@ void complete_pending_controller(ControllerRuntime &controller,
   controller.detected_profile = profile;
   ioctl_noarg(port.fd.get(), VDS_IOC_CONNECT, "VDS_IOC_CONNECT");
   controller.virtual_connected = true;
+  controller.physical_connected = true;
   controller.last_error.clear();
 
   logger.log(
@@ -1713,6 +1739,7 @@ void handle_bt_accept(std::vector<VirtualPort> &ports,
       controller->pending_control_fd.reset();
       controller->pending_interrupt_fd.reset();
       controller->virtual_connected = false;
+      controller->physical_connected = false;
       controller->device.clear();
       controller->last_error = error.what();
       logger.log(vds::LogScope::Bluetooth, vds::LogLevel::Error,
@@ -1910,6 +1937,7 @@ void flush_pending_outputs(std::vector<VirtualPort> &ports,
       controller.pending_control_fd.reset();
       controller.pending_interrupt_fd.reset();
       controller.virtual_connected = false;
+      controller.physical_connected = false;
       controller.device.clear();
       epoll_dirty = true;
       continue;
@@ -1952,6 +1980,7 @@ void reconcile_controller_configs(std::vector<VirtualPort> &ports,
     controller.pending_control_fd.reset();
     controller.pending_interrupt_fd.reset();
     controller.virtual_connected = false;
+    controller.physical_connected = false;
     controller.device.clear();
   }
 
@@ -1993,6 +2022,7 @@ void reconcile_controller_configs(std::vector<VirtualPort> &ports,
         .pending_control_fd = {},
         .pending_interrupt_fd = {},
         .virtual_connected = false,
+        .physical_connected = false,
         .last_error = {},
     };
 
@@ -2022,6 +2052,7 @@ void reconcile_controller_configs(std::vector<VirtualPort> &ports,
         next.pending_control_fd = std::move(old.pending_control_fd);
         next.pending_interrupt_fd = std::move(old.pending_interrupt_fd);
         next.virtual_connected = old.virtual_connected;
+        next.physical_connected = old.physical_connected;
         active_devices.push_back(next.device);
       } else if (old_uses_port) {
         if (old.virtual_connected && old_device_present) {
@@ -2037,6 +2068,7 @@ void reconcile_controller_configs(std::vector<VirtualPort> &ports,
         old.pending_control_fd.reset();
         old.pending_interrupt_fd.reset();
         old.virtual_connected = false;
+        old.physical_connected = false;
         old.device.clear();
       }
       preserved[old_index] = true;
@@ -2150,7 +2182,7 @@ void handle_control_client(int control_fd, std::span<VirtualPort> ports,
   controller_statuses.reserve(controllers.size());
   for (const auto &controller : controllers) {
     std::uint8_t battery_status = 0xff;
-    if (controller.virtual_connected) {
+    if (controller.physical_connected) {
       for (const auto &port : ports) {
         if (port.path == controller.device) {
           battery_status = port.battery_status;
@@ -2159,12 +2191,12 @@ void handle_control_client(int control_fd, std::span<VirtualPort> ports,
       }
     }
     std::optional<std::int8_t> rssi;
-    if (controller.virtual_connected) {
+    if (controller.physical_connected) {
       rssi = read_controller_rssi(controller.config.address);
     }
     controller_statuses.push_back(vds::VdsdControlControllerStatus{
         .address = controller.config.address,
-        .connected = controller.virtual_connected,
+        .connected = controller.physical_connected,
         .path = controller.virtual_connected ? controller.device : "",
         .battery_status = battery_status,
         .rssi_valid = rssi.has_value(),
@@ -2330,7 +2362,7 @@ void apply_companion_state(std::vector<VirtualPort> &ports,
   static std::vector<vds::UniqueFd> touchpad_grabs;
   bool any_connected = false;
   for (const auto &controller : controllers) {
-    any_connected = any_connected || controller.virtual_connected;
+    any_connected = any_connected || controller.physical_connected;
   }
   if (!settings.touchpad_pointer_enabled && any_connected) {
     if (touchpad_grabs.empty()) {
@@ -2450,6 +2482,7 @@ void disconnect_all(std::vector<VirtualPort> &ports,
       disconnect_virtual_port(ports[*port_index], logger);
     }
     controller.virtual_connected = false;
+    controller.physical_connected = false;
   }
   controllers.clear();
 }
@@ -2647,6 +2680,7 @@ int main(int argc, char **argv) {
         if (!port_index) {
           controller.backend.reset();
           controller.virtual_connected = false;
+          controller.physical_connected = false;
           epoll_dirty = true;
           continue;
         }
