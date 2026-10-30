@@ -7,6 +7,16 @@
 , version
 }:
 
+let
+  kdir = "${kernel.dev}/lib/modules/${kernel.modDirVersion}/build";
+
+  # The kernel's own make flags. Since nixpkgs started signing modules with
+  # kmodigest, these carry the `cmd_sign` override that writes the
+  # vds_hcd.ko.cer certificate NixOS needs when it assembles the module
+  # tree; without it that build fails (NixOS/nixpkgs#575192). Older kernels
+  # do not have the attribute and need nothing extra.
+  kernelFlags = kernel.commonMakeFlags or [ ];
+in
 stdenv.mkDerivation {
   pname = "vds_hcd";
   inherit version;
@@ -17,17 +27,26 @@ stdenv.mkDerivation {
   hardeningDisable = [ "pic" ];
   nativeBuildInputs = kernel.moduleBuildDependencies;
 
-  makeFlags = [
+  makeFlags = kernelFlags ++ [
     "-C" "module"
     "KERNELRELEASE=${kernel.modDirVersion}"
-    "KDIR=${kernel.dev}/lib/modules/${kernel.modDirVersion}/build"
+    "KDIR=${kdir}"
     "VDS_VERSION=${version}"
   ];
 
+  # Install through Kbuild rather than copying the .ko, so the module goes
+  # through the kernel's signing step. DEPMOD=true keeps it from writing a
+  # module index into $out; NixOS builds one for the whole tree.
   installPhase = ''
     runHook preInstall
-    install -D module/vds_hcd.ko \
-      $out/lib/modules/${kernel.modDirVersion}/extra/vds_hcd.ko
+    make -C ${kdir} M="$PWD/module" \
+      ${lib.escapeShellArgs kernelFlags} \
+      KERNELRELEASE=${kernel.modDirVersion} \
+      VDS_VERSION=${version} \
+      INSTALL_MOD_PATH="$out" \
+      INSTALL_MOD_DIR=extra \
+      DEPMOD=true \
+      modules_install
     runHook postInstall
   '';
 
